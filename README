@@ -1,0 +1,42 @@
+
+Shoebill - a Macintosh II emulator that can only run A/UX
+
+
+See the wiki on https://code.google.com/p/shoebill for better
+documentation on building and running Shoebill.
+
+*** RUNNING ***
+
+You will need
+* OS X and a 64-bit Intel Macintosh
+  (32-bit builds may be possible in the future)
+* A Macintosh II or IIx ROM
+* A disk image with A/UX 1.x.x or 2.x.x installed
+* The kernel on that image (/unix). Shoebill can’t read
+  SVFS or UFS file sytems yet to load the kernel directly
+  from the disk image.
+
+
+To boot A/UX
+* Backup your disk images!!
+  When Shoebill inevitably crashes, your A/UX boot image
+  will very likely be corrupted - sometimes so severely 
+  that A/UX can’t even boot enough to run fsck.
+* Open Shoebill.app and select Preferences menu item
+  * Set the paths for your ROM, kernel, and disk image(s).
+  * Do use SCSI ID #0 for your A/UX boot image.
+  * Give A/UX a reasonable amount of RAM - say, 32MB
+  * Press “Apply and Run”  
+
+
+*** BUILDING ***
+
+1) cd to shoebill/
+2) make # to build shoebill_core
+3) xcodebuild -project gui/Shoebill.xcodeproj # to build the Cocoa GUI
+
+
+
+
+
+

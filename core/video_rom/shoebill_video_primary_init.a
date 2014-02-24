@@ -1,0 +1,1 @@
+	BLANKS ON	STRING ASIS	MACHINE MC68020		WITH seBlock		DC.B	2	; Code revision	DC.B	2	; 68020	DC.W	0	; reserved	DC.L	PrimaryInitStart-*	PrimaryInitStart	move.w	#1, seStatus(a0) ; seStatus > 0 -> success	move.l	a0, a5	rts		PrimaryInitEnd

@@ -1,0 +1,381 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 46;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		87495445189980E200E80F5B /* shoeScreenView.xib in Resources */ = {isa = PBXBuildFile; fileRef = 87495444189980E200E80F5B /* shoeScreenView.xib */; };
+		8749544718999F5300E80F5B /* OpenGL.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8749544618999F5300E80F5B /* OpenGL.framework */; };
+		874954491899A22D00E80F5B /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 874954481899A22D00E80F5B /* QuartzCore.framework */; };
+		8781D24C18A19C340016F604 /* shoePreferencesWindowController.m in Sources */ = {isa = PBXBuildFile; fileRef = 8781D24A18A19C340016F604 /* shoePreferencesWindowController.m */; };
+		8781D24D18A19C340016F604 /* shoePreferencesWindowController.xib in Resources */ = {isa = PBXBuildFile; fileRef = 8781D24B18A19C340016F604 /* shoePreferencesWindowController.xib */; };
+		8782FCE4189AFEFB0081E19E /* shoeApplication.m in Sources */ = {isa = PBXBuildFile; fileRef = 8782FCE3189AFEFB0081E19E /* shoeApplication.m */; };
+		87F9772C18987700000D589E /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 87F9772B18987700000D589E /* Cocoa.framework */; };
+		87F9773618987700000D589E /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = 87F9773418987700000D589E /* InfoPlist.strings */; };
+		87F9773818987700000D589E /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = 87F9773718987700000D589E /* main.m */; };
+		87F9773C18987700000D589E /* Credits.rtf in Resources */ = {isa = PBXBuildFile; fileRef = 87F9773A18987700000D589E /* Credits.rtf */; };
+		87F9773F18987700000D589E /* shoeAppDelegate.m in Sources */ = {isa = PBXBuildFile; fileRef = 87F9773E18987700000D589E /* shoeAppDelegate.m */; };
+		87F9774218987700000D589E /* MainMenu.xib in Resources */ = {isa = PBXBuildFile; fileRef = 87F9774018987700000D589E /* MainMenu.xib */; };
+		87F9774418987700000D589E /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 87F9774318987700000D589E /* Images.xcassets */; };
+		87F9776118987767000D589E /* shoeScreenView.m in Sources */ = {isa = PBXBuildFile; fileRef = 87F9776018987767000D589E /* shoeScreenView.m */; };
+		87F977651898790B000D589E /* libshoebill_core.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 87F977641898790B000D589E /* libshoebill_core.a */; };
+		AE75B30918A8210D00E66DB6 /* shoeScreenWindow.m in Sources */ = {isa = PBXBuildFile; fileRef = AE75B30818A8210D00E66DB6 /* shoeScreenWindow.m */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		87495444189980E200E80F5B /* shoeScreenView.xib */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.xib; path = shoeScreenView.xib; sourceTree = "<group>"; };
+		8749544618999F5300E80F5B /* OpenGL.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = OpenGL.framework; path = /System/Library/Frameworks/OpenGL.framework; sourceTree = "<absolute>"; };
+		874954481899A22D00E80F5B /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = /System/Library/Frameworks/QuartzCore.framework; sourceTree = "<absolute>"; };
+		8781D24918A19C340016F604 /* shoePreferencesWindowController.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = shoePreferencesWindowController.h; sourceTree = "<group>"; };
+		8781D24A18A19C340016F604 /* shoePreferencesWindowController.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = shoePreferencesWindowController.m; sourceTree = "<group>"; };
+		8781D24B18A19C340016F604 /* shoePreferencesWindowController.xib */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.xib; path = shoePreferencesWindowController.xib; sourceTree = "<group>"; };
+		8782FCE2189AFEFB0081E19E /* shoeApplication.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = shoeApplication.h; sourceTree = "<group>"; };
+		8782FCE3189AFEFB0081E19E /* shoeApplication.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = shoeApplication.m; sourceTree = "<group>"; };
+		87F9772818987700000D589E /* Shoebill.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Shoebill.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		87F9772B18987700000D589E /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = System/Library/Frameworks/Cocoa.framework; sourceTree = SDKROOT; };
+		87F9772E18987700000D589E /* AppKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AppKit.framework; path = System/Library/Frameworks/AppKit.framework; sourceTree = SDKROOT; };
+		87F9772F18987700000D589E /* CoreData.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreData.framework; path = System/Library/Frameworks/CoreData.framework; sourceTree = SDKROOT; };
+		87F9773018987700000D589E /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = System/Library/Frameworks/Foundation.framework; sourceTree = SDKROOT; };
+		87F9773318987700000D589E /* Shoebill-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "Shoebill-Info.plist"; sourceTree = "<group>"; };
+		87F9773518987700000D589E /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		87F9773718987700000D589E /* main.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = main.m; sourceTree = "<group>"; };
+		87F9773918987700000D589E /* Shoebill-Prefix.pch */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Shoebill-Prefix.pch"; sourceTree = "<group>"; };
+		87F9773B18987700000D589E /* en */ = {isa = PBXFileReference; lastKnownFileType = text.rtf; name = en; path = en.lproj/Credits.rtf; sourceTree = "<group>"; };
+		87F9773D18987700000D589E /* shoeAppDelegate.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = shoeAppDelegate.h; sourceTree = "<group>"; };
+		87F9773E18987700000D589E /* shoeAppDelegate.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = shoeAppDelegate.m; sourceTree = "<group>"; };
+		87F9774118987700000D589E /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.xib; name = Base; path = Base.lproj/MainMenu.xib; sourceTree = "<group>"; };
+		87F9774318987700000D589E /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Images.xcassets; sourceTree = "<group>"; };
+		87F9775F18987767000D589E /* shoeScreenView.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = shoeScreenView.h; sourceTree = "<group>"; };
+		87F9776018987767000D589E /* shoeScreenView.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = shoeScreenView.m; sourceTree = "<group>"; };
+		87F977641898790B000D589E /* libshoebill_core.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libshoebill_core.a; path = ../../intermediates/libshoebill_core.a; sourceTree = "<group>"; };
+		AE75B30718A8210D00E66DB6 /* shoeScreenWindow.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = shoeScreenWindow.h; sourceTree = "<group>"; };
+		AE75B30818A8210D00E66DB6 /* shoeScreenWindow.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = shoeScreenWindow.m; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		87F9772518987700000D589E /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				874954491899A22D00E80F5B /* QuartzCore.framework in Frameworks */,
+				87F977651898790B000D589E /* libshoebill_core.a in Frameworks */,
+				87F9772C18987700000D589E /* Cocoa.framework in Frameworks */,
+				8749544718999F5300E80F5B /* OpenGL.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		87F9771F18987700000D589E = {
+			isa = PBXGroup;
+			children = (
+				87F9773118987700000D589E /* Shoebill */,
+				87F9772A18987700000D589E /* Frameworks */,
+				87F9772918987700000D589E /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		87F9772918987700000D589E /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				87F9772818987700000D589E /* Shoebill.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		87F9772A18987700000D589E /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				874954481899A22D00E80F5B /* QuartzCore.framework */,
+				8749544618999F5300E80F5B /* OpenGL.framework */,
+				87F9772B18987700000D589E /* Cocoa.framework */,
+				87F9772D18987700000D589E /* Other Frameworks */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		87F9772D18987700000D589E /* Other Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				87F9772E18987700000D589E /* AppKit.framework */,
+				87F9772F18987700000D589E /* CoreData.framework */,
+				87F9773018987700000D589E /* Foundation.framework */,
+			);
+			name = "Other Frameworks";
+			sourceTree = "<group>";
+		};
+		87F9773118987700000D589E /* Shoebill */ = {
+			isa = PBXGroup;
+			children = (
+				87F977641898790B000D589E /* libshoebill_core.a */,
+				87F9774018987700000D589E /* MainMenu.xib */,
+				8782FCE2189AFEFB0081E19E /* shoeApplication.h */,
+				8782FCE3189AFEFB0081E19E /* shoeApplication.m */,
+				87F9773D18987700000D589E /* shoeAppDelegate.h */,
+				87F9773E18987700000D589E /* shoeAppDelegate.m */,
+				87495444189980E200E80F5B /* shoeScreenView.xib */,
+				AE75B30718A8210D00E66DB6 /* shoeScreenWindow.h */,
+				AE75B30818A8210D00E66DB6 /* shoeScreenWindow.m */,
+				87F9775F18987767000D589E /* shoeScreenView.h */,
+				87F9776018987767000D589E /* shoeScreenView.m */,
+				8781D24B18A19C340016F604 /* shoePreferencesWindowController.xib */,
+				8781D24918A19C340016F604 /* shoePreferencesWindowController.h */,
+				8781D24A18A19C340016F604 /* shoePreferencesWindowController.m */,
+				87F9773218987700000D589E /* Supporting Files */,
+			);
+			path = Shoebill;
+			sourceTree = "<group>";
+		};
+		87F9773218987700000D589E /* Supporting Files */ = {
+			isa = PBXGroup;
+			children = (
+				87F9774318987700000D589E /* Images.xcassets */,
+				87F9773318987700000D589E /* Shoebill-Info.plist */,
+				87F9773418987700000D589E /* InfoPlist.strings */,
+				87F9773718987700000D589E /* main.m */,
+				87F9773918987700000D589E /* Shoebill-Prefix.pch */,
+				87F9773A18987700000D589E /* Credits.rtf */,
+			);
+			name = "Supporting Files";
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		87F9772718987700000D589E /* Shoebill */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 87F9775918987700000D589E /* Build configuration list for PBXNativeTarget "Shoebill" */;
+			buildPhases = (
+				87F9772418987700000D589E /* Sources */,
+				87F9772518987700000D589E /* Frameworks */,
+				87F9772618987700000D589E /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Shoebill;
+			productName = Shoebill;
+			productReference = 87F9772818987700000D589E /* Shoebill.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		87F9772018987700000D589E /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				CLASSPREFIX = shoe;
+				LastUpgradeCheck = 0500;
+				ORGANIZATIONNAME = "Peter Rutenbar";
+			};
+			buildConfigurationList = 87F9772318987700000D589E /* Build configuration list for PBXProject "Shoebill" */;
+			compatibilityVersion = "Xcode 3.2";
+			developmentRegion = English;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+				English,
+			);
+			mainGroup = 87F9771F18987700000D589E;
+			productRefGroup = 87F9772918987700000D589E /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				87F9772718987700000D589E /* Shoebill */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		87F9772618987700000D589E /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8781D24D18A19C340016F604 /* shoePreferencesWindowController.xib in Resources */,
+				87F9773618987700000D589E /* InfoPlist.strings in Resources */,
+				87F9774418987700000D589E /* Images.xcassets in Resources */,
+				87F9773C18987700000D589E /* Credits.rtf in Resources */,
+				87495445189980E200E80F5B /* shoeScreenView.xib in Resources */,
+				87F9774218987700000D589E /* MainMenu.xib in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		87F9772418987700000D589E /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				87F9773818987700000D589E /* main.m in Sources */,
+				87F9773F18987700000D589E /* shoeAppDelegate.m in Sources */,
+				87F9776118987767000D589E /* shoeScreenView.m in Sources */,
+				8781D24C18A19C340016F604 /* shoePreferencesWindowController.m in Sources */,
+				AE75B30918A8210D00E66DB6 /* shoeScreenWindow.m in Sources */,
+				8782FCE4189AFEFB0081E19E /* shoeApplication.m in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXVariantGroup section */
+		87F9773418987700000D589E /* InfoPlist.strings */ = {
+			isa = PBXVariantGroup;
+			children = (
+				87F9773518987700000D589E /* en */,
+			);
+			name = InfoPlist.strings;
+			sourceTree = "<group>";
+		};
+		87F9773A18987700000D589E /* Credits.rtf */ = {
+			isa = PBXVariantGroup;
+			children = (
+				87F9773B18987700000D589E /* en */,
+			);
+			name = Credits.rtf;
+			sourceTree = "<group>";
+		};
+		87F9774018987700000D589E /* MainMenu.xib */ = {
+			isa = PBXVariantGroup;
+			children = (
+				87F9774118987700000D589E /* Base */,
+			);
+			name = MainMenu.xib;
+			sourceTree = "<group>";
+		};
+/* End PBXVariantGroup section */
+
+/* Begin XCBuildConfiguration section */
+		87F9775718987700000D589E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++0x";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				GCC_C_LANGUAGE_STANDARD = gnu99;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_ENABLE_OBJC_EXCEPTIONS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 10.8;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		87F9775818987700000D589E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++0x";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = YES;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				GCC_C_LANGUAGE_STANDARD = gnu99;
+				GCC_ENABLE_OBJC_EXCEPTIONS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 10.8;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		87F9775A18987700000D589E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				COMBINE_HIDPI_IMAGES = YES;
+				GCC_PRECOMPILE_PREFIX_HEADER = YES;
+				GCC_PREFIX_HEADER = "Shoebill/Shoebill-Prefix.pch";
+				INFOPLIST_FILE = "Shoebill/Shoebill-Info.plist";
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					../intermediates,
+				);
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				WRAPPER_EXTENSION = app;
+			};
+			name = Debug;
+		};
+		87F9775B18987700000D589E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				COMBINE_HIDPI_IMAGES = YES;
+				GCC_PRECOMPILE_PREFIX_HEADER = YES;
+				GCC_PREFIX_HEADER = "Shoebill/Shoebill-Prefix.pch";
+				INFOPLIST_FILE = "Shoebill/Shoebill-Info.plist";
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					../intermediates,
+				);
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				WRAPPER_EXTENSION = app;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		87F9772318987700000D589E /* Build configuration list for PBXProject "Shoebill" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				87F9775718987700000D589E /* Debug */,
+				87F9775818987700000D589E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		87F9775918987700000D589E /* Build configuration list for PBXNativeTarget "Shoebill" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				87F9775A18987700000D589E /* Debug */,
+				87F9775B18987700000D589E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 87F9772018987700000D589E /* Project object */;
+}

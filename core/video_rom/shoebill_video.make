@@ -1,0 +1,1 @@
+#   File:       shoebill_video.make#   Target:     shoebill_video#   Sources:    shoebill_video_rom.aOBJECTS = shoebill_video_rom.a.oshoebill_video ÄÄ shoebill_video.make {OBJECTS}	Link ¶		{OBJECTS} ¶		-o shoebill_videoshoebill_video_rom.a.o Ä shoebill_video.make shoebill_video_rom.a	 Asm  shoebill_video_rom.a
