@@ -28,11 +28,33 @@
 
 @implementation shoeAppDelegate
 
+- (void)createFirstTimeUserDefaults
+{
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    uint32_t i;
+    
+    [defaults setObject:@"" forKey:@"kernelPath"];
+    [defaults setObject:@"" forKey:@"romPath"];
+    [defaults setInteger:NSOffState forKey:@"verboseState"];
+    [defaults setInteger:16 forKey:@"memorySize"];
+    
+    [defaults setInteger:640 forKey:@"screenWidth"];
+    [defaults setInteger:480 forKey:@"screenHeight"];
+    
+    for (i=0; i<7; i++)
+        [defaults setObject:@"" forKey:[NSString stringWithFormat:@"scsiPath%u", i]];
+    
+    [defaults setBool:YES forKey:@"defaultsInitialized"];
+}
+
 - (void)applicationDidFinishLaunching:(NSNotification *)aNotification
 {
-    /*windowController = [[NSWindowController alloc] initWithWindowNibName:@"shoeScreenView"];
-    [windowController showWindow:nil];
-    [windowController.window makeKeyAndOrderFront:nil];*/
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    
+    BOOL isInitialized = [defaults boolForKey:@"defaultsInitialized"];
+    
+    if (!isInitialized)
+        [self createFirstTimeUserDefaults];
 }
 
 

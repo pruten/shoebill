@@ -1,4 +1,4 @@
 Shoebill
 ========
 
-a Macintosh II emulator that only runs A/UX
+a Macintosh II emulator that runs A/UX

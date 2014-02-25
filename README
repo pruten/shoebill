@@ -36,7 +36,3 @@ To boot A/UX
 3) xcodebuild -project gui/Shoebill.xcodeproj # to build the Cocoa GUI
 
 
-
-
-
-

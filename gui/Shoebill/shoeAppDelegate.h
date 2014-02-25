@@ -27,10 +27,6 @@
 
 @interface shoeAppDelegate : NSObject <NSApplicationDelegate> {
     
-@public
-    NSWindowController *windowController;
 }
-
-@property (assign) IBOutlet NSWindow *window;
 
 @end

@@ -31,6 +31,9 @@
     uint8_t slotnum;
 }
 
-- (void)configure:(uint8_t) _slotnum;
-- (void)reevaluateKeyWindowness;
+- (void) configure:(uint8_t) _slotnum;
+- (void) reevaluateKeyWindowness;
+- (void) warpToCenter;
+- (void) captureMouse;
+- (void) uncaptureMouse;
 @end

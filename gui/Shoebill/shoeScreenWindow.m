@@ -45,13 +45,10 @@
     
     if ([self isKeyWindow]) {
         shoeApp->doCaptureKeys = YES;
-        shoeApp->doCaptureMouse = YES;
-        CGDisplayHideCursor(0);
     }
     else {
         shoeApp->doCaptureKeys = NO;
-        shoeApp->doCaptureMouse = NO;
-        CGDisplayShowCursor(0);
+        [self uncaptureMouse];
     }
 }
 
@@ -61,9 +58,8 @@
     
     if (shoeApp->isRunning) {
         shoeApp->doCaptureKeys = YES;
-        shoeApp->doCaptureMouse = YES;
-        CGDisplayHideCursor(0);
     }
+    
     [super becomeKeyWindow];
 }
 
@@ -73,11 +69,42 @@
     
     if (shoeApp->isRunning) {
         shoeApp->doCaptureKeys = NO;
-        shoeApp->doCaptureMouse = NO;
-        CGDisplayShowCursor(0);
+        [self uncaptureMouse];
     }
+    
     [super resignKeyWindow];
 }
 
+- (void) warpToCenter
+{
+    // Convert the cocoa window frame to quartz global coordinates
+    NSRect winrect = [self frame];
+    NSScreen *mainScreen = (NSScreen*)[[NSScreen screens] objectAtIndex:0];
+    winrect.origin.y = NSMaxY([mainScreen frame]) - NSMaxY(winrect);
+    CGRect cgwinrect = NSRectToCGRect(winrect);
+    
+    // Find the center of the window
+    cgwinrect.origin.x += cgwinrect.size.width / 2.0;
+    cgwinrect.origin.y += cgwinrect.size.height / 2.0;
+    
+    CGWarpMouseCursorPosition(cgwinrect.origin);
+}
+
+- (void) uncaptureMouse
+{
+    shoeApplication *shoeApp = (shoeApplication*)NSApp;
+    shoeApp->doCaptureMouse = NO;
+    CGDisplayShowCursor(0);
+    [self setTitle:@"Shoebill - Screen 1"];
+}
+
+- (void) captureMouse
+{
+    shoeApplication *shoeApp = (shoeApplication*)NSApp;
+    shoeApp->doCaptureMouse = YES;
+    CGDisplayHideCursor(0);
+    [self warpToCenter];
+    [self setTitle:@"Shoebill - Screen 1 (Ctrl-click to escape)"];
+}
 
 @end

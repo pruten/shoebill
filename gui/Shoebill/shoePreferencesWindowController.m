@@ -185,6 +185,7 @@
     shoeApplication *shoeApp = (shoeApplication*) NSApp;
     [self applyPressed:sender];
     [shoeApp startEmulator];
+    [[self window] close];
 }
 
 @end

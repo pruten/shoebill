@@ -24,6 +24,7 @@
  */
 
 #import "shoeScreenView.h"
+#import "shoeScreenWindow.h"
 #import "shoeAppDelegate.h"
 #import "shoeApplication.h"
 #import <Foundation/Foundation.h>
@@ -198,21 +199,6 @@ static void _do_clut_translation(shoebill_card_video_t *ctx)
     [[self openGLContext] flushBuffer];
 }
 
-- (void) warpToCenter
-{
-    // Convert the cocoa window frame to quartz global coordinates
-    NSRect winrect = [[self window] frame];
-    NSScreen *mainScreen = (NSScreen*)[[NSScreen screens] objectAtIndex:0];
-    winrect.origin.y = NSMaxY([mainScreen frame]) - NSMaxY(winrect);
-    CGRect cgwinrect = NSRectToCGRect(winrect);
-    
-    // Find the center of the window
-    cgwinrect.origin.x += cgwinrect.size.width / 2.0;
-    cgwinrect.origin.y += cgwinrect.size.height / 2.0;
-    
-    CGWarpMouseCursorPosition(cgwinrect.origin);
-}
-
 - (void)viewDidMoveToWindow
 {
     [[self window] setAcceptsMouseMovedEvents:YES];
@@ -229,22 +215,14 @@ static void _do_clut_translation(shoebill_card_video_t *ctx)
 - (void)mouseMoved:(NSEvent *)theEvent
 {
     if (shoeApp->doCaptureMouse) {
+        shoeScreenWindow *win = (shoeScreenWindow*)[self window];
+        
         assert(shoeApp->isRunning);
-        //NSPoint point = [theEvent locationInWindow];
-        //NSPoint point = [self convertPoint:windowPoint fromView:self];
         
-        /*NSRect winFrame = [[self window] frame];
-        NSPoint winCenter;
-        winCenter.x = winFrame.size.width / 2.0;
-        winCenter.y = winFrame.size.height / 2.0;*/
-        
-        /*int32_t delta_x = (int32_t)(point.x - winCenter.x);
-        int32_t delta_y = -(int32_t)(point.y - winCenter.y);*/
-         
         int32_t delta_x, delta_y;
         CGGetLastMouseDelta(&delta_x, &delta_y);
         shoebill_mouse_move_delta(delta_x, delta_y);
-        [self warpToCenter];
+        [win warpToCenter];
     }
 }
 
@@ -253,7 +231,7 @@ static void _do_clut_translation(shoebill_card_video_t *ctx)
     [self mouseMoved:theEvent];
 }
 
-- (void) say:(NSString*)str
+/*- (void) say:(NSString*)str
 {
     NSAlert *theAlert = [NSAlert
                          alertWithMessageText:nil
@@ -263,20 +241,30 @@ static void _do_clut_translation(shoebill_card_video_t *ctx)
                          informativeTextWithFormat:@"%@", str
                          ];
     [theAlert runModal];
-}
+}*/
 
 - (void)mouseDown:(NSEvent *)theEvent
 {
+    
     if (shoeApp->doCaptureMouse) {
         assert(shoeApp->isRunning);
-        shoebill_mouse_click(1);
         
-        // Warp experiment
-
-    
+        // ctrl - left click doesn't get reported as rightMouseDown
+        // on Mavericks (and maybe other OS X versions?)
+        if ([theEvent modifierFlags] & NSControlKeyMask) {
+            shoeScreenWindow *win = (shoeScreenWindow*)[self window];
+            [win uncaptureMouse];
+        }
+        else
+            shoebill_mouse_click(1);
         
-        //[self say:[NSString stringWithFormat:@"view origin x=%f, y=%f, window origin x=%f, y=%f", rect.origin.x, rect.origin.y, winrect.origin.x, winrect.origin.y]];
-        
+    }
+    else {
+        shoeScreenWindow *win = (shoeScreenWindow*)[self window];
+        if ([win isKeyWindow]) {
+            shoeApp->doCaptureKeys = YES;
+            [win captureMouse];
+        }
     }
 }
 
@@ -285,6 +273,14 @@ static void _do_clut_translation(shoebill_card_video_t *ctx)
     if (shoeApp->doCaptureMouse) {
         assert(shoeApp->isRunning);
         shoebill_mouse_click(0);
+    }
+}
+
+- (void)rightMouseDown:(NSEvent *)theEvent
+{
+    if (shoeApp->doCaptureMouse) {
+        shoeScreenWindow *win = (shoeScreenWindow*)[self window];
+        [win uncaptureMouse];
     }
 }
 

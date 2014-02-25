@@ -165,7 +165,12 @@
         if (type == NSFlagsChanged) {
             NSUInteger modifierFlags = [event modifierFlags];
             shoebill_key_modifier(modifierFlags >> 16);
-            return ;
+            
+            // Block any key-related event while the command key is down
+            if (modifierFlags & NSCommandKeyMask)
+                return ;
+            
+            [super sendEvent:event];
         }
         else if (type == NSKeyDown || type == NSKeyUp) {
             NSString *chars = [[event charactersIgnoringModifiers] lowercaseString];
@@ -183,7 +188,12 @@
                 
             }
             
-            return ;
+            // Block any key-related event while the command key is down
+            if (modifierFlags & NSCommandKeyMask)
+                return ;
+            
+            [super sendEvent:event];
+            
         }
     }
     
@@ -280,6 +290,9 @@
 
 - (void) startEmulator
 {
+    if (isRunning)
+        return;
+    
     uint16_t width, height;
     uint32_t i;
     
@@ -310,7 +323,6 @@
 - (IBAction)runMenuItem:(id)sender
 {
     [self startEmulator];
-    
 }
 
 
