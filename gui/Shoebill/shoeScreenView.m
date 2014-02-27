@@ -284,4 +284,17 @@ static void _do_clut_translation(shoebill_card_video_t *ctx)
     }
 }
 
+/*
+ * Ignore keyDown/Up events here.
+ * shoeApplication captures and sends them down to the emulator. 
+ * We need to implement these methods though, because if they make it all
+ * the way down to NSOpenGLView, they'll generate a beep, which is annoying.
+ */
+- (void) keyDown:(NSEvent *)theEvent
+{
+}
+- (void) keyUp:(NSEvent *)theEvent
+{
+}
+
 @end
