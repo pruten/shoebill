@@ -105,7 +105,7 @@
     if ([urls count] != 1)
         return ;
     
-    NSURL *url = [urls firstObject];
+    NSURL *url = [urls objectAtIndex:0];
     if (![url isFileURL])
         return ;
     

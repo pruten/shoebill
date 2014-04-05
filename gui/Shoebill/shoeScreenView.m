@@ -73,11 +73,17 @@
     colorspace = CGColorSpaceCreateDeviceRGB();
     
     timer = [NSTimer
-             scheduledTimerWithTimeInterval:(0.015/2.0)
+             scheduledTimerWithTimeInterval:0.001
              target:self
              selector:@selector(timerFireMethod:)
              userInfo:nil
              repeats:YES];
+    [[NSRunLoop currentRunLoop] addTimer:timer
+                                forMode:NSDefaultRunLoopMode];
+    [[NSRunLoop currentRunLoop] addTimer:timer
+                                forMode:NSEventTrackingRunLoopMode];
+    
+    
     
     shoebill_card_video_t *video = &control->slots[10].card.video;
     NSSize size = {
@@ -106,7 +112,8 @@
     maxX = NSMaxX(bounds);
     maxY = NSMaxY(bounds);
     
-    //[self update];
+    GLint swapInt = 1;
+    [[self openGLContext] setValues:&swapInt forParameter:NSOpenGLCPSwapInterval];
     
     if(NSIsEmptyRect([self visibleRect]))
     {
@@ -180,7 +187,16 @@ static void _do_clut_translation(shoebill_card_video_t *ctx)
     glClearColor(0.0, 0.0, 0.0, 0.0);
 
     if (shoeApp->isRunning) {
-        shoebill_card_video_t *video = &control->slots[10].card.video;
+        uint8_t slotnum = ((shoeScreenWindow*)[self window])->slotnum;
+        shoebill_card_video_t *video = &control->slots[slotnum].card.video;
+        
+        /*NSSize size = {
+            .height=video->height,
+            .width=video->width
+        };
+        [self setFrameSize:size];
+        [[self window] setContentSize:size];*/
+        
         _do_clut_translation(video);
         glViewport(0, 0, video->width, video->height);
         glRasterPos2i(0, video->height);

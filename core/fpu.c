@@ -258,7 +258,8 @@ void inst_fpu_decode ()
     }
     
     printf("inst_fpu_decode: unhandled instruction: %s op=0x%04x ext = 0x%04x pc=0x%08x\n", fpu_inst_table[name].name, shoe.op, ext, shoe.orig_pc);
-    dbg_state.running = 0;
+    assert(!"unknown fpu inst");
+    //dbg_state.running = 0;
     
 }
 

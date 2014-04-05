@@ -148,11 +148,22 @@ static void mouse_talk(uint8_t reg)
             
         case 0:
             if (shoe.mouse.changed) {
+                const int32_t hi_delta_limit = 32;
+                const int32_t low_delta_limit = -32;
                 
-                printf("mouse_talk: x=%d, y=%d button=%u\n", shoe.mouse.delta_x, shoe.mouse.delta_y, shoe.mouse.button_down);
+                int32_t x = shoe.mouse.delta_x;
+                int32_t y = shoe.mouse.delta_y;
                 
-                shoe.adb.data[1] = shoe.mouse.delta_x & 0x7f;
-                shoe.adb.data[0] = shoe.mouse.delta_y & 0x7f;
+                //printf("mouse_talk: x=%d, y=%d button=%u\n", shoe.mouse.delta_x, shoe.mouse.delta_y, shoe.mouse.button_down);
+                
+                
+                if (x > hi_delta_limit) x = hi_delta_limit;
+                if (x < low_delta_limit) x = low_delta_limit;
+                if (y > hi_delta_limit) y = hi_delta_limit;
+                if (y < low_delta_limit) y = low_delta_limit;
+                
+                shoe.adb.data[1] = x & 0x7f;
+                shoe.adb.data[0] = y & 0x7f;
                 if (!shoe.mouse.button_down) {
                     //shoe.adb.data[1] |= 0x80;
                     shoe.adb.data[0] |= 0x80;
@@ -164,7 +175,7 @@ static void mouse_talk(uint8_t reg)
                 
                 shoe.mouse.delta_x = 0;
                 shoe.mouse.delta_y = 0;
-                // shoe.mouse.button_down = 0;
+                
                 shoe.mouse.changed = 0;
             }
             else

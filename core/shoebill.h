@@ -26,10 +26,12 @@
 #ifndef _SHOEBILL_H
 #define _SHOEBILL_H
 
+#include <stdio.h>
 #include <time.h>
 #include <stdint.h> 
 #include <sys/time.h>
-#include <histedit.h>
+#include <pthread.h>
+//#include <histedit.h>
 
 #include "coff.h"
 
@@ -138,13 +140,14 @@ typedef struct dbg_breakpoint_t {
     uint64_t num;
 } dbg_breakpoint_t;
 
-struct dbg_state_t {
-    EditLine *el;
-    uint8_t running;
+typedef struct {
+    // EditLine *el;
+    uint8_t mode;
+    uint8_t ignore_interrupts;
+    uint8_t connected;
     uint64_t breakpoint_counter;
     dbg_breakpoint_t *breakpoints;
-};
-extern struct dbg_state_t dbg_state;
+} debugger_state_t;
 
 typedef enum {
     adb_talk,
@@ -257,7 +260,6 @@ typedef struct {
 typedef struct {
     
 #define SHOEBILL_STATE_STOPPED (1<<9)
-#define SHOEBILL_STATE_SWITCH_MODE (1<<10)
     
     // bits 0-6 are CPU interrupt priorities
     // bit 8 indicates that STOP was called
@@ -266,13 +268,6 @@ typedef struct {
     pthread_mutex_t cpu_thread_lock;
     pthread_mutex_t via_clock_thread_lock;
     pthread_mutex_t cpu_freeze_lock;
-    
-#define CPU_MODE_FAST 0
-#define CPU_MODE_DEBUG 1
-#define CPU_MODE_STEPI 2
-#define CPU_MODE_STEPI_COMPLETE 3
-#define CPU_MODE_FREEZE 4
-    uint32_t cpu_mode;
     
     // -- PMMU caching structures ---
     struct {
@@ -427,7 +422,6 @@ typedef struct {
     
     via_clock_t via_clocks;
     
-    uint32_t dbg;
     
     struct timeval start_time; // when the emulator started (for computing timer interrupts)
     uint64_t total_ticks; // how many 60hz ticks have been generated
@@ -437,6 +431,8 @@ typedef struct {
     coff_file *launch; // FIXME: delete me: coff symbols from aux 1.1.1 launch binary
     
     scsi_device_t scsi_devices[8]; // SCSI devices
+    
+    debugger_state_t dbg;
 } global_shoebill_context_t;
 
 extern global_shoebill_context_t shoe; // declared in cpu.c
@@ -448,7 +444,7 @@ void fpu_setup_jump_table();
 
 // cpu.c fuctions
 void cpu_step (void);
-inline void inst_decode (void);
+void inst_decode (void);
 
 // exception.c functions
 
@@ -463,10 +459,10 @@ void throw_frame_two (uint16_t sr, uint32_t next_pc, uint32_t vector_num, uint32
 
 // mem.c functions
 
-void inline physical_get (void);
+void physical_get (void);
 #define pget(addr, s) ({shoe.physical_addr=(addr); shoe.physical_size=(s); physical_get(); shoe.physical_dat;})
 
-void inline logical_get (void);
+void logical_get (void);
 #define lget_fc(addr, s, fc) ({ \
     shoe.logical_addr=(addr); \
     shoe.logical_size=(s); \
@@ -483,10 +479,10 @@ void inline logical_get (void);
     shoe.logical_dat; \
 })
 
-void inline physical_set (void);
+void physical_set (void);
 #define pset(addr, s, val) {shoe.physical_addr=(addr); shoe.physical_size=(s); shoe.physical_dat=(val); physical_set();}
 
-void inline logical_set (void);
+void logical_set (void);
 #define lset_fc(addr, s, val, fc) {\
     shoe.logical_addr=(addr); \
     shoe.logical_size=(s); \
@@ -536,7 +532,7 @@ void ea_addr();
 void disassemble_inst(uint8_t binary[24], uint32_t orig_pc, char *str, uint32_t *instlen);
 char* decode_ea_rw (uint8_t mr, uint8_t sz);
 char* decode_ea_addr (uint8_t mr);
-inline void dis_decode(void);
+void dis_decode(void);
 uint16_t dis_next_word (void);
 char* decode_ea_addr (uint8_t mr);
 char* decode_ea_rw (uint8_t mr, uint8_t sz);
@@ -629,6 +625,10 @@ uint32_t nubus_video_read_func(const uint32_t rawaddr, const uint32_t size,
                                const uint8_t slotnum);
 void nubus_video_write_func(const uint32_t rawaddr, const uint32_t size,
                             const uint32_t data, const uint8_t slotnum);
+
+// debug_server.c
+void *debug_cpu_thread (void *arg);
+
 
 
 #endif // _SHOEBILL_H

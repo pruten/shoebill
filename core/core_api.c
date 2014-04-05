@@ -144,9 +144,11 @@ void shoebill_start()
     pthread_mutex_unlock(&shoe.cpu_thread_lock);
     pthread_mutex_unlock(&shoe.via_clock_thread_lock);
 }
-
-static void _cpu_loop_fast()
-{
+ 
+void *_cpu_thread (void *arg) {
+     
+    pthread_mutex_lock(&shoe.cpu_thread_lock);
+    
     while (1) {
         if (shoe.cpu_thread_notifications) {
             
@@ -159,16 +161,13 @@ static void _cpu_loop_fast()
             if (shoe.cpu_thread_notifications & SHOEBILL_STATE_STOPPED) {
                 continue; // FIXME: yield or block on a condition variable here
             }
-            
-            if (shoe.cpu_thread_notifications & SHOEBILL_STATE_SWITCH_MODE)
-                return ;
         }
         
         cpu_step();
     }
 }
 
-static void _cpu_loop_debug()
+/*static void _cpu_loop_debug()
 {
     while (1) {
         if (shoe.cpu_thread_notifications) {
@@ -181,33 +180,9 @@ static void _cpu_loop_debug()
             
         }
     }
-}
+}*/
  
-void *_cpu_thread (void *arg) {
-     
-    pthread_mutex_lock(&shoe.cpu_thread_lock);
-     
-    while (1) {
-        shoe.cpu_thread_notifications &= ~SHOEBILL_STATE_SWITCH_MODE;
-        
-        if (shoe.cpu_mode == CPU_MODE_FAST)
-            _cpu_loop_fast();
-        else if (shoe.cpu_mode == CPU_MODE_DEBUG)
-            _cpu_loop_debug();
-        else if (shoe.cpu_mode == CPU_MODE_STEPI) {
-            cpu_step();
-            shoe.cpu_mode = CPU_MODE_STEPI_COMPLETE;
-            while (shoe.cpu_mode == CPU_MODE_STEPI_COMPLETE)
-                pthread_yield_np();
-        }
-        else if (shoe.cpu_mode == CPU_MODE_FREEZE) {
-            pthread_mutex_lock(&shoe.cpu_freeze_lock);
-            pthread_mutex_unlock(&shoe.cpu_freeze_lock);
-        }
-    }
-}
- 
-void shoebill_cpu_stepi (void)
+/*void shoebill_cpu_stepi (void)
 {
     if (shoe.cpu_mode != CPU_MODE_FREEZE)
         return ;
@@ -231,7 +206,7 @@ void shoebill_cpu_freeze (void)
     
     while (shoe.cpu_thread_notifications & SHOEBILL_STATE_SWITCH_MODE);
         pthread_yield_np();
-}
+}*/
 
 /*
  * The A/UX bootloader blasts this structure into memory
@@ -338,7 +313,7 @@ static void _init_macintosh_lomem_globals (const uint32_t offset)
     #define hwCbADB (1<<10)
     #define hwCbAUX (1<<9) /* not sure if I need to set this one */
     const uint16_t HWCfgFlags = hwCbSCSI | hwCbClock | hwCbFPU | hwCbMMU | hwCbADB;
-    pset(0xb22, 2, HWCfgFlags); // HWCfgFlags
+    pset(offset+0xb22, 2, HWCfgFlags); // HWCfgFlags
 }
 
 
@@ -587,40 +562,6 @@ fail:
     return 0;
 }
 
-/*static uint32_t _setup_nubus_cards(shoebill_control_t *control)
-{
-    uint32_t i;
-    
-    for (i=0; i<16; i++) {
-        switch (control->slots[i].card_type) {
-            case card_empty:
-                continue;
-                
-            case card_toby_frame_buffer:
-            case card_shoebill_ethernet:
-                assert(!"not implemented");
-                
-            case card_shoebill_video: {
-                const uint16_t width = control->slots[i].card.video.width;
-                const uint16_t height = control->slots[i].card.video.height;
-                const uint16_t scanline_width = control->slots[i].card.video.scanline_width;
-                const double refresh_rate = control->slots[i].card.video.refresh_rate;
-                uint8_t *frame_buffer = control->slots[i].card.video.frame_buffer;
-                assert(scanline_width >= width);
-                
-                nubus_video_init(i, width, height, scanline_width, refresh_rate, frame_buffer);
-
-            }
-        }
-    }
-    
-    return 1;
-    
-fail:
-    
-    return 0;
-}*/
-
 static uint32_t _load_aux_kernel(shoebill_control_t *control, coff_file *coff, uint32_t *_pc)
 {
     uint32_t j, i, pc = 0xffffffff;
@@ -801,7 +742,8 @@ uint32_t shoebill_initialize(shoebill_control_t *control)
     pthread_mutex_lock(&shoe.via_clock_thread_lock);
     
     pthread_create(&control->cpu_thread_pid, NULL, _cpu_thread, NULL);
-    pthread_create(&control->cpu_thread_pid, NULL, via_clock_thread, NULL);
+    // pthread_create(&control->cpu_thread_pid, NULL, debug_cpu_thread, NULL);
+    pthread_create(&control->via_thread_pid, NULL, via_clock_thread, NULL);
     
     return 1;
     
@@ -885,6 +827,7 @@ void shoebill_mouse_move(int32_t x, int32_t y)
 void shoebill_mouse_move_delta (int32_t x, int32_t y)
 {
     assert(pthread_mutex_lock(&shoe.adb.lock) == 0);
+    
     shoe.mouse.delta_x += x;
     shoe.mouse.delta_y += y;
     

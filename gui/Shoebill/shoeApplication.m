@@ -307,7 +307,12 @@
         return ;
     }
     
-    [self createScreenWindow:10 height:height width:width refresh_freq:200.0/3.0];
+    [self createScreenWindow:9 height:height width:width refresh_freq:200.0/3.0];
+    /*[self createScreenWindow:10 height:height width:width refresh_freq:200.0/3.0];
+    [self createScreenWindow:11 height:height width:width refresh_freq:200.0/3.0];
+    [self createScreenWindow:12 height:height width:width refresh_freq:200.0/3.0];
+    [self createScreenWindow:13 height:height width:width refresh_freq:200.0/3.0];
+    [self createScreenWindow:14 height:height width:width refresh_freq:200.0/3.0];*/
     
     shoebill_start();
     isRunning = true;

@@ -95,7 +95,7 @@ typedef struct {
         } card;
     } slots[16];
     
-    pthread_t cpu_thread_pid, clock_pid;
+    pthread_t cpu_thread_pid, via_thread_pid;
     
     char error_msg[8192];
 } shoebill_control_t;
@@ -125,5 +125,7 @@ void shoebill_mouse_move_delta (int32_t x, int32_t y);
 void shoebill_mouse_click(uint8_t down);
 
 void shoebill_start();
+
+uint8_t* shoebill_extract_kernel(const char *disk_path, const char *kernel_path, char *error_str, uint32_t *len);
 
 #endif

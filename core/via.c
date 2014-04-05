@@ -414,6 +414,7 @@ void *via_clock_thread(void *arg)
         }
         
         // Check if any nubus cards have interrupt timers
+        shoe.via[1].rega = 0b00111111;
         for (i=9; i<15; i++) {
             if (!shoe.slots[i].connected)
                 continue;
@@ -424,7 +425,8 @@ void *via_clock_thread(void *arg)
                 fire(1.0L/shoe.slots[i].interrupt_rate);
                 
                 if (shoe.slots[i].interrupts_enabled) {
-                    shoe.via[1].rega = 0b00111111 & ~~(1<<(i-9));
+                    // shoe.via[1].rega = 0b00111111 & ~~(1<<(i-9));
+                    shoe.via[1].rega &= 0b00111111 & ~~(1<<(i-9));
                     via_raise_interrupt(2, IFR_CA1);
                     printf("Fired nubus interrupt %u\n", i);
                 }

@@ -365,6 +365,9 @@ void _logical_get (void)
 
 void logical_set (void)
 {
+    if ((shoe.logical_addr >= 0xaf2) && (shoe.logical_addr < 0xaf6) && (shoe.logical_size == 1) && ((shoe.logical_dat&0xff) == 0xff)) {
+        shoe.logical_dat = 0;
+    }
 //    if ((shoe.logical_addr >= 0x12fffff6) && (shoe.logical_addr <= 0x12ffffff))
 //        printf("aux3: setting 0x%08x = 0x%x\n", shoe.logical_addr, (uint32_t)shoe.logical_dat);
 //    

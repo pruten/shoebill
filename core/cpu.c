@@ -31,7 +31,7 @@
 #include "../core/mc68851.h"
 
 global_shoebill_context_t shoe;
-struct dbg_state_t dbg_state;
+//struct dbg_state_t dbg_state;
 
 #define nextword() ({const uint16_t w=lget(shoe.pc,2); if (shoe.abort) {return;}; shoe.pc+=2; w;})
 #define verify_supervisor() {if (!sr_s()) {throw_privilege_violation(); return;}}
@@ -867,7 +867,7 @@ struct dbg_state_t dbg_state;
     const uint8_t Rm = mib(R, 4);
     const uint8_t Sm = mib(shoe.dat, 4);
     const uint8_t Dm = mib(shoe.a[r], 4);
-    set_sr_z(chop(R,sz)==0);
+    set_sr_z(R == 0); /* <- This is where A/UX 3.0.0 started working */
     set_sr_n(Rm);
     set_sr_v((!Sm && Dm && !Rm) || (Sm && !Dm && Rm));
     set_sr_c((Sm && !Dm) || (Rm && !Dm) || (Sm && Rm));
@@ -1162,7 +1162,8 @@ struct dbg_state_t dbg_state;
     // 1: reset the "enabled" bit of the TC register
     
     printf("Reset! (not implemented)\n");
-    dbg_state.running = 0;
+    assert(!"reset called");
+    //dbg_state.running = 0;
 })
 
 ~inst(movec, {
@@ -1359,11 +1360,13 @@ struct dbg_state_t dbg_state;
     shoe.dat = R;
     call_ea_write(M, sz);
     
-    set_sr_z(R == 0);
-    set_sr_n(Rm);
+    const uint32_t result = chop(R, sz);
+    
+    set_sr_z(result == 0);
+    set_sr_c(result != 0);
+    set_sr_x(result != 0);
     set_sr_v(Dm && Rm);
-    set_sr_c(Dm || Rm);
-    set_sr_x(Dm || Rm);
+    set_sr_n(Rm);
 })
 
 ~inst(negx, {

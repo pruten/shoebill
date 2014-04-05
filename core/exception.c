@@ -215,9 +215,9 @@ void throw_illegal_instruction()
 {
     //printf("throw_illegal_instruction(): I'm throwing an illegal instruction exception! (shoe.pc = 0x%08x, op=0x%04x, a7=0x%08x)\n", shoe.orig_pc, shoe.op, shoe.a[7]);
     
-    if ((shoe.op != 0xf010) && ((shoe.op >> 12) != 0xa))
+    /*if ((shoe.op != 0xf010) && ((shoe.op >> 12) != 0xa))
         //assert(!"illegal");
-        dbg_state.running = 0;
+        dbg_state.running = 0; */
     
     // fetch vector number
     const uint32_t vector_num =

@@ -32,6 +32,16 @@
 - (void)configure:(uint8_t) _slotnum
 {
     slotnum = _slotnum;
+    
+    shoeApplication *shoeApp = (shoeApplication*) NSApp;
+    shoebill_control_t *control = &shoeApp->control;
+    shoebill_card_video_t *video = &control->slots[slotnum].card.video;
+    NSSize size = {
+        .height=video->height,
+        .width=video->width
+    };
+    
+     [self setContentSize:size];
 }
 
 // Called after all the shoeScreenWindows are created and configured,
@@ -106,5 +116,6 @@
     [self warpToCenter];
     [self setTitle:@"Shoebill - Screen 1 (Ctrl-click to escape)"];
 }
+
 
 @end
