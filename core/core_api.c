@@ -641,8 +641,8 @@ uint32_t shoebill_initialize(shoebill_control_t *control)
     uint32_t i, j, pc = 0xffffffff;
     coff_file *coff = NULL;
     scsi_device_t disks[8];
-    uint8_t *rom_data = NULL;
-    uint32_t rom_size = 0;
+    uint8_t *rom_data = NULL, *kernel_data = NULL;
+    uint32_t rom_size = 0, kernel_size;
     
     memset(&disks[0], 0, 8 * sizeof(scsi_device_t));
     memset(&shoe, 0, sizeof(global_shoebill_context_t));
@@ -657,16 +657,26 @@ uint32_t shoebill_initialize(shoebill_control_t *control)
     else if (!_load_rom(control, &rom_data, &rom_size))
             goto fail;
     
-    // Try to open the disk images
-    if (!_open_disk_images(control, disks))
-        goto fail;
-
     // Try to load the A/UX kernel
     if (control->aux_kernel_path == NULL) {
         sprintf(control->error_msg, "No A/UX kernel specified\n");
         goto fail;
     }
-    coff = coff_parser(control->aux_kernel_path);
+    else if (!control->scsi_devices[0].path || strlen((char*)control->scsi_devices[0].path)==0) {
+        sprintf(control->error_msg, "The root A/UX disk needs to be at scsi ID 0\n");
+        goto fail;
+    }
+    
+    // Load the kernel from the disk at scsi id #0
+    kernel_data = shoebill_extract_kernel((char*)control->scsi_devices[0].path,
+                                 control->aux_kernel_path,
+                                 control->error_msg,
+                                 &kernel_size);
+    if (!kernel_data)
+        goto fail;
+    
+    coff = coff_parse(kernel_data, kernel_size);
+    free(kernel_data);
     
     if (coff == NULL) {
         sprintf(control->error_msg, "Can't open that A/UX kernel [%s]\n",
@@ -675,15 +685,13 @@ uint32_t shoebill_initialize(shoebill_control_t *control)
     }
     shoe.coff = coff;
     
+    // Try to open the disk images
+    if (!_open_disk_images(control, disks))
+        goto fail;
     
     // Allocate and configure the rom and memory space
     
-    /*if (control->ram_size > (256 * 1024 * 1024)) {
-        // I think A/UX will go insane if you give it >256MB of memory
-        sprintf(control->error_msg, "%u bytes is too much memory\n", control->ram_size);
-        goto fail;
-    }
-    else */if (control->ram_size < (1024*1024)) {
+    if (control->ram_size < (1024*1024)) {
         sprintf(control->error_msg, "%u bytes is too little ram\n", control->ram_size);
         goto fail;
     }
@@ -711,12 +719,6 @@ uint32_t shoebill_initialize(shoebill_control_t *control)
     
     if (!_load_aux_kernel(control, coff, &pc))
         goto fail;
-    
-    // HACK:
-//    for (i=0; i<0x4000; i++) {
-//        uint8_t c = pget(AUX_LOMEM_OFFSET + i, 1);
-//        pset(i, 1, c);
-//    }
     
     /*
      * Load it all into the internal global shoebill state

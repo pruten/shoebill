@@ -37,7 +37,7 @@
 {
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
     
-    NSString *kernelPathStr = [defaults objectForKey:@"kernelPath"];
+    NSString *rootKernelPathStr = [defaults objectForKey:@"rootKernelPath"];
     NSString *romPathStr = [defaults objectForKey:@"romPath"];
     NSInteger verboseState = [defaults integerForKey:@"verboseState"];
     NSInteger memsize = [defaults integerForKey:@"memorySize"];
@@ -59,7 +59,7 @@
     NSString *scsiPath6Str = [defaults objectForKey:@"scsiPath6"];
 
     if (romPath) [romPath setStringValue:romPathStr];
-    if (kernelPath) [kernelPath setStringValue:kernelPathStr];
+    if (kernelPath) [kernelPath setStringValue:rootKernelPathStr];
     [verbose setState:verboseState];
     [memorySize setStringValue:[NSString stringWithFormat:@"%u", (uint32_t)memsize]];
     
@@ -112,9 +112,7 @@
     NSString *buttonID = [sender identifier];
     NSTextField *field;
     
-    if ([buttonID isEqualToString:@"kernelPathBrowse"])
-        field = kernelPath;
-    else if ([buttonID isEqualToString:@"romPathBrowse"])
+    if ([buttonID isEqualToString:@"romPathBrowse"])
         field = romPath;
     else if ([buttonID isEqualToString:@"scsiPath0Browse"])
         field = scsiPath0;
@@ -139,7 +137,7 @@
 - (IBAction)applyPressed:(id)sender
 {
     
-    NSString *kernelPathStr = [kernelPath stringValue];
+    NSString *rootKernelPathStr = [kernelPath stringValue];
     NSString *romPathStr = [romPath stringValue];
     NSInteger verboseState = [verbose state];
     NSInteger memsize = [memorySize integerValue];
@@ -157,7 +155,7 @@
     
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
     
-    [defaults setObject:kernelPathStr forKey:@"kernelPath"];
+    [defaults setObject:rootKernelPathStr forKey:@"rootKernelPath"];
     [defaults setObject:romPathStr forKey:@"romPath"];
     [defaults setInteger:verboseState forKey:@"verboseState"];
     [defaults setInteger:memsize forKey:@"memorySize"];

@@ -33,9 +33,9 @@
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
     uint32_t i;
     
-    [defaults setObject:@"" forKey:@"kernelPath"];
+    [defaults setObject:@"/unix" forKey:@"rootKernelPath"];
     [defaults setObject:@"" forKey:@"romPath"];
-    [defaults setInteger:NSOffState forKey:@"verboseState"];
+    [defaults setInteger:NSOnState forKey:@"verboseState"];
     [defaults setInteger:16 forKey:@"memorySize"];
     
     [defaults setInteger:640 forKey:@"screenWidth"];
@@ -55,6 +55,10 @@
     
     if (!isInitialized)
         [self createFirstTimeUserDefaults];
+    
+    // Going from 0.0.1 to 0.0.2 leaves rootKernelPath uninitialized
+    if ([defaults objectForKey:@"rootKernelPath"] == nil)
+        [defaults setObject:@"/unix" forKey:@"rootKernelPath"];
 }
 
 

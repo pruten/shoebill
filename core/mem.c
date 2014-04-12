@@ -32,23 +32,19 @@
 
 static void translate_logical_addr();
 
-void _logical_get (void);
-void logical_get (void) {
-    const uint32_t addr = shoe.logical_addr;
-    // uint8_t super = sr_s();
-    
-    _logical_get();
-    
-//    if ((addr >= 0x100) && (addr < 0x2000)) {
-//        printf("LOMEM READ: 0x%08x = 0x%llx\n", addr, shoe.logical_dat);
-//    }
-}
-
 void physical_get (void) {
     
-    switch (shoe.physical_addr) {
-        case 0 ... 0x3FFFFFFF: {
-            void *addr = &shoe.physical_mem_base[shoe.physical_addr & (shoe.physical_mem_size-1)];
+    switch (shoe.physical_addr >> 28) {
+        case 0:
+        case 1:
+        case 2:
+        case 3: { // RAM
+            void *addr;
+            if (shoe.physical_addr >= shoe.physical_mem_size)
+                addr = &shoe.physical_mem_base[shoe.physical_addr % shoe.physical_mem_size];
+            else
+                addr = &shoe.physical_mem_base[shoe.physical_addr];
+            
             switch (shoe.physical_size) {
                 case 4:
                     shoe.physical_dat = ntohl(*(uint32_t*)addr);
@@ -72,7 +68,7 @@ void physical_get (void) {
             }
             assert(!"never get here");
         }
-        case 0x40000000 ... 0x4FFFFFFF: { // ROM
+        case 4: { // ROM
             void *addr = &shoe.physical_rom_base[shoe.physical_addr & (shoe.physical_rom_size-1)];
             switch (shoe.physical_size) {
                 case 4:
@@ -96,7 +92,7 @@ void physical_get (void) {
             }
             assert(!"never get here");
         }
-        case 0x50000000 ... 0x50ffffff: { // IO
+        case 5: { // IO
             switch (shoe.physical_addr & 0x5003ffff) {
                 case 0x50000000 ... 0x50001fff: // VIA1
                     via_reg_read();
@@ -129,18 +125,28 @@ void physical_get (void) {
                     // assert(!"physical_get: got read to SCSI hi\n");
                     return ;
                 case 0x50014000 ... 0x50015fff: // Sound
-                    printf("physical_get: got read to sound\n");
+                    //printf("physical_get: got read to sound\n");
                     return ;
                 case 0x50016000 ... 0x50017fff: // SWIM (IWM?)
                     // printf("physical_get: got read to IWM\n");
                     shoe.physical_dat = iwm_dma_read();
                     return ;
                 default:
-                    printf("physical_get: got read to UNKNOWN IO ADDR %x\n", shoe.physical_addr);
+                    //printf("physical_get: got read to UNKNOWN IO ADDR %x\n", shoe.physical_addr);
                     return ;
             }
         }
-        case 0x60000000 ... 0xefffffff: { // Nubus super slot space
+        case 0xf: { // Nubus standard slot space
+            const uint32_t slot = (shoe.physical_addr >> 24) & 0xf;
+            if (shoe.slots[slot].connected)
+                shoe.physical_dat = shoe.slots[slot].read_func(shoe.physical_addr,
+                                                               shoe.physical_size,
+                                                               slot);
+            else
+                shoe.abort = 1; // throw a bus error for reads to disconnected slots
+            return ;
+        }
+        default: { // Nubus super slot space
             const uint32_t slot = shoe.physical_addr >> 28;
             if (shoe.slots[slot].connected)
                 shoe.physical_dat = shoe.slots[slot].read_func(shoe.physical_addr,
@@ -151,32 +157,22 @@ void physical_get (void) {
                                 // XXX: Do super slot accesses raise bus errors?
             return ;
         }
-        case 0xf0000000 ... 0xffffffff: {
-            const uint32_t slot = (shoe.physical_addr >> 24) & 0xf;
-            if (shoe.slots[slot].connected)
-                shoe.physical_dat = shoe.slots[slot].read_func(shoe.physical_addr,
-                                                               shoe.physical_size,
-                                                               slot);
-            else
-                shoe.abort = 1; // throw a bus error for reads to disconnected slots
-            return ;
-        }
-            
-        default: {
-            printf("physical_get: I got an access to 0x%x (sz=%u), but I don't know how to handle it...\n",
-                   shoe.physical_addr, shoe.physical_size);
-            shoe.physical_dat = 0;
-            return ;
-        }
     }
 }
 
 void physical_set (void)
 {
-    switch (shoe.physical_addr) {
-        case 0 ... 0x3FFFFFFF: { // The first RAM bank (64MB)
+    switch (shoe.physical_addr >> 28) {
+        case 0:
+        case 1:
+        case 2:
+        case 3: { // RAM
             const uint32_t dat = htonl(shoe.physical_dat) >> ((4-shoe.physical_size)*8);
-            void *addr = &shoe.physical_mem_base[shoe.physical_addr & (shoe.physical_mem_size-1)];
+            void *addr;
+            if (shoe.physical_addr >= shoe.physical_mem_size)
+                addr = &shoe.physical_mem_base[shoe.physical_addr % shoe.physical_mem_size];
+            else
+                addr = &shoe.physical_mem_base[shoe.physical_addr];
             switch (shoe.physical_size) {
                 case 4:
                     *((uint32_t*)addr) = dat;
@@ -201,11 +197,11 @@ void physical_set (void)
             }
             assert(!"never get here");
         }
-        case 0x40000000 ... 0x4FFFFFFF: { // ROM
+        case 4: { // ROM
             // Nothing happens when you try to modify ROM
             return ;
         }
-        case 0x50000000 ... 0x50ffffff: { // IO
+        case 5: { // IO
             switch (shoe.physical_addr & 0x5003ffff) {
                 case 0x50000000 ... 0x50001fff: // VIA1
                     via_reg_write();
@@ -239,20 +235,11 @@ void physical_set (void)
                     iwm_dma_write();
                     return ;
                 default:
-                    printf("physical_set: got write to UNKNOWN IO ADDR %x\n", shoe.physical_addr);
+                    //printf("physical_set: got write to UNKNOWN IO ADDR %x\n", shoe.physical_addr);
                     return ;
             }
         }
-        case 0x60000000 ... 0xefffffff: { // Nubus super slot space
-            const uint32_t slot = shoe.physical_addr >> 28;
-            if (shoe.slots[slot].connected)
-                shoe.slots[slot].write_func(shoe.physical_addr,
-                                            shoe.physical_size,
-                                            shoe.physical_dat,
-                                            slot);
-            return ;
-        }
-        case 0xf0000000 ... 0xffffffff: { // Nubus standard slot space
+        case 0xf: { // Nubus standard slot space
             const uint32_t slot = (shoe.physical_addr >> 24) & 0xf;
             if (shoe.slots[slot].connected)
                 shoe.slots[slot].write_func(shoe.physical_addr,
@@ -262,16 +249,19 @@ void physical_set (void)
             return ;
             // Writing to a disconnected slot won't cause a bus error on macii
         }
-
-        default: {
-            printf("physical_set: I got a write (addr=0x%x) (val=0x%llx) (sz=%u), but I don't know how to handle it...\n",
-                   shoe.physical_addr, shoe.physical_dat, shoe.physical_size);
+        default: { // Nubus super slot space
+            const uint32_t slot = shoe.physical_addr >> 28;
+            if (shoe.slots[slot].connected)
+                shoe.slots[slot].write_func(shoe.physical_addr,
+                                            shoe.physical_size,
+                                            shoe.physical_dat,
+                                            slot);
             return ;
         }
     }
 }
 
-void _logical_get (void)
+void logical_get (void)
 {
     
     // If address translation isn't enabled, this is a physical address
@@ -298,15 +288,15 @@ void _logical_get (void)
     
     shoe.logical_is_write = 0;
     
-    // If the the data access will wrap across multiple pages, then fuck
+    // This read crosses a page boundary
     if ((pageoffset + logical_size - 1) >> ps) {
         const uint32_t addr_a = shoe.logical_addr;
         const uint32_t size_b = (pageoffset + logical_size) & pagemask;
         const uint32_t size_a = shoe.logical_size - size_b;
         const uint32_t addr_b = addr_a + size_a;
         
-        printf("ps = %u, pagesize=%u, pagemask=%x, pageoffset=%x\n", ps, pagesize, pagemask, pageoffset);
-        printf("multiple page get: addr_a=0x%08x size_a=%u  addr_b=0x%08x size_b=%u\n", addr_a, size_a, addr_b, size_b);
+        // printf("ps = %u, pagesize=%u, pagemask=%x, pageoffset=%x\n", ps, pagesize, pagemask, pageoffset);
+        // printf("multiple page get: addr_a=0x%08x size_a=%u  addr_b=0x%08x size_b=%u\n", addr_a, size_a, addr_b, size_b);
         shoe.logical_addr = addr_a;
         shoe.logical_size = size_a;
         translate_logical_addr();
@@ -338,11 +328,11 @@ void _logical_get (void)
             return ;
         }
         
-        printf("multiple_page_get: p_addr_a = 0x%08x, p_addr_b = 0x%08x\n", p_addr_a, p_addr_b);
+        // printf("multiple_page_get: p_addr_a = 0x%08x, p_addr_b = 0x%08x\n", p_addr_a, p_addr_b);
         
         shoe.logical_dat = (fetch_a << (size_b*8)) | shoe.physical_dat;
         
-        printf("multiple_page_get: logical_dat = (%llx | %llx) = %llx\n", fetch_a, shoe.physical_dat, shoe.logical_dat);
+        // printf("multiple_page_get: logical_dat = (%llx | %llx) = %llx\n", fetch_a, shoe.physical_dat, shoe.logical_dat);
         
         return ;
     }
@@ -365,16 +355,6 @@ void _logical_get (void)
 
 void logical_set (void)
 {
-    if ((shoe.logical_addr >= 0xaf2) && (shoe.logical_addr < 0xaf6) && (shoe.logical_size == 1) && ((shoe.logical_dat&0xff) == 0xff)) {
-        shoe.logical_dat = 0;
-    }
-//    if ((shoe.logical_addr >= 0x12fffff6) && (shoe.logical_addr <= 0x12ffffff))
-//        printf("aux3: setting 0x%08x = 0x%x\n", shoe.logical_addr, (uint32_t)shoe.logical_dat);
-//    
-//    if ((shoe.logical_addr >= 0x100) && (shoe.logical_addr < 0x2000)) {
-//        printf("LOMEM WRITE: 0x%08x = 0x%x\n", shoe.logical_addr, (uint32_t) shoe.logical_dat);
-//    }
-    
     // If address translation isn't enabled, this is a physical address
     if (!tc_enable()) {
         shoe.physical_addr = shoe.logical_addr;
@@ -395,7 +375,7 @@ void logical_set (void)
     // Make the translate function fail if the page is write-protected
     shoe.logical_is_write = 1;
     
-    // If the the data access will wrap across multiple pages, then fuck
+    // This write crosses a page boundary
     if ((pageoffset + logical_size - 1) >> ps) {
         const uint32_t addr_a = shoe.logical_addr;
         const uint32_t size_b = (pageoffset + logical_size) & pagemask;
@@ -404,8 +384,8 @@ void logical_set (void)
         const uint64_t data_a = shoe.logical_dat >> (size_b*8);
         const uint64_t data_b = bitchop_64(shoe.logical_dat, size_b*8);
         
-        printf("ps = %u, pagesize=%u, pagemask=%x, pageoffset=%x\n", ps, pagesize, pagemask, pageoffset);
-        printf("multiple page set: addr_a=0x%08x size_a=%u  addr_b=0x%08x size_b=%u\n", addr_a, size_a, addr_b, size_b);
+        // printf("ps = %u, pagesize=%u, pagemask=%x, pageoffset=%x\n", ps, pagesize, pagemask, pageoffset);
+        // printf("multiple page set: addr_a=0x%08x size_a=%u  addr_b=0x%08x size_b=%u\n", addr_a, size_a, addr_b, size_b);
         
         shoe.logical_addr = addr_a;
         shoe.logical_size = size_a;
@@ -421,7 +401,7 @@ void logical_set (void)
             return ;
         const uint32_t p_addr_b = shoe.physical_addr;
         
-        printf("multiple page set: paddr_a=0x%08x (data_a=0x%llx) paddr_b=0x%08x (data_b=0x%llx) (orig_dat=0x%llx)\n", p_addr_a, data_a, p_addr_b, data_b, shoe.logical_dat);
+        // printf("multiple page set: paddr_a=0x%08x (data_a=0x%llx) paddr_b=0x%08x (data_b=0x%llx) (orig_dat=0x%llx)\n", p_addr_a, data_a, p_addr_b, data_b, shoe.logical_dat);
         
         shoe.physical_addr = p_addr_a;
         shoe.physical_size = size_a;
@@ -483,9 +463,8 @@ struct {
 static void translate_logical_addr()
 {
     const uint8_t use_srp = (tc_sre() && (shoe.logical_fc >= 4));
-    
-    uint32_t debug_predicted = 0;
-    // First check for an entry in pmmu_cache
+
+/* --- First check for an entry in pmmu_cache --- */
     
     // logical addr [is]xxxxxxxxxxxx[ps] -> value xxxxxxxxxxxx
     const uint32_t value = (shoe.logical_addr << tc_is()) >> (tc_is() + tc_ps());
@@ -507,7 +486,6 @@ static void translate_logical_addr()
                     const uint32_t ps_mask = 0xffffffff >> entry.used_bits;
                     const uint32_t v_mask = ~~ps_mask;
                     shoe.physical_addr = ((entry.physical_addr<<8) & v_mask) + (shoe.logical_addr & ps_mask);
-                    // debug_predicted = ((entry.physical_addr<<8) & v_mask) + (shoe.logical_addr & ps_mask);
                     return ;
                 }
                 // This should be rare, just let the lookup handle it
@@ -517,6 +495,7 @@ static void translate_logical_addr()
         // Values don't match, this is a different address
     }
 
+/* --- pmmu_cache miss, manually traverse the page tables to do the translation */
  
     uint64_t *rootp_ptr = (use_srp ? (&shoe.srp) : (&shoe.crp));
     const uint64_t rootp = *rootp_ptr;
@@ -549,7 +528,8 @@ static void translate_logical_addr()
     if (rp_dt(rootp) == 1)
         goto search_done;
     
-    for (i=0; i < 4; i++) { // (the condition is unnecessary - just leaving it in for clarity)
+    // for (i=0; i < 4; i++) { // (the condition is unnecessary - just leaving it in for clarity)
+    for (i=0; 1; i++) {
         // desc must be a table descriptor here
         
         const uint8_t ti = tc_ti(i);
@@ -562,8 +542,6 @@ static void translate_logical_addr()
         logical_addr <<= ti;
         
         // load the child descriptor
-        if (shoe.logical_addr == 0)
-            printf("Loading descriptor s=%llu from addr=0x%08x\n", desc_dt(desc, desc_size) & 1, (uint32_t)desc_table_addr(desc));
         const uint32_t table_base_addr = desc_table_addr(desc);
         const uint8_t s = desc_dt(desc, desc_size) & 1;
         
@@ -571,11 +549,9 @@ static void translate_logical_addr()
         get_desc(table_base_addr + (4 << s)*index, (4 << s));
         desc_size = s;
         
-        // Desc may be a table descriptor, page descriptor, or indirect descriptor
+        // Desc may be a table descriptor, page descriptor, indirect descriptor, or invalid descriptor
         
         const uint8_t dt = desc_dt(desc, desc_size);
-        if (shoe.logical_addr == 0)
-            printf("i=%u desc = 0x%llx dt=%u\n", i, desc, dt);
         
         // If this descriptor is invalid, throw a bus error
         if (dt == 0) {
@@ -620,6 +596,7 @@ search_done:
     // Desc must be a page descriptor
     
     // NOTE: The limit checks have been done already
+    //       (or would be, if they were implemented yet)
     
     // TODO: update U (used) bit
     
@@ -643,11 +620,11 @@ search_done:
     const uint32_t paddr = (desc_page_addr(desc) & v_mask) + (shoe.logical_addr & ps_mask);
     shoe.physical_addr = paddr;
     
-    if (shoe.logical_addr == 0) {
+    /*if (shoe.logical_addr == 0) {
         printf("Success! desc = 0x%llx sz=%u bytes\n", desc, 4<<desc_size);
         printf("OLD: desc_page_addr() = 0x%08x, physical addr = 0x%08x\n", desc_page_addr(desc), (desc_page_addr(desc) & v_mask) + (shoe.logical_addr & ps_mask));
         printf("CUR: desc_page_addr() = 0x%08x, physical addr = 0x%08x\n", desc_page_addr(desc), shoe.physical_addr);
-    }
+    }*/
     
     // Insert this translation into the cache
     
@@ -816,7 +793,7 @@ static void ea_decode_extended()
                 return ;
             }
             default:
-                printf("ea_decode_extended: oh noes! invalid I/IS!\n");
+                assert(!"ea_decode_extended: oh noes! invalid I/IS!\n");
                 // I think that 68040 *doesn't* throw an exception here...
                 // FIXME: figure out what actually happens here
                 break;
@@ -916,10 +893,9 @@ void ea_read()
                     }
                     return ;
                 }
-                case 5 ... 7: {
+                default:
                     throw_illegal_instruction();
                     return ;
-                }
             }
         }
     }
@@ -929,15 +905,11 @@ void ea_read_commit()
 {
     const uint8_t mode = (shoe.mr>>3)&7, reg = (shoe.mr&7);
     switch (mode) {
-        case 0: { // Data register direct mode
+        case 0: // Data register direct mode
+        case 1: // address register direct mode
+        case 2: // address register indirect mode
             return ; // nothing to do
-        }
-        case 1: { // address register direct mode
-            return ; // nothing to do
-        }
-        case 2: { // address register indirect mode
-            return ; // nothing to do
-        }
+            
         case 3: { // address register indirect with postincrement mode
             const uint8_t delta = ((reg==7) && (shoe.sz==1))?2:shoe.sz;
             shoe.a[reg] += delta;
@@ -954,9 +926,7 @@ void ea_read_commit()
             return ;
         }
         case 6: {
-            //printf("ea_read_commit(): %u %u not implemented\n", mode, reg);
-            ea_decode_extended();
-            if (shoe.abort) return ;
+            // shoe.extended_len was set in the previous ea_read() call.
             shoe.pc += shoe.extended_len;
             return ;
         }
@@ -985,10 +955,9 @@ void ea_read_commit()
                     else shoe.pc += shoe.sz;
                     return ;
                 }
-                case 5 ... 7: {
+                default:
                     throw_illegal_instruction();
                     return ;
-                }
             }
         }
     }
@@ -1004,7 +973,6 @@ void ea_write()
         }
         case 1: { // address register direct mode
             assert(shoe.sz==4);
-            //set_a(reg, shoe.dat, shoe.sz);
             shoe.a[reg] = shoe.dat;
             return ;
         }
@@ -1034,13 +1002,13 @@ void ea_write()
             return ;
         }
         case 6: {
-            //printf("ea_write(): %u %u not implemented\n", mode, reg);
             ea_decode_extended();
             if (shoe.abort) return ;
+            
             lset(shoe.extended_addr, shoe.sz, shoe.dat);
             if (shoe.abort) return ;
+            
             shoe.pc += shoe.extended_len;
-            //printf("write(0x%x) = 0x%x\n", shoe.extended_addr, shoe.dat);
             return ;
         }
         case 7: {
@@ -1057,27 +1025,12 @@ void ea_write()
                     // printf("ea_write(): %u %u not implemented\n", mode, reg);
                     return ;
                 }
-                case 2: { // program counter indirect with displacement mode
-                    printf("ea_write(): %u %u not implemented\n", mode, reg);
-                    throw_illegal_instruction();
-                    return ;
-                }
-                case 3: { // (program counter ...)
-                    printf("ea_write(): %u %u not implemented\n", mode, reg);
-                    throw_illegal_instruction();
-                    return ;
-                }
-                case 4: { // immediate data
-                    printf("ea_write(): %u %u not implemented\n", mode, reg);
-                    throw_illegal_instruction();
-                    return ;
-                }
-                case 5 ... 7: {
-                    throw_illegal_instruction();
-                    return ;
-                }
             }
         }
+        // fall through
+        default:
+            throw_illegal_instruction();
+            return ;
     }
 }
 
@@ -1085,26 +1038,8 @@ void ea_addr()
 {
     const uint8_t mode = (shoe.mr>>3)&7, reg = (shoe.mr&7);
     switch (mode) {
-        case 0: { // Data register direct mode
-            // this must be invalid.  Figure out which exception this throws.
-            printf("ea_addr(): %u %u not implemented, pc = 0x%08x\n", mode, reg, shoe.orig_pc);
-            return ;
-        }
-        case 1: { // address register direct mode
-            printf("ea_addr(): %u %u not implemented\n", mode, reg);
-            // this must be invalid.  Figure out which exception this throws.
-            return ;
-        }
         case 2: { // address register indirect mode
             shoe.dat = shoe.a[reg];
-            return ;
-        }
-        case 3: { // address register indirect with postincrement mode
-            printf("ea_addr(): %u %u not implemented\n", mode, reg);
-            return ;
-        }
-        case 4: { // address register indirect with predecrement mode
-            printf("ea_addr(): %u %u not implemented\n", mode, reg);
             return ;
         }
         case 5: { // address register indirect with displacement mode
@@ -1113,7 +1048,6 @@ void ea_addr()
             return ;
         }
         case 6: {
-            // printf("ea_addr(): %u %u not implemented\n", mode, reg);
             ea_decode_extended();
             if (shoe.abort) return ;
             shoe.dat = shoe.extended_addr;
@@ -1146,22 +1080,13 @@ void ea_addr()
                     shoe.pc += shoe.extended_len;
                     return ;
                 }
-                case 4: { // immediate data
-                    printf("ea_addr(): %u %u not implemented, pc = 0x%08x\n", mode, reg, shoe.orig_pc);
-                    return ;
-                }
-                case 5 ... 7: {
-                    throw_illegal_instruction();
-                    return ;
-                }
             }
         }
+        default:
+            throw_illegal_instruction();
+            return ;
     }
 }
-
-
-
-
 
 
 

@@ -76,7 +76,8 @@ typedef struct {
 coff_symbol* coff_find_func(coff_file *coff, uint32_t addr);
 coff_symbol* coff_find_symbol(coff_file *coff, const char *name);
 
-coff_file* coff_parser(const char *path);
+coff_file* coff_parse(uint8_t *buf, uint32_t buflen);
+coff_file* coff_parse_from_path(const char *path);
 uint32_t be2native (uint8_t **dat, uint32_t bytes);
 void print_coff_info(coff_file *coff);
 

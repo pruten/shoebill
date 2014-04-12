@@ -219,12 +219,12 @@
     uint32_t i;
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
     
-    NSString *kernelPathStr = [defaults objectForKey:@"kernelPath"];
+    NSString *rootKernelPathStr = [defaults objectForKey:@"rootKernelPath"];
     NSString *romPathStr = [defaults objectForKey:@"romPath"];
     NSInteger verboseState = [defaults integerForKey:@"verboseState"];
     NSInteger memsize = [defaults integerForKey:@"memorySize"];
     
-    if (kernelPathStr == Nil || [kernelPathStr length]==0) {
+    if (rootKernelPathStr == Nil || [rootKernelPathStr length]==0) {
         [self complain:@"Kernel path invalid!"];
         return NO;
     }
@@ -256,14 +256,14 @@
         
     }
     
-    char *kernelPathCString = strdup([kernelPathStr UTF8String]);
+    char *rootKernelPathCString = strdup([rootKernelPathStr UTF8String]);
     char *romPathCString = strdup([romPathStr UTF8String]);
     
     // FIXME: I'm leaking these strings. Stop leaking stuff when the UI is more finalized
     
     control.aux_verbose = (verboseState == NSOnState);
     control.ram_size = (uint32_t)memsize * 1024 * 1024;
-    control.aux_kernel_path = kernelPathCString;
+    control.aux_kernel_path = rootKernelPathCString;
     control.rom_path = romPathCString;
     
     *width = screenWidthValue;

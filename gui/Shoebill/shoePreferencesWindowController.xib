@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
-<document type="com.apple.InterfaceBuilder3.Cocoa.XIB" version="3.0" toolsVersion="4514" systemVersion="13B42" targetRuntime="MacOSX.Cocoa" propertyAccessControl="none" useAutolayout="YES">
+<document type="com.apple.InterfaceBuilder3.Cocoa.XIB" version="3.0" toolsVersion="5053" systemVersion="13C64" targetRuntime="MacOSX.Cocoa" propertyAccessControl="none" useAutolayout="YES">
     <dependencies>
         <deployment defaultVersion="1080" identifier="macosx"/>
-        <plugIn identifier="com.apple.InterfaceBuilder.CocoaPlugin" version="4514"/>
+        <plugIn identifier="com.apple.InterfaceBuilder.CocoaPlugin" version="5053"/>
     </dependencies>
     <objects>
         <customObject id="-2" userLabel="File's Owner" customClass="shoePreferencesWindowController">
             <connections>
-                <outlet property="kernelPath" destination="ZXf-9X-ulR" id="fFe-5B-6dc"/>
+                <outlet property="kernelPath" destination="zU0-5O-afD" id="Q3V-Ly-Y6B"/>
                 <outlet property="memorySize" destination="uvm-gd-pCd" id="zzI-jI-ZUW"/>
                 <outlet property="romPath" destination="LoN-Nd-9cy" id="R3k-vY-TPo"/>
                 <outlet property="screenHeight" destination="Wyt-jg-xmk" id="Sq6-IJ-xbQ"/>
@@ -19,13 +19,13 @@
                 <outlet property="scsiPath4" destination="Biz-iI-IiP" id="gbh-Jl-dxV"/>
                 <outlet property="scsiPath5" destination="GE2-3P-G1I" id="ohD-Fj-EX9"/>
                 <outlet property="scsiPath6" destination="cy8-jg-woV" id="QoH-Z0-e8d"/>
-                <outlet property="verbose" destination="RnS-Yp-G7M" id="VjB-1f-ejM"/>
+                <outlet property="verbose" destination="fkL-RE-iRz" id="uba-U2-Zkh"/>
                 <outlet property="window" destination="rKy-wc-8AE" id="sYz-fH-ohd"/>
             </connections>
         </customObject>
         <customObject id="-1" userLabel="First Responder" customClass="FirstResponder"/>
         <customObject id="-3" userLabel="Application"/>
-        <window title="Preferences" allowsToolTipsWhenApplicationIsInactive="NO" autorecalculatesKeyViewLoop="NO" oneShot="NO" releasedWhenClosed="NO" wantsToBeColor="NO" visibleAtLaunch="NO" animationBehavior="default" id="rKy-wc-8AE">
+        <window title="Preferences" allowsToolTipsWhenApplicationIsInactive="NO" autorecalculatesKeyViewLoop="NO" oneShot="NO" releasedWhenClosed="NO" visibleAtLaunch="NO" animationBehavior="default" id="rKy-wc-8AE">
             <windowStyleMask key="styleMask" titled="YES" closable="YES" miniaturizable="YES"/>
             <windowPositionMask key="initialPositionMask" leftStrut="YES" rightStrut="YES" topStrut="YES" bottomStrut="YES"/>
             <rect key="contentRect" x="196" y="240" width="498" height="433"/>
@@ -40,21 +40,12 @@
                         <font key="font" metaFont="system"/>
                         <tabViewItems>
                             <tabViewItem label="General" identifier="1" id="Ffn-1Z-2rp">
-                                <view key="view" ambiguous="YES" id="BF8-Dm-rF5">
+                                <view key="view" id="BF8-Dm-rF5">
                                     <rect key="frame" x="10" y="33" width="452" height="348"/>
                                     <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                                     <subviews>
-                                        <textField verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="Nqd-aN-fI5">
-                                            <rect key="frame" x="12" y="311" width="81" height="17"/>
-                                            <autoresizingMask key="autoresizingMask"/>
-                                            <textFieldCell key="cell" lineBreakMode="truncatingTail" allowsUndo="NO" alignment="right" title="Kernel Path:" usesSingleLineMode="YES" id="i7G-KP-OrH">
-                                                <font key="font" metaFont="system"/>
-                                                <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
-                                                <color key="backgroundColor" white="1" alpha="1" colorSpace="calibratedWhite"/>
-                                            </textFieldCell>
-                                        </textField>
                                         <textField verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="oVj-nA-5GP">
-                                            <rect key="frame" x="12" y="264" width="81" height="17"/>
+                                            <rect key="frame" x="11" y="314" width="81" height="17"/>
                                             <autoresizingMask key="autoresizingMask"/>
                                             <textFieldCell key="cell" lineBreakMode="truncatingTail" allowsUndo="NO" alignment="right" title="Rom Path:" usesSingleLineMode="YES" id="7qD-i1-FXI">
                                                 <font key="font" metaFont="system"/>
@@ -62,28 +53,8 @@
                                                 <color key="backgroundColor" white="1" alpha="1" colorSpace="calibratedWhite"/>
                                             </textFieldCell>
                                         </textField>
-                                        <button identifier="kernelPathBrowse" verticalHuggingPriority="750" fixedFrame="YES" tag="9" translatesAutoresizingMaskIntoConstraints="NO" id="Dep-2G-fPK">
-                                            <rect key="frame" x="359" y="300" width="97" height="32"/>
-                                            <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
-                                            <buttonCell key="cell" type="push" title="Browse..." bezelStyle="rounded" alignment="center" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="Dnb-hA-OHJ">
-                                                <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/>
-                                                <font key="font" metaFont="system"/>
-                                            </buttonCell>
-                                            <connections>
-                                                <action selector="browsePressed:" target="-2" id="hW9-m5-Ovo"/>
-                                            </connections>
-                                        </button>
-                                        <textField identifier="kernelPath" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="ZXf-9X-ulR">
-                                            <rect key="frame" x="99" y="289" width="258" height="39"/>
-                                            <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
-                                            <textFieldCell key="cell" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" state="on" borderStyle="bezel" placeholderString="unix" drawsBackground="YES" id="gUb-0H-eoA">
-                                                <font key="font" metaFont="system"/>
-                                                <color key="textColor" name="textColor" catalog="System" colorSpace="catalog"/>
-                                                <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
-                                            </textFieldCell>
-                                        </textField>
                                         <button identifier="romPathBrowse" verticalHuggingPriority="750" fixedFrame="YES" tag="9" translatesAutoresizingMaskIntoConstraints="NO" id="fjl-Jg-nIF">
-                                            <rect key="frame" x="359" y="253" width="97" height="32"/>
+                                            <rect key="frame" x="358" y="303" width="97" height="32"/>
                                             <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
                                             <buttonCell key="cell" type="push" title="Browse..." bezelStyle="rounded" alignment="center" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="ITb-nX-hmP">
                                                 <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/>
@@ -94,7 +65,7 @@
                                             </connections>
                                         </button>
                                         <textField identifier="romPath" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="LoN-Nd-9cy">
-                                            <rect key="frame" x="99" y="242" width="258" height="39"/>
+                                            <rect key="frame" x="98" y="292" width="258" height="39"/>
                                             <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
                                             <textFieldCell key="cell" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" state="on" borderStyle="bezel" placeholderString="macii.rom" drawsBackground="YES" id="IvC-yQ-qdn">
                                                 <font key="font" metaFont="system"/>
@@ -103,7 +74,7 @@
                                             </textFieldCell>
                                         </textField>
                                         <textField verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="RDI-wU-bdg">
-                                            <rect key="frame" x="3" y="217" width="90" height="17"/>
+                                            <rect key="frame" x="2" y="267" width="90" height="17"/>
                                             <autoresizingMask key="autoresizingMask"/>
                                             <textFieldCell key="cell" lineBreakMode="truncatingTail" allowsUndo="NO" alignment="right" title="Memory (MB):" usesSingleLineMode="YES" id="8mu-le-9YC">
                                                 <font key="font" metaFont="system"/>
@@ -112,7 +83,7 @@
                                             </textFieldCell>
                                         </textField>
                                         <textField identifier="memorySize" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="uvm-gd-pCd">
-                                            <rect key="frame" x="99" y="212" width="42" height="22"/>
+                                            <rect key="frame" x="98" y="262" width="42" height="22"/>
                                             <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
                                             <textFieldCell key="cell" scrollable="YES" lineBreakMode="clipping" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" state="on" borderStyle="bezel" title="8" placeholderString="8" drawsBackground="YES" id="I5v-kb-eCo">
                                                 <font key="font" metaFont="system"/>
@@ -121,7 +92,7 @@
                                             </textFieldCell>
                                         </textField>
                                         <textField verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="tgt-1x-QT0">
-                                            <rect key="frame" x="3" y="160" width="90" height="42"/>
+                                            <rect key="frame" x="2" y="210" width="90" height="42"/>
                                             <autoresizingMask key="autoresizingMask"/>
                                             <textFieldCell key="cell" allowsUndo="NO" alignment="right" title="Screen Resolution:" id="9bl-WA-bhb">
                                                 <font key="font" metaFont="system"/>
@@ -130,7 +101,7 @@
                                             </textFieldCell>
                                         </textField>
                                         <textField verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="JNe-0k-g4e">
-                                            <rect key="frame" x="147" y="174" width="14" height="17"/>
+                                            <rect key="frame" x="146" y="224" width="14" height="17"/>
                                             <autoresizingMask key="autoresizingMask"/>
                                             <textFieldCell key="cell" allowsUndo="NO" alignment="center" title="x" id="9cf-Xq-tuu">
                                                 <font key="font" metaFont="system"/>
@@ -139,7 +110,7 @@
                                             </textFieldCell>
                                         </textField>
                                         <textField verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="aSg-xG-o1t">
-                                            <rect key="frame" x="224" y="173" width="59" height="17"/>
+                                            <rect key="frame" x="223" y="223" width="59" height="17"/>
                                             <autoresizingMask key="autoresizingMask"/>
                                             <textFieldCell key="cell" allowsUndo="NO" alignment="left" title="pixels" id="D5V-Zm-Grd">
                                                 <font key="font" metaFont="system"/>
@@ -148,7 +119,7 @@
                                             </textFieldCell>
                                         </textField>
                                         <textField identifier="memorySize" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="EMf-gC-m9T">
-                                            <rect key="frame" x="99" y="170" width="43" height="22"/>
+                                            <rect key="frame" x="98" y="220" width="43" height="22"/>
                                             <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
                                             <textFieldCell key="cell" scrollable="YES" lineBreakMode="clipping" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" state="on" borderStyle="bezel" title="width" placeholderString="width" drawsBackground="YES" id="sbq-WW-C05">
                                                 <font key="font" metaFont="system"/>
@@ -157,7 +128,7 @@
                                             </textFieldCell>
                                         </textField>
                                         <textField identifier="memorySize" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="Wyt-jg-xmk">
-                                            <rect key="frame" x="169" y="170" width="49" height="22"/>
+                                            <rect key="frame" x="168" y="220" width="49" height="22"/>
                                             <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
                                             <textFieldCell key="cell" scrollable="YES" lineBreakMode="clipping" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" state="on" borderStyle="bezel" title="height" placeholderString="height" drawsBackground="YES" id="qvE-Bk-NDl">
                                                 <font key="font" metaFont="system"/>
@@ -165,14 +136,6 @@
                                                 <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
                                             </textFieldCell>
                                         </textField>
-                                        <button identifier="verbose" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="RnS-Yp-G7M">
-                                            <rect key="frame" x="295" y="210" width="142" height="18"/>
-                                            <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
-                                            <buttonCell key="cell" type="check" title="A/UX Verbose Boot" bezelStyle="regularSquare" imagePosition="left" state="on" inset="2" id="Ww6-qg-dn1">
-                                                <behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/>
-                                                <font key="font" metaFont="system"/>
-                                            </buttonCell>
-                                        </button>
                                     </subviews>
                                 </view>
                             </tabViewItem>
@@ -384,6 +347,42 @@
                                                 <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
                                             </textFieldCell>
                                         </textField>
+                                    </subviews>
+                                </view>
+                            </tabViewItem>
+                            <tabViewItem label="Booting" identifier="" id="3o8-Ma-LAk">
+                                <view key="view" ambiguous="YES" id="Zdy-ik-svz">
+                                    <rect key="frame" x="10" y="33" width="452" height="348"/>
+                                    <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                    <subviews>
+                                        <textField verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="0nJ-ho-P1P">
+                                            <rect key="frame" x="6" y="315" width="81" height="17"/>
+                                            <autoresizingMask key="autoresizingMask"/>
+                                            <textFieldCell key="cell" lineBreakMode="truncatingTail" allowsUndo="NO" alignment="right" title="Kernel Path:" usesSingleLineMode="YES" id="Wdx-2C-yGA">
+                                                <font key="font" metaFont="system"/>
+                                                <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                                                <color key="backgroundColor" white="1" alpha="1" colorSpace="calibratedWhite"/>
+                                            </textFieldCell>
+                                        </textField>
+                                        <textField identifier="kernelPath" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="zU0-5O-afD">
+                                            <rect key="frame" x="93" y="310" width="342" height="22"/>
+                                            <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+                                            <string key="toolTip">The path to the kernel on the root image.  If you don't know what this is, just use "/unix" (Note: the root image needs to be at SCSI ID 0)</string>
+                                            <textFieldCell key="cell" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" state="on" borderStyle="bezel" placeholderString="/unix" drawsBackground="YES" id="0MQ-1P-9gJ">
+                                                <font key="font" metaFont="system"/>
+                                                <color key="textColor" name="textColor" catalog="System" colorSpace="catalog"/>
+                                                <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                            </textFieldCell>
+                                        </textField>
+                                        <button identifier="verbose" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="fkL-RE-iRz">
+                                            <rect key="frame" x="6" y="271" width="142" height="18"/>
+                                            <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+                                            <string key="toolTip">Verbose mode causes A/UX to print diagnostic info during boot, and it will also run fsck to repair the root filesystem if necessary.</string>
+                                            <buttonCell key="cell" type="check" title="A/UX Verbose Boot" bezelStyle="regularSquare" imagePosition="left" state="on" inset="2" id="htQ-zH-VRv">
+                                                <behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/>
+                                                <font key="font" metaFont="system"/>
+                                            </buttonCell>
+                                        </button>
                                     </subviews>
                                 </view>
                             </tabViewItem>

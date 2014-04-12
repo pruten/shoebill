@@ -28,6 +28,7 @@
 #include <string.h>
 #include <time.h>
 #include <stdint.h>
+#include <assert.h>
 #include "shoebill.h"
 #include "coff.h"
 
@@ -40,25 +41,37 @@ void symb_inorder(rb_node *cur) {
     symb_inorder(cur->right);
 }
 
+#define _coff_buf_seek(__len) ({ \
+    uint32_t _result = 1, _len=(__len); \
+    if (_len > buflen) _result = 0; \
+    else bufptr = _len; \
+    _result; \
+})
+
+#define _coff_buf_read(_dst, __len) ({\
+    uint32_t _result = 1, _len=(__len); \
+    if ((bufptr + _len) > buflen) \
+        _result = 0; \
+    else {\
+        memcpy((_dst), buf+bufptr, _len); \
+        bufptr += _len; \
+    } \
+    _result; \
+})
+
+
 // Given a path to a COFF binary, create a coff_file structure and return a pointer.
 // God help you if you want to free it.
-coff_file* coff_parser(const char *path)
+coff_file* coff_parse(uint8_t *buf, uint32_t buflen)
 {
-    FILE *f;
     uint8_t rawhead[20], *ptr;
     uint32_t i;
     coff_file *cf = NULL;
-    
-    // Open the file
-    f = fopen(path, "r");
-    if (!f) {
-        printf("coff_parser: I couldn't open that binary for reading (%s)\n", path);
-        goto fail;
-    }
+    uint32_t bufptr = 0;
     
     // Pull out 20 bytes (the file header)
-    if (fread(rawhead, 20, 1, f) != 1) {
-        printf("coff_parser: error: this binary is missing its file header\n");
+    if (!_coff_buf_read(rawhead, 20)) {
+        printf("coff_parse: error: this binary is missing its file header\n");
         goto fail;
     }
     
@@ -86,7 +99,7 @@ coff_file* coff_parser(const char *path)
     // pull out cf->opt_header bytes (a.out-format header, I guess?)
     if (cf->opt_header_len > 0) {
         uint8_t *opt = malloc(cf->opt_header_len);
-        if (fread(opt, cf->opt_header_len, 1, f) != 1) {
+        if (!_coff_buf_read(opt, cf->opt_header_len)) {
             printf("coff_parse: I ran out of data pulling the optional header (%u bytes)\n", cf->opt_header_len);
             free(opt);
             goto fail;
@@ -99,7 +112,7 @@ coff_file* coff_parser(const char *path)
     for (i=0; i<cf->num_sections; i++) {
         // read the header
         uint8_t rawsec[40];
-        if (fread(rawsec, 40, 1, f) != 1) {
+        if (!_coff_buf_read(rawsec, 40)) {
             printf("coff_parse: I ran out of data pulling section #%u\n", i+1);
             goto fail;
         }
@@ -139,14 +152,14 @@ coff_file* coff_parser(const char *path)
         }
         
         // seek to the position in the binary that holds this section's raw data
-        if (fseek(f, cf->sections[i].data_ptr, SEEK_SET) != 0) {
+        if (!_coff_buf_seek(cf->sections[i].data_ptr)) {
             printf("coff_parse: I couldn't seek to 0x%x in section %u\n", cf->sections[i].data_ptr, i+1);
             goto fail;
         }
         
         // load the data and attach it to the section struct
         data = malloc(cf->sections[i].sz); // FIXME: sz might not be a sane value
-        if (fread(data, cf->sections[i].sz, 1, f) != 1) {
+        if (!_coff_buf_read(data, cf->sections[i].sz)) {
             printf("coff_parse: I couldn't fread section %u (%s)'s data (%u bytes)\n", i+1, cf->sections[i].name, cf->sections[i].sz);
             free(data);
             goto fail;
@@ -164,14 +177,14 @@ coff_file* coff_parser(const char *path)
     cf->symbols = (coff_symbol*)calloc(sizeof(coff_symbol), cf->num_symbols);
     
     // Seek to the symbol table
-    if (fseek(f, cf->symtab_offset, SEEK_SET) != 0) {
+    if (!_coff_buf_seek(cf->symtab_offset)) {
         printf("coff_parse: I couldn't seek to symtab_offset, 0x%x\n", cf->symtab_offset);
         goto fail;
     }
     
     for (i=0; i < cf->num_symbols; i++) {
         uint8_t raw_symb[18];
-        if (fread(raw_symb, 18, 1, f) != 1) {
+        if (!_coff_buf_read(raw_symb, 18)) {
             printf("coff_parse: I ran out of data pulling symbol #%u\n", i+1);
             goto fail;
         }
@@ -185,11 +198,11 @@ coff_file* coff_parser(const char *path)
             
             // printf("Loading from external: base idx=0x%x, offset=%u, addr=0x%x\n", idx-offset, offset, idx);
             
-            if (fseek(f, idx, SEEK_SET) != 0) {
+            if (!_coff_buf_seek(idx)) {
                 printf("coff_parse: I ran out of data pulling symbol %u's name (idx=0x%x)\n", i+1, idx);
                 goto fail;
             }
-            for (j=0; (fread(&tmp_name[j], 1, 1, f)==1) && tmp_name[j]; j++) {
+            for (j=0; (_coff_buf_read(&tmp_name[j], 1)) && tmp_name[j]; j++) {
                 if (j >= 255) {
                     // printf("coff_parse: this symbol's name is too long: %u\n", i+1);
                     goto fail;
@@ -198,10 +211,7 @@ coff_file* coff_parser(const char *path)
             cf->symbols[i].name = malloc(j+1);
             memcpy(cf->symbols[i].name, tmp_name, j);
             cf->symbols[i].name[j] = 0;
-            fseek(f, cf->symtab_offset + (i+1)*18, SEEK_SET);
-            //printf("cf->symtab_offset = 0x%x, i=%u, (i+1)*18 = %u\n", 
-                //cf->symtab_offset, i, (i+1)*18);
-            //printf("seeking back to 0x%x\n", cf->symtab_offset + (i+1)*18);
+            _coff_buf_seek(cf->symtab_offset + (i+1)*18);
         }
         else {
             uint8_t tmp_name[9];
@@ -255,6 +265,28 @@ fail:
         free(cf);
     }
     return NULL;
+}
+
+coff_file* coff_parse_from_path(const char *path)
+{
+    FILE *f = fopen(path, "r");
+    uint8_t *buf = malloc(1);
+    uint32_t i=0, tmp;
+    coff_file *coff;
+    
+    do {
+        buf = realloc(buf, i + 128*1024);
+        assert(buf);
+        tmp = fread(buf+i, 1, 128*1024, f);
+        i += tmp;
+        
+        // don't load more than 64mb - there are surely no 64MB A/UX kernels
+    } while ((tmp > 0) && (i < 64*1024*1024));
+    
+    
+    coff = coff_parse(buf, i);
+    free(buf);
+    return coff;
 }
 
 // dump some data about a coff_file structure

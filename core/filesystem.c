@@ -919,7 +919,7 @@ static uint8_t ufs_load_cylinder_group(ufs_t *mount, uint32_t frag_offset, ufs_c
     uint32_t numfrags = sizeof(ufs_cylinder_group_t) / mount->frag_size;
     numfrags += ((sizeof(ufs_cylinder_group_t) % mount->frag_size) != 0);
     
-    uint8_t *buf = p_alloc(mount->pool, numfrags * mount->frag_size);
+    uint8_t *buf = p_alloc(mount->pool, (numfrags+1) * mount->frag_size);
     uint32_t i;
     
     for (i=0; i <= numfrags; i++)
