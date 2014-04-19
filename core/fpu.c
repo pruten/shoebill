@@ -1304,10 +1304,17 @@ void inst_fmath(uint16_t op, uint16_t ext)
             break;
         case ~b(0001000): assert(!"fpu_inst_fetoxm1;");
         case ~b(0001001): assert(!"fpu_inst_ftanh;");
-        case ~b(0001010): assert(!"fpu_inst_fatan;");
+        case ~b(0001010): // fatan
+            printf("inst_fatan dest = %Lf source = %Lf\n", dest, source);
+            result = atanl(source);
+            break;
+            
         case ~b(0001100): assert(!"fpu_inst_fasin;");
         case ~b(0001101): assert(!"fpu_inst_fatanh;");
-        case ~b(0001110): assert(!"fpu_inst_fsin;");
+        case ~b(0001110): // fsin
+            printf("inst_fsin dest = %Lf source = %Lf\n", dest, source);
+            result = sinl(source);
+            break;
         case ~b(0001111): assert(!"fpu_inst_ftan;");
         case ~b(0010000): // fetox
             printf("inst_fetox dest = %Lf source = %Lf\n", dest, source);
@@ -1320,7 +1327,11 @@ void inst_fmath(uint16_t op, uint16_t ext)
         case ~b(0010110): assert(!"fpu_inst_flog2;");
         case ~b(0011001): assert(!"fpu_inst_fcosh;");
         case ~b(0011100): assert(!"fpu_inst_facos;");
-        case ~b(0011101): assert(!"fpu_inst_fcos;");
+        case ~b(0011101): // fcos
+            printf("fpu_inst_fcos dest = %Lf source = %Lf\n", dest, source);
+            result = cosl(source);
+            break;
+            
         case ~b(0011110): assert(!"fpu_inst_fgetexp;");
         case ~b(0011111): assert(!"fpu_inst_fgetman;");
         case ~b(0100001):
@@ -1380,10 +1391,13 @@ void inst_fmath(uint16_t op, uint16_t ext)
             break;
         }
             
-        case ~b(0011010):
         case ~b(1011010):
         case ~b(1011110):
-            assert(!"fpu_inst_fneg;");
+            assert(!"fneg: can't handle");
+        case ~b(0011010): // fneg
+            printf("inst_fneg dest = %Lf source = %Lf\n", dest, source);
+            result = -source;
+            break;
             
         case ~b(1000001):
         case ~b(1000101):
@@ -1458,6 +1472,10 @@ void fpu_setup_jump_table()
         fpu_inst_fsqrt,
         fpu_inst_flognp1,
         fpu_inst_fetox,
+        fpu_inst_fsin,
+        fpu_inst_fcos,
+        fpu_inst_fneg,
+        fpu_inst_fatan,
     };
     
     const fpu_inst_name_t dyadic[] = {

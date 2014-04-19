@@ -239,13 +239,6 @@ void throw_privilege_violation()
     //printf("throw_privilege_violation(): I'm throwing a privilege violation exception! (shoe.orig_pc = 0x%08x op=0x%04x\n", shoe.orig_pc, shoe.op);
     
     throw_frame_zero(shoe.orig_sr, shoe.orig_pc, 8);
-    shoe.abort = 1;
+    // shoe.abort = 1;
     
-}
-
-void throw_divide_by_zero()
-{
-    printf("throw_divide_by_zero(): I'm throwing a divide-by-zero exception!\n");
-    assert(0);
-    shoe.abort = 1;
 }

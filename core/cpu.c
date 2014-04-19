@@ -69,11 +69,81 @@ global_shoebill_context_t shoe;
 })
 
 ~inst(trapcc, {
-    assert(!"trapcc: error: not implemented\n");
+    ~decompose(shoe.op, 0101 cccc 11111 xyz);
+    
+    // (xyz) == (100) -> sz=0
+    // (xyz) == (010) -> sz=2
+    // (xyz) == (011) -> sz=4
+    const uint32_t sz = y << (z+1); // too clever
+    const uint32_t next_pc = shoe.orig_pc + 2 + sz;
+    
+    const uint8_t C = sr_c();
+    const uint8_t Z = sr_z();
+    const uint8_t V = sr_v();
+    const uint8_t N = sr_n();
+    
+    uint8_t set = 0;
+    
+    switch (c) {
+        case 0: // trapt
+            set = 1; // FIXME: do-trap unconditionally?
+            break;
+        case 1: // trapf
+            set = 0; // FIXME: do-not-trap unconditionally?
+            break;
+        case 2:
+            if (!C && !Z) set = 1; // traphi
+            break;
+        case 3:
+            if (C || Z) set = 1; // trapls
+            break;
+        case 4:
+            if (!C) set = 1; // trapcc
+            break;
+        case 5:
+            if (C) set = 1; // trapcs
+            break;
+        case 6:
+            if (!Z) set = 1; // trapne
+            break;
+        case 7:
+            if (Z) set = 1; // trapeq
+            break;
+        case 8:
+            if (!V) set = 1; // trapvc
+            break;
+        case 9:
+            if (V) set = 1; // trapvs
+            break;
+        case 10:
+            if (!N) set = 1; // trappl
+            break;
+        case 11:
+            if (N) set = 1; // trapmi
+            break;
+        case 12:
+            if ( (N && V) || (!N && !V) ) set = 1; // trapge
+            break;
+        case 13:
+            if ( (N && !V) || (!N && V) ) set = 1; // traplt
+            break;
+        case 14:
+            if ( (N && V && !Z) || (!N && !V && !Z) ) set = 1; // trapgt
+            break;
+        case 15:
+            if ( (Z || (N && !V) || (!N && V) ) ) set = 1; // traple
+            break;
+    }
+    
+    if (set)
+        throw_frame_two(shoe.sr, next_pc, 7, shoe.orig_pc);
+    else
+        shoe.pc = next_pc;
 })
 
 ~inst(trapv, {
-    assert(!"trapv: error: not implemented\n");
+    if (sr_v())
+        throw_frame_two(shoe.sr, shoe.pc, 7, shoe.orig_pc);
 })
 
 ~inst(asx_reg, {
@@ -344,7 +414,7 @@ global_shoebill_context_t shoe;
     const uint16_t divisor = (uint16_t)shoe.dat;
     
     if (divisor == 0) {
-        throw_divide_by_zero();
+        throw_frame_two(shoe.orig_sr, shoe.uncommitted_ea_read_pc, 5, shoe.orig_pc);
         return ;
     }
     
@@ -371,7 +441,7 @@ global_shoebill_context_t shoe;
     const int16_t s_divisor = (int16_t)shoe.dat;
     
     if (s_divisor == 0) {
-        throw_divide_by_zero();
+        throw_frame_two(shoe.orig_sr, shoe.uncommitted_ea_read_pc, 5, shoe.orig_pc);
         return ;
     }
     
@@ -976,13 +1046,14 @@ global_shoebill_context_t shoe;
     ~decompose(shoe.op, 0100 1100 01 MMMMMM);
     ~decompose(ext, 0 qqq u s 0000000 rrr);
     call_ea_read(M, 4);
-    call_ea_read_commit(M, 4);
     
     const uint32_t divisor = shoe.dat;
     if (divisor == 0) {
-        throw_divide_by_zero();
+        throw_frame_two(shoe.orig_sr, shoe.uncommitted_ea_read_pc, 5, shoe.orig_pc);
         return ;
     }
+    
+    call_ea_read_commit(M, 4);
     
     uint64_t dividend;
     if (s)

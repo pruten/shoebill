@@ -26,7 +26,6 @@
 #include <assert.h>
 #include <stdlib.h>
 #include <string.h>
-#include <GLUT/glut.h>
 #include "shoebill.h"
 #include "core_api.h"
 
@@ -56,85 +55,6 @@ typedef struct __attribute__ ((__packed__)) {
     uint32_t plane_bytes;
 } video_params_t;
 
-/*void nubus_video_display_func (void)
-{
-    uint32_t myw = glutGet(GLUT_WINDOW_WIDTH);
-    uint32_t myh = glutGet(GLUT_WINDOW_HEIGHT);
-    uint32_t slotnum, i;
-    int32_t my_window_id = glutGetWindow();
-    
-    for (slotnum = 0; slotnum < 16; slotnum++)
-        if (shoe.slots[slotnum].glut_window_id == my_window_id)
-            break;
-    
-    video_ctx_t *ctx = (video_ctx_t*)shoe.slots[slotnum].ctx;
-    
-    glMatrixMode(GL_PROJECTION);
-    glLoadIdentity();
-    glOrtho(0, myw, 0, myh, 0, 1);
-    glMatrixMode(GL_MODELVIEW);
-    glLoadIdentity();
-    
-    glClear(GL_COLOR_BUFFER_BIT);
-    
-    glColor3f(0.1, 0.1, 0.8);
-    
-    uint32_t gli = 0;
-    
-    switch (ctx->depth) {
-        case 1: {
-            for (i=0; i < ctx->pixels/8; i++) {
-                const uint8_t byte = ctx->indexed_buf[i];
-                ctx->direct_buf[i * 8 + 0] = ctx->clut[(byte >> 7) & 1];
-                ctx->direct_buf[i * 8 + 1] = ctx->clut[(byte >> 6) & 1];
-                ctx->direct_buf[i * 8 + 2] = ctx->clut[(byte >> 5) & 1];
-                ctx->direct_buf[i * 8 + 3] = ctx->clut[(byte >> 4) & 1];
-                ctx->direct_buf[i * 8 + 4] = ctx->clut[(byte >> 3) & 1];
-                ctx->direct_buf[i * 8 + 5] = ctx->clut[(byte >> 2) & 1];
-                ctx->direct_buf[i * 8 + 6] = ctx->clut[(byte >> 1) & 1];
-                ctx->direct_buf[i * 8 + 7] = ctx->clut[(byte >> 0) & 1];
-            }
-            break;
-        }
-        case 2: {
-            for (i=0; i < ctx->pixels/4; i++) {
-                const uint8_t byte = ctx->indexed_buf[i];
-                ctx->direct_buf[i * 4 + 0] = ctx->clut[(byte >> 6) & 3];
-                ctx->direct_buf[i * 4 + 1] = ctx->clut[(byte >> 4) & 3];
-                ctx->direct_buf[i * 4 + 2] = ctx->clut[(byte >> 2) & 3];
-                ctx->direct_buf[i * 4 + 3] = ctx->clut[(byte >> 0) & 3];
-            }
-            break;
-        }
-        case 4: {
-            for (i=0; i < ctx->pixels/2; i++) {
-                const uint8_t byte = ctx->indexed_buf[i];
-                ctx->direct_buf[i * 2 + 0] = ctx->clut[(byte >> 4) & 0xf];
-                ctx->direct_buf[i * 2 + 1] = ctx->clut[(byte >> 0) & 0xf];
-            }
-            break;
-        }
-        case 8:
-            for (i=0; i < ctx->pixels; i++)
-                ctx->direct_buf[i] = ctx->clut[ctx->indexed_buf[i]];
-            break;
-        
-        default:
-            assert(!"unknown depth");
-    }
-    
-    glViewport(0, 0, myw, myh);
-    glRasterPos2i(0, myh);
-    glPixelStorei(GL_UNPACK_LSB_FIRST, GL_TRUE);
-    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-    
-    glPixelZoom(1.0, -1.0);
-    
-    glDrawPixels(myw, myh, GL_RGBA, GL_UNSIGNED_BYTE, ctx->direct_buf);
-    
-    glFlush();
-}*/
-
 uint32_t compute_nubus_crc(uint8_t *rom, uint32_t len)
 {
     uint32_t i, sum = 0;
@@ -156,6 +76,15 @@ uint32_t compute_nubus_crc(uint8_t *rom, uint32_t len)
     return sum;
 }
 
+static void _switch_depth(shoebill_card_video_t *ctx, uint32_t depth)
+{
+    ctx->depth = depth;
+    if (depth > 8)
+        ctx->cur_buf = (uint8_t*)ctx->direct_buf;
+    else
+        ctx->cur_buf = ctx->indexed_buf;
+}
+
 void nubus_video_init(void *_ctx, uint8_t slotnum,
                       uint16_t width, uint16_t height, uint16_t scanline_width,
                       double refresh_rate)
@@ -172,7 +101,7 @@ void nubus_video_init(void *_ctx, uint8_t slotnum,
     ctx->rom = malloc(4096);
     
     // Set the depth and clut for B&W
-    ctx->depth = 1;
+    _switch_depth(ctx, 1);
     bzero(ctx->clut, 256 * 4);
     ctx->clut[0].r = 0xff;
     ctx->clut[0].g = 0xff;
@@ -198,6 +127,14 @@ void nubus_video_init(void *_ctx, uint8_t slotnum,
     params[3].line_width = htons(scanline_width);
     params[3].right = htons(width);
     params[3].bottom = htons(height);
+    
+    /*params[4].line_width = htons(scanline_width * 2);
+    params[4].right = htons(width);
+    params[4].bottom = htons(height);
+    
+    params[5].line_width = htons(scanline_width * 4);
+    params[5].right = htons(width);
+    params[5].bottom = htons(height);*/
     
     // Recompute the rom crc
     compute_nubus_crc(ctx->rom, 4096);
@@ -274,8 +211,30 @@ void nubus_video_write_func(const uint32_t rawaddr, const uint32_t size,
                     break;
                 }
                 case 1: { // Set depth
-                    const uint32_t depth = 1 << (data - 128); // FIXME: this won't work for direct mode
-                    ctx->depth = depth;
+                    uint32_t newdepth;
+                    switch (data) {
+                        case 128:
+                            newdepth = 1;
+                            break;
+                        case 129:
+                            newdepth = 2;
+                            break;
+                        case 130:
+                            newdepth = 4;
+                            break;
+                        case 131:
+                            newdepth = 8;
+                            break;
+                        case 132:
+                            newdepth = 16;
+                            break;
+                        case 133:
+                            newdepth = 32;
+                            break;
+                        default:
+                            assert(!"driver tried to set bogus depth");
+                    }
+                    _switch_depth(ctx, newdepth);
                     printf("nubus_magic: set depth = %u\n", ctx->depth);
                     break;
                 }
@@ -312,13 +271,14 @@ void nubus_video_write_func(const uint32_t rawaddr, const uint32_t size,
     }
     
     // Else, this is video ram
-   // uint32_t i, myaddr = addr % ctx->indexed_buf_len, mydata = data;
+    
     uint32_t myaddr, mydata;
     for (myaddr = addr + size, mydata = data; addr < myaddr; ) {
         // assert(myaddr < ctx->pixels)
         ctx->indexed_buf[(--myaddr) % ctx->pixels] = mydata & 0xff;
         mydata >>= 8;
     }
+
 }
 
 

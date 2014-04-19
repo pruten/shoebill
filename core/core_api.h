@@ -46,6 +46,7 @@ typedef struct {
 typedef struct {
     video_ctx_color_t *direct_buf, *clut;
     uint8_t *indexed_buf, *rom;
+    uint8_t *cur_buf;
     
     uint32_t pixels;
     

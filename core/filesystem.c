@@ -1374,7 +1374,7 @@ done:
     uint32_t size;
     char error_str[1024];
     
-    buf = extract_kernel(argv[1], argv[2], error_str, &size);
+    buf = shoebill_extract_kernel(argv[1], argv[2], error_str, &size);
     if (!buf)
         return 0;
     
