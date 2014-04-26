@@ -150,7 +150,7 @@ typedef struct {
     uint8_t target_id; // target ID (as an int [0, 7])
     
     // transfer buffers
-    uint8_t buf[512 * 64];
+    uint8_t buf[512 * 256];
     uint32_t bufi;
     uint32_t in_len, in_i;
     uint32_t out_len, out_i;
@@ -412,12 +412,18 @@ static void scsi_buf_set (uint8_t byte)
                 
                 printf("scsi_buf_set: Responding to read at off=%u len=%u\n", offset, len);
                 
-                assert(len <= 64);
+                //assert(len <= 64);
                 
                 assert(dev->num_blocks > offset);
                 
+                if (len == 0) {
+                    switch_status_phase(0);
+                    break;
+                }
+                
                 assert(0 == fseeko(dev->f, 512 * offset, SEEK_SET));
                 assert(fread(scsi.buf, len * 512, 1, dev->f) == 1);
+                
                 
                 scsi.in_len = len * 512;
                 scsi.in_i = 0;
@@ -435,7 +441,7 @@ static void scsi_buf_set (uint8_t byte)
                 
                 printf("scsi_buf_set: Responding to write at off=%u len=%u\n", offset, len);
                 
-                assert(len <= 64);
+                //assert(len <= 64);
                 
                 scsi.write_offset = offset;
                 scsi.out_len = len * 512;
@@ -466,7 +472,7 @@ void scsi_reg_read ()
 {
     const uint32_t reg = ((shoe.physical_addr & 0xffff) >> 4) & 0xf;
 
-    printf("\nscsi_reg_read: reading from register %s(%u) ", scsi_read_reg_str[reg], reg);
+    //printf("\nscsi_reg_read: reading from register %s(%u) ", scsi_read_reg_str[reg], reg);
     
     switch (reg) {
         case 0: // Current scsi data bus register
@@ -555,7 +561,7 @@ void scsi_reg_read ()
             break;
     }
     
-    printf("(set to 0x%02x)\n\n", (uint32_t)shoe.physical_dat);
+    //printf("(set to 0x%02x)\n\n", (uint32_t)shoe.physical_dat);
 }
 
 void scsi_reg_write ()

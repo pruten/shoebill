@@ -99,9 +99,9 @@ void process_pending_interrupt ()
     // If the CPU was stopped, unstop it
     shoe.cpu_thread_notifications &= ~~SHOEBILL_STATE_STOPPED;
     
-    printf("Interrupt pri %u! mask=%u\n", priority, sr_mask());
-    
     const uint16_t vector_offset = (priority + 24) * 4;
+    
+    printf("Interrupt pri %u! mask=%u vector_offset=0x%08x\n", priority, sr_mask(), vector_offset);
     
     // Save the old SR, and switch to supervisor mode
     const uint16_t old_sr = shoe.sr;
@@ -119,7 +119,6 @@ void process_pending_interrupt ()
     push_a7(old_sr, 2);
     printf("interrupt: pushed sr 0x%04x to 0x%08x\n", old_sr, shoe.a[7]);
         assert(!shoe.abort);
-
     
     if (sr_m()) {
         // clear sr_m, and write a format 1 exception to the ISP
@@ -137,8 +136,18 @@ void process_pending_interrupt ()
             assert(!shoe.abort);
     }
     
+    /*
+     * "When processing an interrupt exception, the MC68020/EC020 first makes an internal copy of the SR,
+     * sets the privilege level to supervisor, suppresses tracing, and sets the processor interrupt mask 
+     * level to the level of the interrupt being serviced."
+     */
+    set_sr_mask(priority);
+    set_sr_t0(0);
+    set_sr_t1(0);
+    
     // Fetch the autovector handler address
     const uint32_t newpc = lget(shoe.vbr + vector_offset, 4);
+    printf("autovector handler = *0x%08x = 0x%08x\n", shoe.vbr + vector_offset, newpc);
     assert(!shoe.abort);
     
     shoe.pc = newpc;

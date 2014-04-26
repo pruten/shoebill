@@ -5,12 +5,16 @@ A Macintosh II emulator that runs A/UX (and A/UX only).
 
 Shoebill is an all-new, BSD-licensed Macintosh II emulator designed from the ground up with the singular goal of running A/UX. 
 
-A/UX 1.x.x through 2.0.0 are supported currently, and 3.x.x support is in progress.
-
-Shoebill requires a OS X, a Macintosh II or IIx ROM, a disk image with A/UX installed, and an A/UX kernel.
+Shoebill requires a OS X, a Macintosh II, IIx or IIcx ROM, and a disk image with A/UX installed.
 
 [Download the latest release], and then see the [getting started] wiki.  
 Also check out [screenshots].
+
+__Update (April 26, 2014): Shoebill 0.0.2 is available, and it supports A/UX 3.0.0! And you no longer need to supply your own kernel.__
+
+
+####Supports
+* A/UX 1.1.1 through 3.0.0 (but not 3.0.1 or higher, yet)
 
 ####Currently Implements
 * 68020 CPU (mostly)

@@ -929,6 +929,65 @@ void begin_definitions()
         
         // subtract illegal size (00)
         sub_range(inst, "00 00 xxxxxx xxxxxx");
+        
+        // subtract move_from_d
+        sub_range(inst, "00 xx xxxxxx 000xxx");
+        
+        // subtract move_to_d
+        sub_range(inst, "00 xx xxx000 xxxxxx");
+    }
+    
+    { // move_d_to_d
+        inst_t *inst = new_inst("move_d_to_d", "all", 1);
+        no_ea(inst);
+        
+        add_range(inst, "00 xx xxx 000 000 xxx");
+        sub_range(inst, "00 00 xxx 000 000 xxx");
+    }
+    
+    { // move_to_d
+        inst_t *inst = new_inst("move_to_d", "all", 2);
+        { // EA mode == addr register (byte-size not allowed)
+            set_range_group(inst, 0);
+            add_range(inst, "00 11 xxx000 MMMMMM");
+            add_range(inst, "00 10 xxx000 MMMMMM");
+            ea_add_mode(inst, EA_001);
+        }
+        { // all other EA modes
+            set_range_group(inst, 1);
+            add_range(inst, "00 xx xxx000 MMMMMM");
+            sub_range(inst, "00 00 xxx000 MMMMMM");
+            ea_all(inst);
+            ea_sub_mode(inst, EA_001);
+            ea_sub_mode(inst, EA_000); // EA_000 is handled by move_d_to_d
+        }
+    }
+    
+    { // move_from_d
+        inst_t *inst = new_inst("move_from_d", "all", 1);
+        
+        // I'm manually specifying this entire thing, since the EA description is too complicated
+        no_ea(inst);
+        
+        // Add in all modes, all sizes
+        add_range(inst, "00 xx xxxxxx 000xxx");
+        
+        // subtract the invalid destination modes (001, 111_010, 111_011, 111_100)
+        sub_range(inst, "00 xx xxx 001 xxxxxx");
+        sub_range(inst, "00 xx 010 111 xxxxxx");
+        sub_range(inst, "00 xx 011 111 xxxxxx");
+        sub_range(inst, "00 xx 100 111 xxxxxx");
+        
+        // subtract the illegal destination modes (111_101, 111_110, 111_111)
+        sub_range(inst, "00 xx 101 111 xxxxxx");
+        sub_range(inst, "00 xx 110 111 xxxxxx");
+        sub_range(inst, "00 xx 111 111 xxxxxx");
+        
+        // subtract illegal size (00)
+        sub_range(inst, "00 00 xxxxxx xxxxxx");
+        
+        // subtract move_d_to_d
+        sub_range(inst, "00 xx xxx 000 000xxx");
     }
     
     { // movea

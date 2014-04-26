@@ -31,9 +31,32 @@
 #include "../core/mc68851.h"
 
 global_shoebill_context_t shoe;
-//struct dbg_state_t dbg_state;
+
+static _Bool _cc_t() {return 1;}
+static _Bool _cc_f() {return 0;}
+static _Bool _cc_hi() {return !sr_c() && !sr_z();}
+static _Bool _cc_ls() {return sr_c() || sr_z();}
+static _Bool _cc_cc() {return !sr_c();}
+static _Bool _cc_cs() {return sr_c();}
+static _Bool _cc_ne() {return !sr_z();}
+static _Bool _cc_eq() {return sr_z();}
+static _Bool _cc_vc() {return !sr_v();}
+static _Bool _cc_vs() {return sr_v();}
+static _Bool _cc_pl() {return !sr_n();}
+static _Bool _cc_mi() {return sr_n();}
+static _Bool _cc_ge() {return (sr_n() && sr_v()) || (!sr_n() && !sr_v());}
+static _Bool _cc_lt() {return (sr_n() && !sr_v()) || (!sr_n() && sr_v());}
+static _Bool _cc_gt() {return (sr_n() && sr_v() && !sr_z()) || (!sr_n() && !sr_v() && !sr_z());}
+static _Bool _cc_le() {return sr_z() || (sr_n() && !sr_v()) || (!sr_n() && sr_v());}
+typedef _Bool (*_cc_func)();
+static const _cc_func evaluate_cc[16] = {
+    _cc_t, _cc_f, _cc_hi, _cc_ls, _cc_cc, _cc_cs, _cc_ne, _cc_eq,
+    _cc_vc, _cc_vs, _cc_pl, _cc_mi, _cc_ge, _cc_lt, _cc_gt, _cc_le
+};
+
 
 #define nextword() ({const uint16_t w=lget(shoe.pc,2); if (shoe.abort) {return;}; shoe.pc+=2; w;})
+#define nextlong() ({const uint32_t L=lget(shoe.pc,4); if (shoe.abort) {return;}; shoe.pc+=4; L;})
 #define verify_supervisor() {if (!sr_s()) {throw_privilege_violation(); return;}}
 
 ~newmacro(inst, 2, {
@@ -75,67 +98,9 @@ global_shoebill_context_t shoe;
     // (xyz) == (010) -> sz=2
     // (xyz) == (011) -> sz=4
     const uint32_t sz = y << (z+1); // too clever
-    const uint32_t next_pc = shoe.orig_pc + 2 + sz;
+    const uint32_t next_pc = shoe.pc + sz;
     
-    const uint8_t C = sr_c();
-    const uint8_t Z = sr_z();
-    const uint8_t V = sr_v();
-    const uint8_t N = sr_n();
-    
-    uint8_t set = 0;
-    
-    switch (c) {
-        case 0: // trapt
-            set = 1; // FIXME: do-trap unconditionally?
-            break;
-        case 1: // trapf
-            set = 0; // FIXME: do-not-trap unconditionally?
-            break;
-        case 2:
-            if (!C && !Z) set = 1; // traphi
-            break;
-        case 3:
-            if (C || Z) set = 1; // trapls
-            break;
-        case 4:
-            if (!C) set = 1; // trapcc
-            break;
-        case 5:
-            if (C) set = 1; // trapcs
-            break;
-        case 6:
-            if (!Z) set = 1; // trapne
-            break;
-        case 7:
-            if (Z) set = 1; // trapeq
-            break;
-        case 8:
-            if (!V) set = 1; // trapvc
-            break;
-        case 9:
-            if (V) set = 1; // trapvs
-            break;
-        case 10:
-            if (!N) set = 1; // trappl
-            break;
-        case 11:
-            if (N) set = 1; // trapmi
-            break;
-        case 12:
-            if ( (N && V) || (!N && !V) ) set = 1; // trapge
-            break;
-        case 13:
-            if ( (N && !V) || (!N && V) ) set = 1; // traplt
-            break;
-        case 14:
-            if ( (N && V && !Z) || (!N && !V && !Z) ) set = 1; // trapgt
-            break;
-        case 15:
-            if ( (Z || (N && !V) || (!N && V) ) ) set = 1; // traple
-            break;
-    }
-    
-    if (set)
+    if (evaluate_cc[c]())
         throw_frame_two(shoe.sr, next_pc, 7, shoe.orig_pc);
     else
         shoe.pc = next_pc;
@@ -638,7 +603,7 @@ global_shoebill_context_t shoe;
     const uint16_t format_word = lget(shoe.a[7]+6, 2);
     if (shoe.abort) return ;
     
-    printf("rte: sr=0x%04x pc=0x%08x format=0x%04x, post-pop a7=0x%08x\n", sr, pc, format_word, shoe.a[7]+8);
+    // printf("rte: sr=0x%04x pc=0x%08x format=0x%04x, post-pop a7=0x%08x\n", sr, pc, format_word, shoe.a[7]+8);
     
     switch (format_word >> 12) {
         case 0:
@@ -900,8 +865,7 @@ global_shoebill_context_t shoe;
     if (s < 2) {
         immed = chop(nextword(), sz);
     } else {
-        immed = nextword();
-        immed = (immed << 16) | nextword();
+        immed = nextlong();
     }
     
     call_ea_read(M, sz);
@@ -1155,25 +1119,64 @@ global_shoebill_context_t shoe;
 
 ~inst(movea, {
     ~decompose(shoe.op, 00 ab rrr 001 MMMMMM);
-    if (a == 0) { // only word and long sizes are supported for movea
-        throw_illegal_instruction();
-        return ;
-    }
-    const uint8_t sz = b ? 2 : 4; // 1<<(1+(!b)); // (3=word, 2=long)
+    
+    const uint8_t sz = b ? 2 : 4;
     
     call_ea_read(M, sz);
     call_ea_read_commit(M, sz);
     if (b) { // word-size, sign extend shoe.dat
-        int16_t dat = shoe.dat;
+        const int16_t dat = shoe.dat;
         shoe.a[r] = (int32_t)dat;
     } else {
-        // printf("r = %u, dat=0x%llx\n", r, shoe.dat);
         shoe.a[r] = shoe.dat;
     }
 })
 
+~inst(move_d_to_d, {
+    ~decompose(shoe.op, 00 ab RRR 000 000 rrr); // r=source, R=dest
+    
+    const uint8_t sz = 1<<(a+(!b)); // (1=byte, 3=word, 2=long)
+    const uint32_t val = chop(shoe.d[r], sz);
+    
+    set_d(R, val, sz);
+    
+    set_sr_v(0);
+    set_sr_c(0);
+    set_sr_n(mib(val, sz));
+    set_sr_z(val == 0);
+})
+
+~inst(move_from_d, {
+    ~decompose(shoe.op, 00 ab RRR MMM 000 rrr); // r=source, MR=dest
+    
+    const uint8_t sz = 1<<(a+(!b)); // (1=byte, 3=word, 2=long)
+    const uint32_t val = chop(shoe.d[r], sz);
+    
+    set_sr_v(0);
+    set_sr_c(0);
+    set_sr_n(mib(val, sz));
+    set_sr_z(val == 0);
+    
+    shoe.dat = val;
+    call_ea_write((M << 3) | R, sz);
+})
+
+~inst(move_to_d, {
+    ~decompose(shoe.op, 00 ab rrr 000 mmmmmm); // m=source, r=dest
+    const uint8_t sz = 1<<(a+(!b)); // (1=byte, 3=word, 2=long)
+    
+    call_ea_read(m, sz);
+    call_ea_read_commit(m, sz);
+    
+    set_sr_v(0);
+    set_sr_c(0);
+    set_sr_n(ea_n(sz));
+    set_sr_z(ea_z(sz));
+    set_d(r, shoe.dat, sz);
+})
+
 ~inst(move, {
-    ~decompose(shoe.op, 00 ab RRR MMM mmm rrr); // o=source, MR=dest
+    ~decompose(shoe.op, 00 ab RRR MMM mmm rrr); // mr=source, MR=dest
     const uint8_t sz = 1<<(a+(!b)); // (1=byte, 3=word, 2=long)
     
     call_ea_read((m<<3) | r, sz);
@@ -1567,12 +1570,12 @@ global_shoebill_context_t shoe;
     } else if (s==1) {
         immed = (int16_t)nextword();
     } else {
-        immed = nextword();
-        immed = (immed << 16) | nextword();
+        immed = nextlong();
     }
     
     // fetch the destination operand
     call_ea_read(M, sz);
+    
     // do the subtraction
     const uint32_t result = shoe.dat - immed;
     // find the MIBs for source, dest, and result
@@ -1602,8 +1605,7 @@ global_shoebill_context_t shoe;
     } else if (s==1) {
         immed = (int16_t)nextword();
     } else {
-        immed = nextword();
-        immed = (immed << 16) | nextword();
+        immed = nextlong();
     }
     
     call_ea_read(M, sz);
@@ -1633,8 +1635,7 @@ global_shoebill_context_t shoe;
     } else if (s==1) {
         immed = (int16_t)nextword();
     } else {
-        immed = nextword();
-        immed = (immed << 16) | nextword();
+        immed = nextlong();
     }
     
     call_ea_read(M, sz);
@@ -1660,8 +1661,7 @@ global_shoebill_context_t shoe;
     } else if (s==1) {
         immed = (int16_t)nextword();
     } else {
-        immed = nextword();
-        immed = (immed << 16) | nextword();
+        immed = nextlong();
     }
     
     // fetch the destination operand
@@ -1689,8 +1689,7 @@ global_shoebill_context_t shoe;
     } else if (s==1) {
         immed = (int16_t)nextword();
     } else {
-        immed = nextword();
-        immed = (immed << 16) | nextword();
+        immed = nextlong();
     }
     
     // fetch the destination operand
@@ -1813,33 +1812,15 @@ global_shoebill_context_t shoe;
 
 ~inst(dbcc, {
     ~decompose(shoe.op, 0101 cccc 11001 rrr);
-    const uint32_t orig_pc = shoe.pc;
-    const int16_t disp = nextword();
-    const uint8_t C = sr_c();
-    const uint8_t Z = sr_z();
-    const uint8_t V = sr_v();
-    const uint8_t N = sr_n();
-    switch (c) {
-        case 0: return ; // dbt (what a useless instruction: c==0 => condition=true => return without doing anything)
-        case 1: break ; // dbf (or dbra)
-        case 2: if (!C && !Z) return; break; // dbhi
-        case 3: if (C || Z)  return; break; // dbls
-        case 4: if (!C) return; break; // dbcc
-        case 5: if (C) return; break; // dbcs
-        case 6: if (!Z) return; break; // dbne
-        case 7: if (Z) return; break; // dbeq
-        case 8: if (!V) return; break; // dbvc
-        case 9: if (V) return; break; // dbvs
-        case 10: if (!N) return; break; // dbpl
-        case 11: if (N) return; break; // dbmi
-        case 12: if ( (N && V) || (!N && !V) ) return; break; // dbge
-        case 13: if ( (N && !V) || (!N && V) ) return; break; // dblt
-        case 14: if ( (N && V && !Z) || (!N && !V && !Z) ) return; break; // dbgt
-        case 15: if ( (Z || (N && !V) || (!N && V) ) ) return; break; // dble
+    if (evaluate_cc[c]()) {
+        shoe.pc += 2;
     }
-    set_d(r, get_d(r, 2)-1, 2);
-    if (get_d(r, 2) != 0xffff) {
-        shoe.pc = orig_pc + disp;
+    else {
+        const int16_t disp = nextword();
+        const uint16_t newd = get_d(r, 2) - 1;
+        set_d(r, newd, 2);
+        if (newd != 0xffff)
+            shoe.pc = shoe.pc + disp - 2;
     }
 })
 
@@ -1849,14 +1830,11 @@ global_shoebill_context_t shoe;
     
     // find the new PC
     if ((d==0) || (d==0xff)) {
-        const uint16_t ext = nextword();
         if (d==0xff) {
-            uint32_t mylong = ((uint32_t)ext)<<16;
-            mylong |= nextword();
-            new_pc += mylong;
+            new_pc += nextlong();
         }
         else
-            new_pc += ((int16_t)ext);
+            new_pc += ((int16_t)nextword());
     }
     else {
         uint8_t tmp = d;
@@ -1870,129 +1848,36 @@ global_shoebill_context_t shoe;
 })
 
 ~inst(bcc, {
-    uint32_t new_pc = shoe.pc;
+    const uint32_t orig_pc = shoe.pc;
     ~decompose(shoe.op, 0110 cccc dddddddd);
-    // find the new PC
-    if ((d==0) || (d==0xff)) {
-        const uint16_t ext = nextword();
-        if (d==0xff) {
-            uint32_t mylong = ((uint32_t)ext)<<16;
-            mylong |= nextword();
-            new_pc += mylong;
+    
+    if (evaluate_cc[c]()) {
+        if (d == 0) {
+            const int16_t ext = (int16_t)nextword();
+            shoe.pc = orig_pc + ext;
         }
-        else
-            new_pc += ((int16_t)ext);
+        else if (d == 0xff) {
+            shoe.pc = orig_pc + nextlong();
+        }
+        else {
+            const int8_t tmp = (int8_t)d;
+            shoe.pc = orig_pc + tmp;
+        }
     }
     else {
-        uint8_t tmp = d;
-        new_pc += ((int8_t)d);
-    }
-    
-    // we'll use these control codes
-    const uint8_t C = sr_c();
-    const uint8_t Z = sr_z();
-    const uint8_t V = sr_v();
-    const uint8_t N = sr_n();
-    
-    // branch conditionally
-    switch (c) {
-        case 0: { // BRA
-            shoe.pc = new_pc; return; // branch unconditionally
-        }
-        case 1: {
-            assert(!"How did we get here?"); // decoder should have called inst_bsr()
-        }
-        case 2: if (!C && !Z) shoe.pc = new_pc; return; // bhi
-        case 3: if (C || Z) shoe.pc = new_pc; return; // bls
-        case 4: if (!C) shoe.pc = new_pc; return; // bcc
-        case 5: if (C) shoe.pc = new_pc; return; // bcs
-        case 6: if (!Z) shoe.pc = new_pc; return; // bne
-        case 7: if (Z) shoe.pc = new_pc; return; // beq
-        case 8: if (!V) shoe.pc = new_pc; return; // bvc
-        case 9: if (V) shoe.pc = new_pc ; return; // bvs
-        case 10: if (!N) shoe.pc = new_pc; return; // bpl
-        case 11: if (N) shoe.pc = new_pc; return; // bmi
-        case 12: if ( (N && V) || (!N && !V) ) shoe.pc = new_pc; return; // bge
-        case 13: if ( (N && !V) || (!N && V) ) shoe.pc = new_pc; return; // blt
-        case 14: if ( (N && V && !Z) || (!N && !V && !Z) ) shoe.pc = new_pc; return; // bgt
-        case 15: if ( (Z || (N && !V) || (!N && V) ) ) shoe.pc = new_pc; return; // ble
+        if (d == 0) shoe.pc += 2;
+        else if (d == 0xff) shoe.pc += 4;
     }
 })
 
 ~inst(scc, {
     ~decompose(shoe.op, 0101 cccc 11 MMMMMM);
-    const uint8_t C = sr_c();
-    const uint8_t Z = sr_z();
-    const uint8_t V = sr_v();
-    const uint8_t N = sr_n();
     
-    uint8_t byte = 0;
-    switch (c) {
-        case 0: // st (set unconditionally? FIXME: TEST ME!)
-            byte = 0xff; 
-            break;
-        case 1: // sf 
-            byte = 0x0; // (FIXME: do-not-set unconditionally? This can possibly be right)
-            break;
-        case 2: 
-            if (!C && !Z) byte = 0xff; // shi
-            break; 
-        case 3: 
-            if (C || Z) byte = 0xff; // sls
-            break;
-        case 4: 
-            if (!C) byte = 0xff; // scc
-            break; 
-        case 5: 
-            if (C) byte = 0xff; // scs
-            break;
-        case 6: 
-            if (!Z) byte = 0xff; // sne
-            break;
-        case 7: 
-            if (Z) byte = 0xff; // seq
-            break;
-        case 8: 
-            if (!V) byte = 0xff; // svc
-            break;
-        case 9: 
-            if (V) byte = 0xff; // svs
-            break;
-        case 10: 
-            if (!N) byte = 0xff; // spl
-            break;
-        case 11: 
-            if (N) byte = 0xff; // smi
-            break;
-        case 12: 
-            if ( (N && V) || (!N && !V) ) byte = 0xff; // sge
-            break;
-        case 13: 
-            if ( (N && !V) || (!N && V) ) byte = 0xff; // slt
-            break;
-        case 14: 
-            if ( (N && V && !Z) || (!N && !V && !Z) ) byte = 0xff; // sgt
-            break;
-        case 15: 
-            if ( (Z || (N && !V) || (!N && V) ) ) byte = 0xff; // sle
-            break;
-    }
-    shoe.dat = byte;
+    shoe.dat = evaluate_cc[c]() ? 0xff : 0;
     call_ea_write(M, 1);
 })
 
 ~inst(nop, {})
-
-/*
- // Illegal on 68040
-~inst(cinv, {
-    // Caches aren't implemented, so do nothing
-})
-
-~inst(cpush, {
-    // Caches aren't implemented, so do nothing
-})
-*/
 
 ~inst(chk, {
     ~decompose(shoe.op, 0100 rrr 1s 0 MMMMMM);
@@ -2000,7 +1885,6 @@ global_shoebill_context_t shoe;
     const uint8_t sz = s ? 2 : 4;
     
     call_ea_read(M, sz);
-    call_ea_read_commit(M, sz);
     
     int32_t reg, ea;
     
@@ -2019,6 +1903,8 @@ global_shoebill_context_t shoe;
         set_sr_n((reg < 0));
         throw_frame_two(shoe.sr, shoe.pc, 6, shoe.orig_pc);
     }
+    
+    call_ea_read_commit(M, sz);
 
     return ;
 })
@@ -2036,39 +1922,22 @@ global_shoebill_context_t shoe;
     
     shoe.a[7] -= 4;
     shoe.pc = shoe.dat;
-    if (sr_s()&&0) {
+    /*
+    if (sr_s()) {
         //return ;
         coff_symbol *symb = coff_find_func(shoe.coff, shoe.pc);
-        if (symb) {
-            uint32_t i;
-            
-            printf("CALL %s+%u 0x%08x\n", symb->name, shoe.pc-symb->value, shoe.pc);
-            if (strcmp(symb->name, "tracescsi") == 0) {
-                uint32_t addr = lget(shoe.a[7]+4, 4);
-                
-                printf("tracescsi: [");
-                char c;
-                do {
-                    c = lget(addr++, 1);
-                    printf("%c", c);
-                } while ((c != 0) && (!shoe.abort));
-                printf("]\n");
-            }
-        }
         
-        if (shoe.pc == 0x1002ba94) {
-            uint32_t addr = lget(shoe.a[7]+4, 4);
-            printf("panic: [");
-            char c;
-            do {
-                c = lget(addr++, 1);
-                printf("%c", c);
-            } while ((c != 0) && (!shoe.abort));
-            printf("]\n");
+        if (symb) {
+            sprintf(ring_tmp, "CALL (s) %s+%u 0x%08x\n", symb->name, shoe.pc-symb->value, shoe.pc);
+            ring_print(ring_tmp);
+        }
+        else {
+            sprintf(ring_tmp, "CALL (s) unknown+ 0x%08x\n", shoe.pc);
+            ring_print(ring_tmp);
         }
         
     }
-    else if (0) {
+    else {
         char *name = (char*)"unknown";
         uint32_t value = 0;
         if ((shoe.pc >= 0x40000000) && (shoe.pc < 0x50000000)) {
@@ -2081,16 +1950,12 @@ global_shoebill_context_t shoe;
                 value = macii_rom_symbols[i].addr;
             }
         }
-        /*else {
-            coff_symbol *symb = coff_find_func(shoe.launch, shoe.pc);
-            if (symb) {
-                value = symb->value;
-                name = symb->name;
-            }
-        }*/
         
-        printf("CALL %s+%u 0x%08x\n", name, shoe.pc-value, shoe.pc);
+        
+        sprintf(ring_tmp, "CALL (u) %s+%u 0x%08x\n", name, shoe.pc-value, shoe.pc);
+        ring_print(ring_tmp);
     }
+    */
     
 })
 
@@ -2136,6 +2001,7 @@ global_shoebill_context_t shoe;
     shoe.a[7] += 4;
     shoe.pc = pop;
     
+    /*
     if (sr_s() && 0) {
         // return ;
         coff_symbol *symb = coff_find_func(shoe.coff, shoe.pc);
@@ -2155,23 +2021,15 @@ global_shoebill_context_t shoe;
                 value = macii_rom_symbols[i].addr;
             }
         }
-        /*else {
-            coff_symbol *symb = coff_find_func(shoe.launch, shoe.pc);
-            if (symb) {
-                value = symb->value;
-                name = symb->name;
-            }
-        }*/
         
         printf("RETURN TO %s+%u 0x%08x\n", name, shoe.pc-value, shoe.pc);
-    }
+    }*/
 })
 
 
 ~inst(link_long, {
     ~decompose(shoe.op, 0100 1000 0000 1 rrr);
-    const uint16_t ext_hi = nextword();
-    const uint32_t disp = (ext_hi<<16) | nextword();
+    const uint32_t disp = nextlong();
     
     // push the contents of the address register onto the stack
     lset(shoe.a[7]-4, 4, shoe.a[r]);
@@ -2926,14 +2784,19 @@ uint32_t extract_bitfield(const uint32_t width, const uint32_t offset, const uin
     assert(!"never get here");
 })
 
+void dump_ring();
 ~inst(unknown, {
     printf("Unknown instruction (0x%04x)!\n", shoe.op);
+    /*if (shoe.op == 0x33fe) {
+        dump_ring();
+        assert(!"dumped");
+    }*/
     throw_illegal_instruction();
 })
     
 ~inst(a_line, {
     
-    if (shoe.op == 0xA9EB || shoe.op == 0xA9EC) {
+    /*if (shoe.op == 0xA9EB || shoe.op == 0xA9EC) {
         shoe.suppress_exceptions = 1;
         
         uint32_t fp_op = lget(shoe.a[7]+0, 2);
@@ -2961,7 +2824,7 @@ uint32_t extract_bitfield(const uint32_t width, const uint32_t offset, const uin
         
         shoe.abort = 0;
         shoe.suppress_exceptions = 0;
-    }
+    }*/
     
     throw_illegal_instruction();
 })
@@ -3058,36 +2921,35 @@ fail:
 
 void cpu_step()
 {
-    while (1) {
-        // remember the PC and SR (so we can throw exceptions later)
-        shoe.orig_pc = shoe.pc;
-        shoe.orig_sr = shoe.sr;
-        
-        // Is this an odd address? Throw an address exception!
-        if (shoe.pc & 1) {
-            // throw_address_error(shoe.pc, 0);
-            assert(!"What do I do here?");
-            continue;
-        }
-        
-        // Fetch the next instruction word
-        shoe.op = lget(shoe.pc, 2);
-        
-        // If there was an exception, then the pc changed. Restart execution from the beginning.
-        if (shoe.abort) {
-            shoe.abort = 0;
-            continue;
-        }
-        shoe.pc+=2;
-        
-        inst_instruction_to_pointer[inst_opcode_map[shoe.op]]();
-        
-        /* The abort flag indicates that a routine should stop trying to execute the
-         instruction and return immediately to cpu_step(), usually to begin
-         exception processing */
-        
-        shoe.abort = 0; // clear the abort flag
+    // remember the PC and SR (so we can throw exceptions later)
+    shoe.orig_pc = shoe.pc;
+    shoe.orig_sr = shoe.sr;
+    
+    // Is this an odd address? Throw an address exception!
+    if (shoe.pc & 1) {
+        // throw_address_error(shoe.pc, 0);
+        // I'm leaving this assert in here for now because it almost always indicates a bug in the emulator when it fires
+        assert(!"What do I do here?");
         return ;
     }
+    
+    // Fetch the next instruction word
+    shoe.op = lget(shoe.pc, 2);
+    
+    // If there was an exception, then the pc changed. Restart execution from the beginning.
+    if (shoe.abort) {
+        shoe.abort = 0;
+        return ;
+    }
+    shoe.pc+=2;
+    
+    inst_instruction_to_pointer[inst_opcode_map[shoe.op]]();
+    
+    /* The abort flag indicates that a routine should stop trying to execute the
+     instruction and return immediately to cpu_step(), usually to begin
+     exception processing */
+    
+    shoe.abort = 0; // clear the abort flag
+    return ;
 }
 

@@ -81,15 +81,15 @@ void inst_mc68851_pflushr(uint16_t ext){
     verify_supervisor();
     printf("pflushr!");
     // Just nuke the entire cache
-    bzero(shoe.pmmu_cache[0].valid_map, 512/8);
-    bzero(shoe.pmmu_cache[1].valid_map, 512/8);
+    bzero(shoe.pmmu_cache[0].valid_map, PMMU_CACHE_SIZE/8);
+    bzero(shoe.pmmu_cache[1].valid_map, PMMU_CACHE_SIZE/8);
 }
 
 void inst_mc68851_pflush(uint16_t ext){
     verify_supervisor();
     printf("pflush!");
-    bzero(shoe.pmmu_cache[0].valid_map, 512/8);
-    bzero(shoe.pmmu_cache[1].valid_map, 512/8);
+    bzero(shoe.pmmu_cache[0].valid_map, PMMU_CACHE_SIZE/8);
+    bzero(shoe.pmmu_cache[1].valid_map, PMMU_CACHE_SIZE/8);
     // printf("%s: Error, not implemented!\n", __func__);
 }
 

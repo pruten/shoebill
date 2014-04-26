@@ -28,15 +28,7 @@
 #include <stdint.h>
 #include <assert.h>
 #include <string.h>
-
-#pragma mark Alloc pool stuff
-
-/* --- alloc pool --- */
-
-typedef struct _alloc_pool_t{
-    struct _alloc_pool_t *prev, *next;
-    uint32_t size, magic;
-} alloc_pool_t;
+#include "../core/shoebill.h"
 
 #define fix_endian(x) do { \
     if (ntohs(1) == 1) \
@@ -45,75 +37,8 @@ typedef struct _alloc_pool_t{
         case 1: break; \
         case 2: (x) = ntohs(x); break; \
         case 4: (x) = ntohl(x); break; \
-        case 8: { \
-            const uint64_t n = ntohl((x) & 0xffffffff); \
-            (x) = (n<<32) | ntohl((x)>>32); \
-            break; \
-        } \
         default: assert(!"bogus size"); \
 }} while (0)
-
-static void* p_alloc(alloc_pool_t *pool, uint64_t size)
-{
-    alloc_pool_t *buf = calloc(sizeof(alloc_pool_t) + size, 1);
-    buf->size = size;
-    buf->magic = 'moof';
-    
-    buf->next = pool->next;
-    buf->prev = pool;
-    
-    if (pool->next)
-        pool->next->prev = buf;
-    pool->next = buf;
-    
-    return &buf[1];
-}
-
-static void* p_realloc(void *ptr, uint64_t size)
-{
-    alloc_pool_t *header = &((alloc_pool_t*)ptr)[-1];
-    alloc_pool_t *new_header = realloc(header, size + sizeof(alloc_pool_t));
-    
-    if (new_header)
-        return &new_header[1];
-    
-    return NULL;
-}
-
-static void p_free(void *ptr)
-{
-    alloc_pool_t *header = &((alloc_pool_t*)ptr)[-1];
-    assert(header->magic == 'moof');
-    
-    if (header->next)
-        header->next->prev = header->prev;
-    
-    if (header->prev)
-        header->prev->next = header->next;
-    
-    free(header);
-}
-
-static void p_free_pool(alloc_pool_t *pool)
-{
-    while (pool->prev)
-        pool = pool->prev;
-    
-    while (pool) {
-        alloc_pool_t *cur = pool;
-        pool = cur->next;
-        assert(cur->magic == 'moof');
-        free(cur);
-    }
-}
-
-static alloc_pool_t* p_new_pool(void)
-{
-    alloc_pool_t *pool = calloc(sizeof(alloc_pool_t), 1);
-    pool->magic = 'moof';
-    return pool;
-}
-
 
 /* --- Disk/partition management stuff --- */
 #pragma mark Disk/partition management stuff
@@ -344,8 +269,8 @@ static disk_t* open_disk (const char *disk_path, char *error_str)
         memcpy(disk->partitions[i].name, disk->partition_maps[i].pmPartName, 32);
         memcpy(disk->partitions[i].type, disk->partition_maps[i].pmPartType, 32);
         
-        // printf("%u type:%s name:%s\n", i, disk->partitions[i].type, disk->partitions[i].name);
-        // printf("bz_magic=0x%08x slice=%u\n", disk->partition_maps[i].bz.magic, disk->partition_maps[i].bz.slice);
+        printf("%u type:%s name:%s\n", i, disk->partitions[i].type, disk->partitions[i].name);
+        printf("bz_magic=0x%08x slice=%u\n", disk->partition_maps[i].bz.magic, disk->partition_maps[i].bz.slice);
     }
     
     return disk;
@@ -855,7 +780,8 @@ typedef struct __attribute__ ((__packed__)) {
     uint16_t nlink;
     uint16_t uid;
     uint16_t gid;
-    uint64_t size;
+    uint32_t size_hi; // UFS stores size as a uint64_t, but A/UX apparently only reads/writes
+    uint32_t size; // to the low bits, so sometimes the hi bits contain garbage
     uint32_t atime;
     uint32_t dummy;
     uint32_t mtime;
@@ -986,6 +912,7 @@ static uint8_t ufs_load_inode(ufs_t *mount, ufs_inode_t *inode, uint32_t inum)
     fix_endian(inode->nlink);
     fix_endian(inode->uid);
     fix_endian(inode->gid);
+    fix_endian(inode->size_hi);
     fix_endian(inode->size);
     fix_endian(inode->atime);
     fix_endian(inode->mtime);
@@ -1043,7 +970,7 @@ static uint8_t ufs_read_level(ufs_t *mount,
             const uint32_t block_addr = (blockno / mount->frag_per_block) * mount->frag_per_block;
             const uint32_t block_offset = (blockno - block_addr) * mount->frag_size;
             
-            //printf("L%u: raw_blkno=0x%08x len=0x%08x blockno:0x%08x chunk_size=0x%08x\n", level-1, blockno, (uint32_t)*len, block_addr, (uint32_t)chunk_size);
+            printf("L%u: raw_blkno=0x%08x len=0x%08x blockno:0x%08x chunk_size=0x%08x\n", level-1, blockno, (uint32_t)*len, block_addr, (uint32_t)chunk_size);
             
             // If the chunk_size is a whole block, then we better be reading in a whole block
             if (chunk_size == mount->block_size) {
@@ -1325,6 +1252,7 @@ uint8_t* shoebill_extract_kernel(const char *disk_path, const char *kernel_path,
         sprintf(error_str, "Couldn't find root partition");
         goto done;
     }
+    printf("apm_part_num = %u\n", apm_part_num);
     
     svfs_mount_obj = svfs_mount(&disk->partitions[apm_part_num]);
     if (svfs_mount_obj) {

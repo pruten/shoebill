@@ -802,6 +802,18 @@ void dis_move () {
     sprintf(dis.str, "move.%c %s,%s", "blw"[s-1], sourceStr, destStr);
 }
 
+void dis_move_d_to_d () {
+    sprintf(dis.str, "move_d_to_d ???");
+}
+
+void dis_move_to_d () {
+    sprintf(dis.str, "move_to_d ???");
+}
+
+void dis_move_from_d () {
+    sprintf(dis.str, "move_from_d ???");
+}
+
 void dis_scc () {
     const char *condition_names[16] = {
         "t", "ra", "hi", "ls", "cc", "cs", "ne", "eq", 

@@ -33,6 +33,9 @@
 #include <pthread.h>
 //#include <histedit.h>
 
+// void ring_print(const char *str);
+// extern char *ring_tmp;
+
 #include "coff.h"
 
 // -- Global constants --
@@ -59,7 +62,7 @@
         #define get_d(n,s) get_reg__(shoe.d[n], s)
         #define get_a(n,s) get_reg__(shoe.a[n], s)
         #define set_d(n,val,s) set_reg__(shoe.d[n], val, s)
-        // #define set_a(n,val,s) set_reg__(shoe.a[n], val, s) // address registers should always be set with sz==4
+
 		
 	// sr masks
 		#define sr_c() (shoe.sr&1)
@@ -100,12 +103,13 @@
             shoe.sr = newsr & 0xf71f; \
             load_stack_pointer(); \
         }
-        
+
 		#define set_sr_c(b) {shoe.sr &= (~(1<<0)); shoe.sr |= (((b)!=0)<<0);}
 		#define set_sr_v(b) {shoe.sr &= (~(1<<1)); shoe.sr |= (((b)!=0)<<1);}
 		#define set_sr_z(b) {shoe.sr &= (~(1<<2)); shoe.sr |= (((b)!=0)<<2);}
 		#define set_sr_n(b) {shoe.sr &= (~(1<<3)); shoe.sr |= (((b)!=0)<<3);}
 		#define set_sr_x(b) {shoe.sr &= (~(1<<4)); shoe.sr |= (((b)!=0)<<4);}
+        #define set_sr_mask(m) {shoe.sr &= (~(7<<8)); shoe.sr |= ((((uint16_t)(m))&7) << 8);}
 		// Be careful when setting these bits
         #define set_sr_m(b) {make_stack_pointers_valid(); shoe.sr &= (~(1<<12)); shoe.sr |= (((b)!=0)<<12); load_stack_pointer();}
 		#define set_sr_s(b) {make_stack_pointers_valid(); shoe.sr &= (~(1<<13)); shoe.sr |= (((b)!=0)<<13); load_stack_pointer();}
@@ -132,7 +136,21 @@
 
     // misc
         #define ea_n(s) ((shoe.dat>>((s)*8-1))&1)
-        #define ea_z(s) ((shoe.dat&((0xffffffff)>>(8*(4-(s)))))==0)
+        #define ea_z(s) (chop(shoe.dat, (s))==0)
+
+// alloc_pool.c
+typedef struct _alloc_pool_t {
+    struct _alloc_pool_t *prev, *next;
+    uint32_t size, magic;
+} alloc_pool_t;
+
+void* p_alloc(alloc_pool_t *pool, uint64_t size);
+void* p_realloc(void *ptr, uint64_t size);
+void p_free(void *ptr);
+void p_free_pool(alloc_pool_t *pool);
+alloc_pool_t* p_new_pool(void);
+
+
 
 typedef struct dbg_breakpoint_t {
     struct dbg_breakpoint_t *next;
@@ -231,7 +249,6 @@ typedef struct {
 } iwm_state_t;
 
 
-
 typedef struct {
     uint32_t (*read_func)(uint32_t, uint32_t, uint8_t);
     void (*write_func)(uint32_t, uint32_t, uint32_t, uint8_t);
@@ -270,9 +287,11 @@ typedef struct {
     pthread_mutex_t cpu_freeze_lock;
     
     // -- PMMU caching structures ---
+#define PMMU_CACHE_KEY_BITS 10
+#define PMMU_CACHE_SIZE (1<<PMMU_CACHE_KEY_BITS)
     struct {
-        pmmu_cache_entry_t entry[512];
-        uint8_t valid_map[512 / 8];
+        pmmu_cache_entry_t entry[PMMU_CACHE_SIZE];
+        uint8_t valid_map[PMMU_CACHE_SIZE / 8];
     } pmmu_cache[2];
     
     // -- Assorted CPU state variables --
@@ -280,8 +299,8 @@ typedef struct {
     uint16_t orig_sr; // the sr before we began executing the instruction
     uint32_t orig_pc; // the address of the instruction we're currently running
     uint16_t exception;
-    uint16_t abort;
-    uint32_t suppress_exceptions;
+    _Bool abort;
+    _Bool suppress_exceptions;
     
     // -- Physical memory --
     uint8_t *physical_mem_base;
@@ -296,7 +315,7 @@ typedef struct {
     uint64_t physical_dat; // <- Data for physical fetches is put/stored here
     uint64_t logical_dat; // <- Data for logical fetches is put/stored here
 	
-    uint8_t logical_is_write; // <- boolean: true iff the operation is logical_set()
+    _Bool logical_is_write; // <- boolean: true iff the operation is logical_set()
     uint8_t logical_fc; // logical function code
     
     // -- Interrupts/VIA chips --
@@ -433,6 +452,7 @@ typedef struct {
     scsi_device_t scsi_devices[8]; // SCSI devices
     
     debugger_state_t dbg;
+    alloc_pool_t *pool;
 } global_shoebill_context_t;
 
 extern global_shoebill_context_t shoe; // declared in cpu.c
@@ -459,7 +479,16 @@ void throw_frame_two (uint16_t sr, uint32_t next_pc, uint32_t vector_num, uint32
 
 // mem.c functions
 
-void physical_get (void);
+//void physical_get (void);
+typedef void (*physical_get_ptr) (void);
+typedef void (*physical_set_ptr) (void);
+extern const physical_get_ptr physical_get_jump_table[16];
+extern const physical_set_ptr physical_set_jump_table[16];
+
+#define physical_set() physical_set_jump_table[shoe.physical_addr >> 28]()
+#define pset(addr, s, val) {shoe.physical_addr=(addr); shoe.physical_size=(s); shoe.physical_dat=(val); physical_set();}
+
+#define physical_get() physical_get_jump_table[shoe.physical_addr >> 28]()
 #define pget(addr, s) ({shoe.physical_addr=(addr); shoe.physical_size=(s); physical_get(); shoe.physical_dat;})
 
 void logical_get (void);
@@ -478,9 +507,6 @@ void logical_get (void);
     logical_get(); \
     shoe.logical_dat; \
 })
-
-void physical_set (void);
-#define pset(addr, s, val) {shoe.physical_addr=(addr); shoe.physical_size=(s); shoe.physical_dat=(val); physical_set();}
 
 void logical_set (void);
 #define lset_fc(addr, s, val, fc) {\
