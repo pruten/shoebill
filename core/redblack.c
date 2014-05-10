@@ -33,7 +33,7 @@
 // (just return an empty black leaf pointer)
 rb_tree* rb_new()
 {
-    return calloc(sizeof(rb_tree), 1);
+    return p_alloc(shoe.pool, sizeof(rb_tree));
 }
 
 // Insert a new key/value into the tree 
@@ -43,7 +43,7 @@ uint8_t rb_insert(rb_tree *root, rb_key_t key, rb_value_t value, rb_value_t *old
 {    
     // Special edge case: insert the root node if tree's empty
     if (*root == NULL) {
-        *root = calloc(sizeof(rb_node), 1);
+        *root = p_alloc(shoe.pool, sizeof(rb_node));
         (*root)->key = key;
         (*root)->value = value;
         return 0;
@@ -66,7 +66,7 @@ uint8_t rb_insert(rb_tree *root, rb_key_t key, rb_value_t value, rb_value_t *old
     }
     
     // insert
-    *cur = calloc(sizeof(rb_node), 1);
+    *cur = p_alloc(shoe.pool, sizeof(rb_node));
     (*cur)->parent = parent;
     (*cur)->key = key;
     (*cur)->value = value;
@@ -252,16 +252,16 @@ void _rb_free (rb_node *node)
 {
     if (!node) return ;
     _rb_free(node->right);
-    if (node->right) free(node->right);
+    if (node->right) p_free(node->right);
     _rb_free(node->left);
-    if (node->left) free(node->left);
+    if (node->left) p_free(node->left);
 }
     
 // Free all the nodes (and the rb_tree ptr itself)
 void rb_free (rb_tree *tree)
 {
     _rb_free(*tree);
-    free(*tree);
-    free(tree);
+    p_free(*tree);
+    p_free(tree);
 }
 

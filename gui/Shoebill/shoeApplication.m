@@ -265,6 +265,7 @@
     control.ram_size = (uint32_t)memsize * 1024 * 1024;
     control.aux_kernel_path = rootKernelPathCString;
     control.rom_path = romPathCString;
+    control.debug_mode = 0;
     
     *width = screenWidthValue;
     *height = screenHeightValue;

@@ -59,39 +59,32 @@ static const _cc_func evaluate_cc[16] = {
 #define nextlong() ({const uint32_t L=lget(shoe.pc,4); if (shoe.abort) {return;}; shoe.pc+=4; L;})
 #define verify_supervisor() {if (!sr_s()) {throw_privilege_violation(); return;}}
 
-~newmacro(inst, 2, {
-    # This macro encapsulates an instruction implementation
-    my ($name, $code) = @$args;
-    
-    my $out = "void inst_$name () {\n" . $code . "}";
-    return $out;
-})
 
-~inst(callm, {
+static void inst_callm(void) {
     assert(!"callm: error, not implemented\n");
-})
+}
 
-~inst(chk2_cmp2, {
+static void inst_chk2_cmp2 (void) {
     assert(!"chk2_cmp2: error: not implemented\n");
-})
+}
 
-~inst(illegal, {
+static void inst_illegal (void) {
     assert(!"illegal: error: not implemented\n");
-})
+}
 
-~inst(move16, {
+static void inst_move16 (void) {
     assert(!"move16: SHOULD NOT BE CALLED\n"); // shouldn't be called by 68020 decoder
-})
+}
 
-~inst(rtm, {
+static void inst_rtm (void) {
     assert(!"rtm: error: not implemented\n");
-})
+}
 
-~inst(tas, {
+static void inst_tas (void) {
     assert(!"tas: error: not implemented\n");
-})
+}
 
-~inst(trapcc, {
+static void inst_trapcc (void) {
     ~decompose(shoe.op, 0101 cccc 11111 xyz);
     
     // (xyz) == (100) -> sz=0
@@ -104,14 +97,14 @@ static const _cc_func evaluate_cc[16] = {
         throw_frame_two(shoe.sr, next_pc, 7, shoe.orig_pc);
     else
         shoe.pc = next_pc;
-})
+}
 
-~inst(trapv, {
+static void inst_trapv (void) {
     if (sr_v())
         throw_frame_two(shoe.sr, shoe.pc, 7, shoe.orig_pc);
-})
+}
 
-~inst(asx_reg, {
+static void inst_asx_reg (void) {
     ~decompose(shoe.op, 1110 ccc d ss i 00 rrr);
     const uint8_t sz = 1<<s;
     
@@ -164,9 +157,9 @@ static const _cc_func evaluate_cc[16] = {
         
         //printf(" result=%u\n", get_d(r, sz));
     }
-})
+}
 
-~inst(asx_mem, {
+static void inst_asx_mem (void) {
     ~decompose(shoe.op, 1110 000d 11 MMMMMM);
     
     call_ea_read(M, 2);
@@ -200,13 +193,15 @@ static const _cc_func evaluate_cc[16] = {
         set_sr_n(R>>15);
         set_sr_z(R==0);
     }
-})
+}
 
 // GCC returns garbage when you shift a value by >= its size: ((uint32_t)123)<<32) == garbage
 // So we'll use macros for risky shifts
-#define shiftl(_v, _b) ({const uint32_t v=(_v), b=(_b); const uint32_t r=(b>=32)?0:(v<<b); r;})
-#define shiftr(_v, _b) ({const uint32_t v=(_v), b=(_b); const uint32_t r=(b>=32)?0:(v>>b); r;})
-~inst(lsx_reg, {
+
+#define shiftl(_v, _b) ((uint32_t) (((uint64_t)(_v)) << (_b)))
+#define shiftr(_v, _b) ((uint32_t) (((uint64_t)(_v)) >> (_b)))
+
+static void inst_lsx_reg (void) {
     ~decompose(shoe.op, 1110 ccc d ss i 01 rrr);
     const uint8_t sz = 1<<s;
     
@@ -214,7 +209,7 @@ static const _cc_func evaluate_cc[16] = {
     if (i) 
         count = shoe.d[c] % 64;
     else 
-        count = (c==0)?8:c;
+        count = ((c==0)<<3) | c;
     
     const uint32_t dat = get_d(r, sz);
     
@@ -236,9 +231,9 @@ static const _cc_func evaluate_cc[16] = {
     set_sr_z(chop(shoe.d[r], sz) == 0);
     set_sr_v(0);
     set_sr_c(lastb && (count != 0));
-})
+}
 
-~inst(lsx_mem, {
+static void inst_lsx_mem (void) {
     ~decompose(shoe.op, 1110 001d 11 MMMMMM);
     
     call_ea_read(M, 2);
@@ -268,11 +263,11 @@ static const _cc_func evaluate_cc[16] = {
         set_sr_n(R>>15);
         set_sr_z(R==0);
     }
-})
+}
 
 // FIXME: rox_reg and roxx_reg can be made O(1)
 
-~inst(roxx_reg, {
+static void inst_roxx_reg (void) {
     ~decompose(shoe.op, 1110 ccc d ss i 10 rrr);
     
     const uint8_t sz = 1<<s;
@@ -284,8 +279,6 @@ static const _cc_func evaluate_cc[16] = {
     uint32_t extend = sr_x();
     uint8_t count = i ? (shoe.d[c] & 63) : ( c ? c : 8) ;
     uint32_t j;
-    
-    
     
     if (!d) { // right
         for (j=0; j<count; j++) {
@@ -311,13 +304,13 @@ static const _cc_func evaluate_cc[16] = {
     set_sr_c(carry);
     set_sr_n(mib(data, sz));
     set_sr_z(data == 0);
-})
+}
 
-~inst(roxx_mem, {
+static void inst_roxx_mem (void) {
     assert(!"roxx_mem: unimplemented\n");
-})
+}
 
-~inst(rox_reg, {
+static void inst_rox_reg (void) {
     ~decompose(shoe.op, 1110 ccc d ss i 11 rrr);
     
     const uint8_t sz = 1<<s;
@@ -352,26 +345,31 @@ static const _cc_func evaluate_cc[16] = {
     set_sr_c(carry);
     set_sr_n(mib(data, sz));
     set_sr_z(data == 0);
-})
+}
 
-~inst(rox_mem, {
+static void inst_rox_mem (void) {
     assert(!"rox_mem: unimplemented\n");
-})
+}
 
-~inst(sbcd, {
+static void inst_sbcd (void) {
     assert(!"Hey! inst_sbcd isn't implemented!\n");
-})
+}
 
-~inst(pack, {
+static void inst_pack (void) {
     assert(!"Hey! inst_pack isn't implemented!\n");
-})
+}
 
-~inst(unpk, {
+static void inst_unpk (void) {
     assert(!"Hey! inst_unpk isn't implemented!\n");
-})
+}
 
-~inst(divu, {
+static void inst_divu (void) {
     ~decompose(shoe.op, 1000 rrr 011 MMMMMM);
+    
+    // uncommitted_ea_read_pc is uninitialized for EA modes that don't change the PC,
+    // but we might need it if we need to throw a divide-by-zero exception,
+    // so initialize it here, just in case.
+    shoe.uncommitted_ea_read_pc = shoe.pc;
     
     call_ea_read(M, 2);
     
@@ -394,10 +392,15 @@ static const _cc_func evaluate_cc[16] = {
     set_sr_n((quotient_32>>15)&1);
     set_sr_z((quotient_32 & 0xffff) == 0);
     set_sr_v(quotient_32 >> 16);
-})
+}
 
-~inst(divs, {
+static void inst_divs (void) {
     ~decompose(shoe.op, 1000 rrr 111 MMMMMM);
+    
+    // uncommitted_ea_read_pc is uninitialized for EA modes that don't change the PC,
+    // but we might need it if we need to throw a divide-by-zero exception,
+    // so initialize it here, just in case.
+    shoe.uncommitted_ea_read_pc = shoe.pc;
     
     call_ea_read(M, 2);
     
@@ -424,22 +427,22 @@ static const _cc_func evaluate_cc[16] = {
     set_sr_n((u_quotient_32>>15)&1);
     set_sr_z((u_quotient_32 & 0xffff) == 0);
     set_sr_v(u_quotient_32 >> 16);
-})
+}
 
-~inst(bkpt, {
+static void inst_bkpt (void) {
     assert(!"Hey! inst_bkpt isn't implemented!\n");
-})
+}
 
-~inst(swap, {
+static void inst_swap (void) {
     ~decompose(shoe.op, 0100 1000 0100 0 rrr);
     shoe.d[r] = (shoe.d[r]>>16) | (shoe.d[r]<<16);
     set_sr_c(0);
     set_sr_v(0);
     set_sr_z(shoe.d[r]==0);
     set_sr_n(mib(shoe.d[r], 4));
-})
+}
 
-~inst(abcd, {
+static void inst_abcd (void) {
     ~decompose(shoe.op, 1100 xxx 10000 m yyy);
     uint8_t packed_x, packed_y;
     const uint8_t extend = sr_x() ? 1 : 0;
@@ -489,9 +492,9 @@ static const _cc_func evaluate_cc[16] = {
         set_d(x, packed_sum, 1);
     }
 
-})
+}
 
-~inst(muls, {
+static void inst_muls (void) {
     ~decompose(shoe.op, 1100 rrr 011 MMMMMM);
     
     call_ea_read(M, 2);
@@ -513,10 +516,10 @@ static const _cc_func evaluate_cc[16] = {
     set_sr_v(0);
     set_sr_z(result == 0);
     set_sr_n(mib(result, 4));
-})
+}
 
 /* short form unsigned multiply */
-~inst(mulu, {
+static void inst_mulu (void) {
     ~decompose(shoe.op, 1100 rrr 011 MMMMMM);
     
     call_ea_read(M, 2);
@@ -532,9 +535,9 @@ static const _cc_func evaluate_cc[16] = {
     set_sr_v(0);
     set_sr_z(result == 0);
     set_sr_n(mib(result, 4));
-})
+}
 
-~inst(exg, {
+static void inst_exg (void) {
     ~decompose(shoe.op, 1100 xxx 1 ppppp yyy);
     
     if (p == ~b(01000)) { // data reg mode
@@ -556,18 +559,18 @@ static const _cc_func evaluate_cc[16] = {
         // I'm not sure whether decode.c will map opcodes with other modes here
         assert(!"inst_exg: bad op mode");
     }
-})
+}
 
-~inst(stop, {
+static void inst_stop (void) {
     verify_supervisor();
     
     const uint16_t ext = nextword();
     set_sr(ext);
     
     shoe.cpu_thread_notifications |= SHOEBILL_STATE_STOPPED;
-})
+}
 
-~inst(rtr, {
+static void inst_rtr (void) {
     const uint16_t ccr = lget(shoe.a[7], 2);
     if (shoe.abort) return ;
     
@@ -579,9 +582,9 @@ static const _cc_func evaluate_cc[16] = {
     // We don't need to use sr_set() here because only changing the condition codes
     shoe.sr = (shoe.sr & 0xff00) | (ccr & 0x00ff);
     shoe.pc = pc;
-})
+}
 
-~inst(rtd, {
+static void inst_rtd (void) {
     const int16_t disp = nextword();
     const uint32_t new_pc = lget(shoe.a[7], 4);
     if (shoe.abort) return ;
@@ -589,9 +592,9 @@ static const _cc_func evaluate_cc[16] = {
     shoe.pc = new_pc;
     shoe.a[7] += 4;
     shoe.a[7] += disp;
-})
+}
 
-~inst(rte, {
+static void inst_rte (void) {
     verify_supervisor();
     
     const uint16_t sr = lget(shoe.a[7], 2);
@@ -633,9 +636,9 @@ static const _cc_func evaluate_cc[16] = {
             break;
     }
     
-})
+}
 
-~inst(move_usp, {
+static void inst_move_usp (void) {
     verify_supervisor();
     ~decompose(shoe.op, 0100 1110 0110 d rrr);
     
@@ -648,9 +651,9 @@ static const _cc_func evaluate_cc[16] = {
         shoe.usp = shoe.a[r];
         load_stack_pointer();
     }
-})
+}
 
-~inst(and, {
+static void inst_and (void) {
     ~decompose(shoe.op, 1100 rrr dss MMMMMM);
     const uint8_t sz = 1<<s;
     
@@ -683,9 +686,9 @@ static const _cc_func evaluate_cc[16] = {
         set_sr_n(mib(R, sz));
         return ;
     }
-})
+}
 
-~inst(or, {
+static void inst_or (void) {
     ~decompose(shoe.op, 1000 rrr dss MMMMMM);
     const uint8_t sz = 1<<s;
     
@@ -718,10 +721,10 @@ static const _cc_func evaluate_cc[16] = {
         set_sr_n(mib(R, sz));
         return ;
     }
-})
+}
 
 
-~inst(moveq, {
+static void inst_moveq (void) {
     ~decompose(shoe.op, 0111 rrr 0 dddddddd);
     const int32_t dat = ((int8_t)d);
     shoe.d[r] = dat;
@@ -731,9 +734,9 @@ static const _cc_func evaluate_cc[16] = {
     set_sr_n(d>>7);
     // printf("dat = %x, shoe.d[%u] = %x\n", dat, r, shoe.d[r]);
     // printf("I'm called, right?\n");
-})
+}
 
-~inst(add, {
+static void inst_add (void) {
     ~decompose(shoe.op, 1101 rrr d ss MMMMMM);
     const uint8_t sz = 1<<s;
     uint8_t Sm, Dm, Rm;
@@ -762,9 +765,9 @@ static const _cc_func evaluate_cc[16] = {
     set_sr_c((Sm && Dm) || (!Rm && Dm) || (Sm && !Rm));
     set_sr_x(sr_c());
     set_sr_n(Rm);
-})
+}
 
-~inst(adda, {
+static void inst_adda (void) {
     ~decompose(shoe.op, 1101 rrr s11 MMMMMM)
     const uint8_t sz = 2 + 2*s;
     call_ea_read(M, sz);
@@ -775,9 +778,9 @@ static const _cc_func evaluate_cc[16] = {
         const int16_t ea = shoe.dat;
         shoe.a[r] += ea;
     }
-})
+}
 
-~inst(addx, {
+static void inst_addx (void) {
     ~decompose(shoe.op, 1101 xxx 1 ss 00 r yyy);
     const uint8_t sz = 1<<s;
     
@@ -835,9 +838,9 @@ static const _cc_func evaluate_cc[16] = {
     set_sr_c((Sm && Dm) || (!Rm && Dm) || (Sm && !Rm));
     set_sr_x(sr_c());
     set_sr_n(Rm);
-})
+}
 
-~inst(cmp, {
+static void inst_cmp (void) {
     // cmp <ea>, Dn
     // <ea> -> source
     // Dn -> dest
@@ -855,9 +858,9 @@ static const _cc_func evaluate_cc[16] = {
     set_sr_n(Rm);
     set_sr_v((!Sm && Dm && !Rm) || (Sm && !Dm && Rm));
     set_sr_c((Sm && !Dm) || (Rm && !Dm) || (Sm && Rm));
-})
+}
 
-~inst(cmpi, {
+static void inst_cmpi (void) {
     ~decompose(shoe.op, 0000 1100 ss MMMMMM);
     const uint8_t sz = 1<<s;
     uint32_t immed;
@@ -880,9 +883,9 @@ static const _cc_func evaluate_cc[16] = {
     set_sr_n(Rm);
     set_sr_v((!Sm && Dm && !Rm) || (Sm && !Dm && Rm));
     set_sr_c((Sm && !Dm) || (Rm && !Dm) || (Sm && Rm));
-})
+}
 
-~inst(cmpa, {
+static void inst_cmpa (void) {
     // D - S -> cc
     // Dn, ea
     ~decompose(shoe.op, 1011 rrr o11 MMMMMM);
@@ -905,9 +908,9 @@ static const _cc_func evaluate_cc[16] = {
     set_sr_n(Rm);
     set_sr_v((!Sm && Dm && !Rm) || (Sm && !Dm && Rm));
     set_sr_c((Sm && !Dm) || (Rm && !Dm) || (Sm && Rm));
-})
+}
 
-~inst(cmpm, {
+static void inst_cmpm (void) {
     ~decompose(shoe.op, 1011 xxx 1 ss 001 yyy);
     
     const uint8_t sz = 1 << s;
@@ -943,9 +946,9 @@ static const _cc_func evaluate_cc[16] = {
     set_sr_n(Rm);
     set_sr_v((!Sm && Dm && !Rm) || (Sm && !Dm && Rm));
     set_sr_c((Sm && !Dm) || (Rm && !Dm) || (Sm && Rm));
-})
+}
 
-~inst(eor, {
+static void inst_eor (void) {
     ~decompose(shoe.op, 1011 rrr 1ss MMMMMM);
     const uint8_t sz = 1<<s;
     
@@ -958,9 +961,9 @@ static const _cc_func evaluate_cc[16] = {
     set_sr_c(0);
     set_sr_z(ea_z(sz));
     set_sr_n(ea_n(sz));
-})
+}
 
-~inst(long_mul, {
+static void inst_long_mul (void) {
     const uint16_t ext = nextword();
     ~decompose(shoe.op, 0100 1100 00 MMMMMM);
     ~decompose(ext, 0 LLL u s 0000000 HHH);
@@ -1003,12 +1006,18 @@ static const _cc_func evaluate_cc[16] = {
         set_sr_z((R&0xffffffff)==0);
         set_sr_c(0);
     }
-})
+}
 
-~inst(long_div, {
+static void inst_long_div (void) {
     const uint16_t ext = nextword();
     ~decompose(shoe.op, 0100 1100 01 MMMMMM);
     ~decompose(ext, 0 qqq u s 0000000 rrr);
+    
+    // uncommitted_ea_read_pc is uninitialized for EA modes that don't change the PC,
+    // but we might need it if we need to throw a divide-by-zero exception,
+    // so initialize it here, just in case.
+    shoe.uncommitted_ea_read_pc = shoe.pc;
+    
     call_ea_read(M, 4);
     
     const uint32_t divisor = shoe.dat;
@@ -1057,9 +1066,9 @@ static const _cc_func evaluate_cc[16] = {
         shoe.d[r] = R;
         shoe.d[q] = (uint32_t)Q; // if r==q, then only set r[q]=Q
     }
-})
+}
 
-~inst(addq, {
+static void inst_addq (void) {
     ~decompose(shoe.op, 0101 ddd 0 ss MMMMMM);
     const uint8_t dat = d + ((!d)<<3);
     if ((s==0) && ((M>>3) == 1)) {
@@ -1088,9 +1097,9 @@ static const _cc_func evaluate_cc[16] = {
     set_sr_n(Rm);
     set_sr_z(ea_z(1<<s));
     call_ea_write(M, 1<<s);
-})
+}
 
-~inst(subq, {
+static void inst_subq (void) {
     ~decompose(shoe.op, 0101 ddd 1 ss MMMMMM);
     const uint8_t dat = d + ((!d)<<3);
     
@@ -1115,24 +1124,24 @@ static const _cc_func evaluate_cc[16] = {
     set_sr_n(Rm);
     set_sr_z(ea_z(1<<s));
     call_ea_write(M, 1<<s);
-})
+}
 
-~inst(movea, {
-    ~decompose(shoe.op, 00 ab rrr 001 MMMMMM);
+static void inst_movea (void) {
+    ~decompose(shoe.op, 00 1s rrr 001 MMMMMM);
     
-    const uint8_t sz = b ? 2 : 4;
+    const uint8_t sz = 4 >> s;
     
     call_ea_read(M, sz);
     call_ea_read_commit(M, sz);
-    if (b) { // word-size, sign extend shoe.dat
+    if (s) { // word-size, sign extend shoe.dat
         const int16_t dat = shoe.dat;
         shoe.a[r] = (int32_t)dat;
     } else {
         shoe.a[r] = shoe.dat;
     }
-})
+}
 
-~inst(move_d_to_d, {
+static void inst_move_d_to_d (void) {
     ~decompose(shoe.op, 00 ab RRR 000 000 rrr); // r=source, R=dest
     
     const uint8_t sz = 1<<(a+(!b)); // (1=byte, 3=word, 2=long)
@@ -1144,9 +1153,9 @@ static const _cc_func evaluate_cc[16] = {
     set_sr_c(0);
     set_sr_n(mib(val, sz));
     set_sr_z(val == 0);
-})
+}
 
-~inst(move_from_d, {
+static void inst_move_from_d (void) {
     ~decompose(shoe.op, 00 ab RRR MMM 000 rrr); // r=source, MR=dest
     
     const uint8_t sz = 1<<(a+(!b)); // (1=byte, 3=word, 2=long)
@@ -1159,9 +1168,9 @@ static const _cc_func evaluate_cc[16] = {
     
     shoe.dat = val;
     call_ea_write((M << 3) | R, sz);
-})
+}
 
-~inst(move_to_d, {
+static void inst_move_to_d (void) {
     ~decompose(shoe.op, 00 ab rrr 000 mmmmmm); // m=source, r=dest
     const uint8_t sz = 1<<(a+(!b)); // (1=byte, 3=word, 2=long)
     
@@ -1173,9 +1182,9 @@ static const _cc_func evaluate_cc[16] = {
     set_sr_n(ea_n(sz));
     set_sr_z(ea_z(sz));
     set_d(r, shoe.dat, sz);
-})
+}
 
-~inst(move, {
+static void inst_move (void) {
     ~decompose(shoe.op, 00 ab RRR MMM mmm rrr); // mr=source, MR=dest
     const uint8_t sz = 1<<(a+(!b)); // (1=byte, 3=word, 2=long)
     
@@ -1213,9 +1222,9 @@ static const _cc_func evaluate_cc[16] = {
             set_sr(new_sr);
         }
     }
-})
+}
 
-~inst(not, {
+static void inst_not (void) {
     ~decompose(shoe.op, 0100 0110 ss MMMMMM);
     const uint8_t sz = 1<<s;
     
@@ -1226,10 +1235,10 @@ static const _cc_func evaluate_cc[16] = {
     set_sr_v(0);
     set_sr_c(0);
     call_ea_write(M, sz);
-})
+}
 
 
-~inst(reset, {
+static void inst_reset (void) {
     verify_supervisor();
     
     // Reset does a number of things (so... look them up)
@@ -1238,9 +1247,9 @@ static const _cc_func evaluate_cc[16] = {
     printf("Reset! (not implemented)\n");
     assert(!"reset called");
     //dbg_state.running = 0;
-})
+}
 
-~inst(movec, {
+static void inst_movec (void) {
     verify_supervisor();
     const uint16_t ext = nextword();
     ~decompose(shoe.op, 0100 1110 0111 101x);
@@ -1301,9 +1310,9 @@ static const _cc_func evaluate_cc[16] = {
         default:
             return throw_illegal_instruction();
     }
-})
+}
 
-~inst(moves, {
+static void inst_moves (void) {
     verify_supervisor();
     const uint16_t ext = nextword();
     
@@ -1396,33 +1405,33 @@ static const _cc_func evaluate_cc[16] = {
     else if ((M>>3) == 3)
         shoe.a[M & 7] += sz;
     
-})
+}
 
-~inst(cas, {
+static void inst_cas (void) {
     assert(!"inst_cas: error: not implemented!");
-})
+}
 
-~inst(cas2, {
+static void inst_cas2 (void) {
     assert(!"inst_cas2: error: not implemented!");
-})
+}
 
-~inst(move_to_sr, {
+static void inst_move_to_sr (void) {
     verify_supervisor();
     ~decompose(shoe.op, 0100 0110 11 MMMMMM);
     call_ea_read(M, 2); // sr is 2 bytes
     call_ea_read_commit(M, 2);
     
     set_sr(shoe.dat);
-})
+}
 
-~inst(move_from_sr, {
+static void inst_move_from_sr (void) {
     verify_supervisor();
     ~decompose(shoe.op, 0100 0000 11 MMMMMM);
     shoe.dat = shoe.sr;
     call_ea_write(M, 2);
-})
+}
 
-~inst(neg, {
+static void inst_neg (void) {
     ~decompose(shoe.op, 0100 0100 ss MMMMMM);
     const uint8_t sz = 1<<s;
     
@@ -1441,9 +1450,9 @@ static const _cc_func evaluate_cc[16] = {
     set_sr_x(result != 0);
     set_sr_v(Dm && Rm);
     set_sr_n(Rm);
-})
+}
 
-~inst(negx, {
+static void inst_negx (void) {
     ~decompose(shoe.op, 0100 0000 ss MMMMMM);
     
     const uint8_t x = (sr_x() != 0);
@@ -1470,15 +1479,15 @@ static const _cc_func evaluate_cc[16] = {
     set_sr_v(Dm && Rm);
     set_sr_c(Dm || Rm);
     set_sr_x(Dm || Rm);
-})
+}
 
-~inst(move_from_ccr, {
+static void inst_move_from_ccr (void) {
     ~decompose(shoe.op, 0100 0010 11 MMMMMM);
     shoe.dat = shoe.sr & 0xff;
     call_ea_write(M, 2);
-})
+}
 
-~inst(move_to_ccr, {
+static void inst_move_to_ccr (void) {
     ~decompose(shoe.op, 0100 0100 11 MMMMMM);
     call_ea_read(M, 2); // sr is 2 bytes
     call_ea_read_commit(M, 2);
@@ -1486,9 +1495,9 @@ static const _cc_func evaluate_cc[16] = {
     const uint16_t new_sr = (shoe.sr & 0xff00) | (shoe.dat & 0xff);
     
     set_sr(new_sr);
-})
+}
 
-~inst(tst, {
+static void inst_tst (void) {
     ~decompose(shoe.op, 0100 1010 ss MMMMMM);
     const uint8_t sz = 1<<s;
     call_ea_read(M, sz);
@@ -1497,9 +1506,9 @@ static const _cc_func evaluate_cc[16] = {
     set_sr_z(ea_z(sz));
     set_sr_v(0);
     set_sr_c(0);
-})
+}
 
-~inst(clr, {
+static void inst_clr (void) {
     ~decompose(shoe.op, 0100 0010 ss MMMMMM);
     const uint8_t sz = 1<<s;
     shoe.dat = 0;
@@ -1508,15 +1517,15 @@ static const _cc_func evaluate_cc[16] = {
     set_sr_z(1);
     set_sr_v(0);
     set_sr_c(0);
-})
+}
 
-~inst(lea, {
+static void inst_lea (void) {
     ~decompose(shoe.op, 0100 rrr 111 MMMMMM);
     call_ea_addr(M);
     shoe.a[r] = shoe.dat;
-})
+}
 
-~inst(sub, {
+static void inst_sub (void) {
     ~decompose(shoe.op, 1001 rrr dss MMMMMM);
     const uint8_t sz = 1<<s;
     
@@ -1554,9 +1563,9 @@ static const _cc_func evaluate_cc[16] = {
         set_d(r, result, sz);
         call_ea_read_commit(M, sz);
     }
-})
+}
 
-~inst(subi, {
+static void inst_subi (void) {
     ~decompose(shoe.op, 0000 0100 ss MMMMMM);
     const uint8_t sz = 1<<s;
     
@@ -1592,9 +1601,9 @@ static const _cc_func evaluate_cc[16] = {
     // writeback
     shoe.dat = chop(result, sz);
     call_ea_write(M, sz);
-})
+}
     
-~inst(addi, {
+static void inst_addi (void) {
     ~decompose(shoe.op, 0000 0110 ss MMMMMM);
     const uint8_t sz = 1<<s;
     
@@ -1622,9 +1631,9 @@ static const _cc_func evaluate_cc[16] = {
     const uint8_t carry = ((Sm && Dm) || (!Rm && Dm) || (Sm && !Rm));
     set_sr_c(carry);
     set_sr_x(carry);
-})
+}
 
-~inst(eori, {
+static void inst_eori (void) {
     ~decompose(shoe.op, 0000 1010 ss MMMMMM);
     const uint8_t sz = 1<<s;
     
@@ -1647,10 +1656,10 @@ static const _cc_func evaluate_cc[16] = {
     set_sr_c(0);
     set_sr_n(mib(R, sz));
     set_sr_z(chop(R, sz)==0);
-})
+}
     
 
-~inst(andi, {
+static void inst_andi (void) {
     ~decompose(shoe.op, 0000 0010 ss MMMMMM);
     const uint8_t sz = 1<<s;
     
@@ -1676,9 +1685,9 @@ static const _cc_func evaluate_cc[16] = {
     set_sr_c(0);
     set_sr_n(mib(result, sz));
     set_sr_z(chop(result,sz)==0);
-})
+}
 
-~inst(ori, {
+static void inst_ori (void) {
     ~decompose(shoe.op, 0000 0000 ss MMMMMM)
     const uint8_t sz = 1<<s;
     
@@ -1704,9 +1713,9 @@ static const _cc_func evaluate_cc[16] = {
     // writeback
     shoe.dat = chop(result, sz);
     call_ea_write(M, sz);
-})
+}
 
-~inst(btst_immediate, {
+static void inst_btst_immediate (void) {
     ~decompose(shoe.op, 0000 1000 00 MMMMMM);
     const uint16_t ext = nextword();
     ~decompose(ext, 00000000 bbbbbbbb);
@@ -1725,9 +1734,9 @@ static const _cc_func evaluate_cc[16] = {
     call_ea_read_commit(M, 1);
     
     set_sr_z(!((shoe.dat >> n)&1));
-})
+}
 
-~inst(pea, {
+static void inst_pea (void) {
     ~decompose(shoe.op, 0100 1000 01 MMMMMM);
     // fetch the EA
     call_ea_addr(M);
@@ -1736,14 +1745,15 @@ static const _cc_func evaluate_cc[16] = {
     if (shoe.abort) return ;
     // decrement the stack pointer if lset didn't abort
     shoe.a[7] -= 4;
-})
+}
     
-~inst(subx, {
+static void inst_subx (void) {
     ~decompose(shoe.op, 1001 yyy 1 ss 00 m xxx);
     const uint8_t sz = 1<<s;
     
     if (m) {
         assert(x!=7 && y!=7);
+        assert(sz != 1); // If this ever fires, the next line is broken
         const uint8_t predecrement_sz = s?(1<<s):2; // predecrement-mode for size==byte decrements by 2 bytes
         const uint32_t predecrement_x = shoe.a[x]-predecrement_sz;
         const uint32_t predecrement_y = shoe.a[y]-predecrement_sz;
@@ -1790,9 +1800,9 @@ static const _cc_func evaluate_cc[16] = {
         if (chop(result, sz)!=0) 
             set_sr_z(0);
     }
-})
+}
 
-~inst(suba, {
+static void inst_suba (void) {
     ~decompose(shoe.op, 1001 rrr s11 MMMMMM);
     const uint8_t sz = 2<<s;
     
@@ -1808,9 +1818,9 @@ static const _cc_func evaluate_cc[16] = {
     shoe.a[r] = R;
     
     // don't set any condition codes!
-})
+}
 
-~inst(dbcc, {
+static void inst_dbcc (void) {
     ~decompose(shoe.op, 0101 cccc 11001 rrr);
     if (evaluate_cc[c]()) {
         shoe.pc += 2;
@@ -1822,9 +1832,9 @@ static const _cc_func evaluate_cc[16] = {
         if (newd != 0xffff)
             shoe.pc = shoe.pc + disp - 2;
     }
-})
+}
 
-~inst(bsr, {
+static void inst_bsr (void) {
     ~decompose(shoe.op, 0110 0001 dddddddd);
     uint32_t new_pc = shoe.pc;
     
@@ -1845,9 +1855,9 @@ static const _cc_func evaluate_cc[16] = {
     if (shoe.abort) return ;
     shoe.a[7] -= 4;
     shoe.pc = new_pc;
-})
+}
 
-~inst(bcc, {
+static void inst_bcc (void) {
     const uint32_t orig_pc = shoe.pc;
     ~decompose(shoe.op, 0110 cccc dddddddd);
     
@@ -1868,18 +1878,18 @@ static const _cc_func evaluate_cc[16] = {
         if (d == 0) shoe.pc += 2;
         else if (d == 0xff) shoe.pc += 4;
     }
-})
+}
 
-~inst(scc, {
+static void inst_scc (void) {
     ~decompose(shoe.op, 0101 cccc 11 MMMMMM);
     
     shoe.dat = evaluate_cc[c]() ? 0xff : 0;
     call_ea_write(M, 1);
-})
+}
 
-~inst(nop, {})
+static void inst_nop (void) {}
 
-~inst(chk, {
+static void inst_chk (void) {
     ~decompose(shoe.op, 0100 rrr 1s 0 MMMMMM);
     
     const uint8_t sz = s ? 2 : 4;
@@ -1907,9 +1917,9 @@ static const _cc_func evaluate_cc[16] = {
     call_ea_read_commit(M, sz);
 
     return ;
-})
+}
 
-~inst(jsr, {
+static void inst_jsr (void) {
     ~decompose(shoe.op, 0100 1110 10 MMMMMM);
     call_ea_addr(M);
     
@@ -1957,15 +1967,15 @@ static const _cc_func evaluate_cc[16] = {
     }
     */
     
-})
+}
 
-~inst(jmp, {
+static void inst_jmp (void) {
     ~decompose(shoe.op, 0100 1110 11 MMMMMM);
     call_ea_addr(M);
     shoe.pc = shoe.dat;
-})
+}
 
-~inst(link_word, {
+static void inst_link_word (void) {
     ~decompose(shoe.op, 0100 1110 0101 0 rrr);
     const int16_t ext = nextword();
     
@@ -1979,9 +1989,9 @@ static const _cc_func evaluate_cc[16] = {
     
     // add the (sign-extended) displacement value to the stack pointer
     shoe.a[7] += ext;
-})
+}
 
-~inst(unlk, {
+static void inst_unlk (void) {
     ~decompose(shoe.op, 0100 1110 0101 1 rrr);
     
     const uint32_t pop = lget(shoe.a[r], 4);
@@ -1992,9 +2002,9 @@ static const _cc_func evaluate_cc[16] = {
     
     // loads the address register with the long word popped from the stack
     shoe.a[r] = pop;
-})
+}
 
-~inst(rts, {
+static void inst_rts (void) {
     const uint32_t pop = lget(shoe.a[7], 4);
     if (shoe.abort) return ;
     
@@ -2024,10 +2034,10 @@ static const _cc_func evaluate_cc[16] = {
         
         printf("RETURN TO %s+%u 0x%08x\n", name, shoe.pc-value, shoe.pc);
     }*/
-})
+}
 
 
-~inst(link_long, {
+static void inst_link_long (void) {
     ~decompose(shoe.op, 0100 1000 0000 1 rrr);
     const uint32_t disp = nextlong();
     
@@ -2041,9 +2051,9 @@ static const _cc_func evaluate_cc[16] = {
     
     // add the displacement value to the stack pointer
     shoe.a[7] += disp;
-})
+}
 
-~inst(movem, {
+static void inst_movem (void) {
     const uint16_t mask = nextword();
     ~decompose(shoe.op, 0100 1d00 1s MMMMMM);
     const uint8_t sz = 2<<s; // s==0 => short, s==1 => long
@@ -2181,30 +2191,30 @@ abort:
         //shoe.a[M&7] += sz;
     
     return ;
-})
+}
     
-~inst(nbcd, {
+static void inst_nbcd (void) {
     assert(!"inst_nbcd: fixme: I'm not implemented!\n");
-})
+}
 
-~inst(eori_to_ccr, {
+static void inst_eori_to_ccr (void) {
     const uint16_t val = 0xff & nextword();
     const uint16_t new_sr = shoe.sr ^ val;
     
     set_sr(new_sr);
-})
+}
 
-~inst(eori_to_sr, {
+static void inst_eori_to_sr (void) {
     verify_supervisor();
     
     const uint16_t new_sr = shoe.sr ^ nextword();
     
     set_sr(new_sr);
-})
+}
 
-~inst(movep, {
+static void inst_movep (void) {
     assert(!"inst_movep: fixme: I'm not implemented!\n");
-})
+}
 
 
 void write_bitfield(const uint32_t width, const uint32_t offset, const uint32_t M, const uint32_t ea, const uint32_t raw_field)
@@ -2333,7 +2343,7 @@ uint32_t extract_bitfield(const uint32_t width, const uint32_t offset, const uin
     return field;
 }
     
-~inst(bfextu, {
+static void inst_bfextu (void) {
     const uint16_t ext = nextword();
     ~decompose(shoe.op, 1110 1001 11 MMMMMM);
     ~decompose(ext, 0 rrr Ffffff Wwwwww);
@@ -2357,9 +2367,9 @@ uint32_t extract_bitfield(const uint32_t width, const uint32_t offset, const uin
     set_sr_v(0);
     set_sr_n(field >> (width-1));
     set_sr_z(field == 0);
-})
+}
     
-~inst(bfchg, {
+static void inst_bfchg (void) {
     const uint16_t ext = nextword();
     ~decompose(shoe.op, 1110 1011 11 MMMMMM);
     ~decompose(ext, 0 000 Ffffff Wwwwww);
@@ -2383,9 +2393,9 @@ uint32_t extract_bitfield(const uint32_t width, const uint32_t offset, const uin
     set_sr_v(0);
     set_sr_n(field >> (width-1));
     set_sr_z(field == 0);
-})
+}
     
-~inst(bfexts, {
+static void inst_bfexts (void) {
     const uint16_t ext = nextword();
     ~decompose(shoe.op, 1110 1011 11 MMMMMM);
     ~decompose(ext, 0 rrr Ffffff Wwwwww);
@@ -2413,9 +2423,9 @@ uint32_t extract_bitfield(const uint32_t width, const uint32_t offset, const uin
     set_sr_v(0);
     set_sr_n(mib);
     set_sr_z(field == 0);
-})
+}
     
-~inst(bfclr, {
+static void inst_bfclr (void) {
     const uint16_t ext = nextword();
     ~decompose(shoe.op, 1110 1011 11 MMMMMM);
     ~decompose(ext, 0 000 Ffffff Wwwwww);
@@ -2439,9 +2449,9 @@ uint32_t extract_bitfield(const uint32_t width, const uint32_t offset, const uin
     set_sr_v(0);
     set_sr_n(field >> (width-1));
     set_sr_z(field == 0);
-})
+}
     
-~inst(bfset, {
+static void inst_bfset (void) {
     const uint16_t ext = nextword();
     ~decompose(shoe.op, 1110 1011 11 MMMMMM);
     ~decompose(ext, 0 000 Ffffff Wwwwww);
@@ -2465,9 +2475,9 @@ uint32_t extract_bitfield(const uint32_t width, const uint32_t offset, const uin
     set_sr_v(0);
     set_sr_n(field >> (width-1));
     set_sr_z(field == 0);
-})
+}
     
-~inst(bftst, {
+static void inst_bftst (void) {
     const uint16_t ext = nextword();
     ~decompose(shoe.op, 1110 1000 11 MMMMMM);
     ~decompose(ext, 0 000 Ffffff Wwwwww);
@@ -2489,9 +2499,9 @@ uint32_t extract_bitfield(const uint32_t width, const uint32_t offset, const uin
     set_sr_v(0);
     set_sr_n(field >> (width-1));
     set_sr_z(field == 0);
-})
+}
     
-~inst(bfffo, {
+static void inst_bfffo (void) {
     const uint16_t ext = nextword();
     ~decompose(shoe.op, 1110 1110 11 MMMMMM);
     ~decompose(ext, 0 rrr Ffffff Wwwwww);
@@ -2517,9 +2527,9 @@ uint32_t extract_bitfield(const uint32_t width, const uint32_t offset, const uin
     set_sr_v(0);
     set_sr_n(field >> (width-1));
     set_sr_z(field == 0);
-})
+}
     
-~inst(bfins, {
+static void inst_bfins (void) {
     const uint16_t ext = nextword();
     ~decompose(shoe.op, 1110 1011 11 MMMMMM);
     ~decompose(ext, 0 rrr Ffffff Wwwwww);
@@ -2544,9 +2554,9 @@ uint32_t extract_bitfield(const uint32_t width, const uint32_t offset, const uin
     set_sr_v(0);
     set_sr_n(field >> (width-1)); // set according to the inserted value
     set_sr_z(field == 0);
-})
+}
 
-~inst(btst_reg, {
+static void inst_btst_reg (void) {
     ~decompose(shoe.op, 0000 rrr 100 MMMMMM);
     
     if ((M>>3)==0) { // if the dest is a data reg, handle specially
@@ -2557,9 +2567,9 @@ uint32_t extract_bitfield(const uint32_t width, const uint32_t offset, const uin
     call_ea_read(M, 1); 
     call_ea_read_commit(M, 1);
     set_sr_z(! ((shoe.dat >> (shoe.d[r] % 8)) & 1));
-})
+}
 
-~inst(bchg_reg, {
+static void inst_bchg_reg (void) {
     ~decompose(shoe.op, 0000 rrr 101 MMMMMM);
     
     // The LSB bit is idx:0, MSB is idx:7 or :31
@@ -2582,9 +2592,9 @@ uint32_t extract_bitfield(const uint32_t width, const uint32_t offset, const uin
     call_ea_write(M, 1);
     
     set_sr_z(z);
-})
+}
 
-~inst(bclr_reg, {
+static void inst_bclr_reg (void) {
     ~decompose(shoe.op, 0000 rrr 111 MMMMMM);
     
     const uint8_t is_data_reg = (M>>3) == 0;
@@ -2597,9 +2607,9 @@ uint32_t extract_bitfield(const uint32_t width, const uint32_t offset, const uin
     
     shoe.dat &= ~~(1 << shift);
     call_ea_write(M, sz);
-})
+}
     
-~inst(bclr_immediate, {
+static void inst_bclr_immediate (void) {
     ~decompose(shoe.op, 0000 1000 11 MMMMMM);
     const uint16_t ext = nextword();
     ~decompose(ext, 00000000 bbbbbbbb);
@@ -2614,9 +2624,9 @@ uint32_t extract_bitfield(const uint32_t width, const uint32_t offset, const uin
     
     shoe.dat &= ~~(1 << shift);
     call_ea_write(M, sz);
-})
+}
 
-~inst(bset_reg, {
+static void inst_bset_reg (void) {
     ~decompose(shoe.op, 0000 rrr 111 MMMMMM);
     
     const uint8_t is_data_reg = (M>>3)==0;
@@ -2629,9 +2639,9 @@ uint32_t extract_bitfield(const uint32_t width, const uint32_t offset, const uin
     
     shoe.dat |= (1 << shift);
     call_ea_write(M, sz);
-})
+}
     
-~inst(bset_immediate, {
+static void inst_bset_immediate (void) {
     ~decompose(shoe.op, 0000 1000 11 MMMMMM);
     const uint16_t ext = nextword();
     ~decompose(ext, 00000000 bbbbbbbb);
@@ -2646,9 +2656,9 @@ uint32_t extract_bitfield(const uint32_t width, const uint32_t offset, const uin
     
     shoe.dat |= (1 << shift);
     call_ea_write(M, sz);
-})
+}
 
-~inst(bchg_immediate, {
+static void inst_bchg_immediate (void) {
     ~decompose(shoe.op, 0000 1000 01 MMMMMM);
     const uint16_t ext = nextword();
     ~decompose(ext, 00000000 bbbbbbbb);
@@ -2663,9 +2673,9 @@ uint32_t extract_bitfield(const uint32_t width, const uint32_t offset, const uin
     
     shoe.dat ^= (1 << shift);
     call_ea_write(M, sz);
-})
+}
     
-~inst(ext, {
+static void inst_ext (void) {
     ~decompose(shoe.op, 0100 100 ooo 000 rrr);
     switch (o) {
         case ~b(010): { // byte -> word
@@ -2689,35 +2699,35 @@ uint32_t extract_bitfield(const uint32_t width, const uint32_t offset, const uin
     // if the LSb of o is 1, then result size == long
     set_sr_z(get_d(r, 2+2*(o&1))==0);
     set_sr_n(mib(shoe.d[r], 2+2*(o&1))); 
-})
+}
     
-~inst(andi_to_sr, {
+static void inst_andi_to_sr (void) {
     verify_supervisor();
     const uint16_t ext = nextword();
     
     set_sr(shoe.sr & ext);
-})
+}
 
-~inst(andi_to_ccr, {
+static void inst_andi_to_ccr (void) {
     const uint16_t ext = nextword();
     
     set_sr(shoe.sr & (ext & 0xff));
-})
+}
 
-~inst(ori_to_sr, {
+static void inst_ori_to_sr (void) {
     verify_supervisor();
     const uint16_t ext = nextword();
     
     set_sr(shoe.sr | ext);
-})
+}
 
-~inst(ori_to_ccr, {
+static void inst_ori_to_ccr (void) {
     const uint16_t ext = nextword();
     
     set_sr(shoe.sr | (ext & 0xff));
-})
+}
     
-~inst(mc68851_decode, {
+static void inst_mc68851_decode (void) {
     ~decompose(shoe.op, 1111 000 a b c MMMMMM);
     
     // prestore or psave
@@ -2782,19 +2792,18 @@ uint32_t extract_bitfield(const uint32_t width, const uint32_t offset, const uin
             return ;
     }
     assert(!"never get here");
-})
+}
 
-void dump_ring();
-~inst(unknown, {
+static void inst_unknown (void) {
     printf("Unknown instruction (0x%04x)!\n", shoe.op);
     /*if (shoe.op == 0x33fe) {
         dump_ring();
         assert(!"dumped");
     }*/
     throw_illegal_instruction();
-})
+}
     
-~inst(a_line, {
+static void inst_a_line (void) {
     
     /*if (shoe.op == 0xA9EB || shoe.op == 0xA9EC) {
         shoe.suppress_exceptions = 1;
@@ -2827,7 +2836,7 @@ void dump_ring();
     }*/
     
     throw_illegal_instruction();
-})
+}
     
 void trap_debug()
 {
@@ -2888,7 +2897,7 @@ void trap_debug()
     shoe.suppress_exceptions = 0;
 }
 
-~inst(trap, {
+static void inst_trap (void) {
     ~decompose(shoe.op, 0100 1110 0100 vvvv);
     
     const uint32_t vector_num = 32 + v;
@@ -2913,7 +2922,7 @@ void trap_debug()
     
 fail:
     assert(!"trap - push_a7 raised shoe.abort\n"); // I can't handle this yet
-})
+}
 
 
 #include "inst_decoder_guts.c"

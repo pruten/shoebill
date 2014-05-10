@@ -76,7 +76,7 @@ coff_file* coff_parse(uint8_t *buf, uint32_t buflen)
     }
     
     // Allocate a coff_file and copy in the header
-    cf = (coff_file*)calloc(1, sizeof(coff_file));
+    cf = (coff_file*)p_alloc(shoe.pool, sizeof(coff_file));
     ptr = rawhead;
     cf->magic = be2native(&ptr, 2);
     cf->num_sections = be2native(&ptr, 2);
@@ -98,17 +98,17 @@ coff_file* coff_parse(uint8_t *buf, uint32_t buflen)
     
     // pull out cf->opt_header bytes (a.out-format header, I guess?)
     if (cf->opt_header_len > 0) {
-        uint8_t *opt = malloc(cf->opt_header_len);
+        uint8_t *opt = p_alloc(shoe.pool, cf->opt_header_len);
         if (!_coff_buf_read(opt, cf->opt_header_len)) {
             printf("coff_parse: I ran out of data pulling the optional header (%u bytes)\n", cf->opt_header_len);
-            free(opt);
+            p_free(opt);
             goto fail;
         }
         cf->opt_header = opt;
     }
     
     // start pulling out sections
-    cf->sections = calloc(cf->num_sections, sizeof(coff_section));
+    cf->sections = p_alloc(shoe.pool, cf->num_sections * sizeof(coff_section));
     for (i=0; i<cf->num_sections; i++) {
         // read the header
         uint8_t rawsec[40];
@@ -158,10 +158,10 @@ coff_file* coff_parse(uint8_t *buf, uint32_t buflen)
         }
         
         // load the data and attach it to the section struct
-        data = malloc(cf->sections[i].sz); // FIXME: sz might not be a sane value
+        data = p_alloc(shoe.pool, cf->sections[i].sz); // FIXME: sz might not be a sane value
         if (!_coff_buf_read(data, cf->sections[i].sz)) {
             printf("coff_parse: I couldn't fread section %u (%s)'s data (%u bytes)\n", i+1, cf->sections[i].name, cf->sections[i].sz);
-            free(data);
+            p_free(data);
             goto fail;
         }
         cf->sections[i].data = data;
@@ -174,7 +174,7 @@ coff_file* coff_parse(uint8_t *buf, uint32_t buflen)
     
     cf->func_tree = rb_new();
     //printf("func_tree = %llx, *func_tree = %llx\n", cf->func_tree, *cf->func_tree);
-    cf->symbols = (coff_symbol*)calloc(sizeof(coff_symbol), cf->num_symbols);
+    cf->symbols = (coff_symbol*)p_alloc(shoe.pool, sizeof(coff_symbol) *cf->num_symbols);
     
     // Seek to the symbol table
     if (!_coff_buf_seek(cf->symtab_offset)) {
@@ -208,7 +208,7 @@ coff_file* coff_parse(uint8_t *buf, uint32_t buflen)
                     goto fail;
                 }
             }
-            cf->symbols[i].name = malloc(j+1);
+            cf->symbols[i].name = p_alloc(shoe.pool, j+1);
             memcpy(cf->symbols[i].name, tmp_name, j);
             cf->symbols[i].name[j] = 0;
             _coff_buf_seek(cf->symtab_offset + (i+1)*18);
@@ -252,17 +252,17 @@ coff_file* coff_parse(uint8_t *buf, uint32_t buflen)
 fail:
     if (cf) {
         if (cf->opt_header) {
-            free(cf->opt_header);
+            p_free(cf->opt_header);
         }
         if (cf->sections) {
             for (i=0; i<cf->num_sections; i++) {
                 if (cf->sections[i].data) {
-                    free(cf->sections[i].data);
+                    p_free(cf->sections[i].data);
                 }
             }
-            free(cf->sections);
+            p_free(cf->sections);
         }
-        free(cf);
+        p_free(cf);
     }
     return NULL;
 }
@@ -270,12 +270,12 @@ fail:
 coff_file* coff_parse_from_path(const char *path)
 {
     FILE *f = fopen(path, "r");
-    uint8_t *buf = malloc(1);
+    uint8_t *buf = p_alloc(shoe.pool, 1);
     uint32_t i=0, tmp;
     coff_file *coff;
     
     do {
-        buf = realloc(buf, i + 128*1024);
+        buf = p_realloc(buf, i + 128*1024);
         assert(buf);
         tmp = fread(buf+i, 1, 128*1024, f);
         i += tmp;
@@ -285,7 +285,7 @@ coff_file* coff_parse_from_path(const char *path)
     
     
     coff = coff_parse(buf, i);
-    free(buf);
+    p_free(buf);
     return coff;
 }
 

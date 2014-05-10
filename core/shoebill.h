@@ -100,7 +100,7 @@
         // set the status register, swapping a7 if necessary
         #define set_sr(newsr) { \
             make_stack_pointers_valid(); \
-            shoe.sr = newsr & 0xf71f; \
+            shoe.sr = (newsr) & 0xf71f; \
             load_stack_pointer(); \
         }
 
@@ -196,8 +196,26 @@ typedef struct {
 } adb_state_t;
 
 typedef struct {
-    uint8_t ifr, ier, rega, regb, ddrb, ddra, sr;
+    uint8_t ifr, ier, ddrb, ddra, sr, acr, pcr;
+    // uint8_t rega, regb;
+    uint16_t t1c, t2c, t1l;
+    uint8_t rega_input, regb_input;
+    uint8_t rega_output, regb_output;
+    long double t1_last_set, t2_last_set;
 } via_state_t;
+
+#define PRAM_READ 1
+#define PRAM_WRITE 2
+typedef struct {
+    uint8_t data[256];
+    uint8_t last_bits;
+    
+    // FSM
+    uint8_t command[8];
+    uint8_t byte, mode, command_i, bit_i;
+} pram_state_t;
+
+void init_via_state();
 
 typedef struct {
     uint8_t scsi_id;
@@ -254,7 +272,6 @@ typedef struct {
     void (*write_func)(uint32_t, uint32_t, uint32_t, uint8_t);
     void *ctx;
     uint8_t slotnum, connected, interrupts_enabled;
-    int32_t glut_window_id;
     long double interrupt_rate, last_fired;
 } nubus_card_t;
 
@@ -276,7 +293,7 @@ typedef struct {
 
 typedef struct {
     
-#define SHOEBILL_STATE_STOPPED (1<<9)
+#define SHOEBILL_STATE_STOPPED (1<<8)
     
     // bits 0-6 are CPU interrupt priorities
     // bit 8 indicates that STOP was called
@@ -285,14 +302,6 @@ typedef struct {
     pthread_mutex_t cpu_thread_lock;
     pthread_mutex_t via_clock_thread_lock;
     pthread_mutex_t cpu_freeze_lock;
-    
-    // -- PMMU caching structures ---
-#define PMMU_CACHE_KEY_BITS 10
-#define PMMU_CACHE_SIZE (1<<PMMU_CACHE_KEY_BITS)
-    struct {
-        pmmu_cache_entry_t entry[PMMU_CACHE_SIZE];
-        uint8_t valid_map[PMMU_CACHE_SIZE / 8];
-    } pmmu_cache[2];
     
     // -- Assorted CPU state variables --
     uint16_t op; // the first word of the instruction we're currently running
@@ -318,18 +327,21 @@ typedef struct {
     _Bool logical_is_write; // <- boolean: true iff the operation is logical_set()
     uint8_t logical_fc; // logical function code
     
-    // -- Interrupts/VIA chips --
+    // -- PMMU caching structures ---
+#define PMMU_CACHE_KEY_BITS 10
+#define PMMU_CACHE_SIZE (1<<PMMU_CACHE_KEY_BITS)
+    struct {
+        pmmu_cache_entry_t entry[PMMU_CACHE_SIZE];
+        uint8_t valid_map[PMMU_CACHE_SIZE / 8];
+    } pmmu_cache[2];
     
-    // uint8_t stopped; // whether STOP was called
-    // uint8_t pending_interrupt; // (0 -> no pending interrupt, >0 -> interrupt priority (autovector))
-    via_state_t via[2];
-    adb_state_t adb;
-    keyboard_state_t key;
-    mouse_state_t mouse;
-    iwm_state_t iwm;
-    
-    nubus_card_t slots[16];
-    // video_state_t video;
+    // -- EA state --
+    uint32_t uncommitted_ea_read_pc; // set by ea_read(). It's the PC that ea_read_commit will set.
+    uint64_t dat; // the raw input/output for the transaction
+    uint32_t extended_addr; // EA returned by ea_decode_extended()
+    uint32_t extended_len; // number of instruction bytes used by ea_decode_extended()
+    uint8_t sz; // the size of the EA transaction
+    uint8_t mr; // a 6-bit mode/reg pair
     
     // -- Registers --
     uint32_t d[8];
@@ -430,26 +442,26 @@ typedef struct {
     
     long double fp[8]; // 80 bit floating point general registers
     
+    // -- Interrupts/VIA chips --
     
-    // -- EA state --
-    uint32_t uncommitted_ea_read_pc; // set by ea_read(). It's the PC that ea_read_commit will set.
-    uint64_t dat; // the raw input/output for the transaction
-    uint32_t extended_addr; // EA returned by ea_decode_extended()
-    uint32_t extended_len; // number of instruction bytes used by ea_decode_extended()
-    uint8_t sz; // the size of the EA transaction
-    uint8_t mr; // a 6-bit mode/reg pair
+    via_state_t via[2];
+    adb_state_t adb;
+    keyboard_state_t key;
+    mouse_state_t mouse;
+    iwm_state_t iwm;
+    
+    nubus_card_t slots[16];
     
     via_clock_t via_clocks;
-    
     
     struct timeval start_time; // when the emulator started (for computing timer interrupts)
     uint64_t total_ticks; // how many 60hz ticks have been generated
     
     coff_file *coff; // Data/symbols from the unix kernel
     
-    coff_file *launch; // FIXME: delete me: coff symbols from aux 1.1.1 launch binary
-    
     scsi_device_t scsi_devices[8]; // SCSI devices
+    
+    pram_state_t pram;
     
     debugger_state_t dbg;
     alloc_pool_t *pool;
@@ -520,11 +532,17 @@ void logical_set (void);
     lset_fc((addr), (s), (val), sr_s() ? 5 : 1) \
 }
 
+typedef void (*_ea_func) (void);
+extern const _ea_func ea_read_jump_table[64];
+extern const _ea_func ea_read_commit_jump_table[64];
+extern const _ea_func ea_write_jump_table[64];
+extern const _ea_func ea_addr_jump_table[64];
+    
+#define ea_read() ea_read_jump_table[shoe.mr]()
+#define ea_read_commit() ea_read_commit_jump_table[shoe.mr]()
+#define ea_write() ea_write_jump_table[shoe.mr]()
+#define ea_addr() ea_addr_jump_table[shoe.mr]()
 
-void ea_read();
-void ea_read_commit();
-void ea_write();
-void ea_addr();
 
 #define call_ea_read(M, s) {shoe.mr=(M);shoe.sz=(s);ea_read();if (shoe.abort) return;}
 #define call_ea_write(M, s) {shoe.mr=(M);shoe.sz=(s);ea_write();if (shoe.abort) return;}
@@ -549,9 +567,6 @@ void ea_addr();
     desc_addr = (_addr); \
     desc_level++; \
 }
-//    if (shoe.dbg) \
-//        printf("desc_addr *0x%08x = 0x%llx\n", (uint32_t)(_addr), desc); \
-// }
 
 
 // dis.c functions
@@ -589,11 +604,10 @@ void scsi_dma_write(uint8_t byte);
 void scsi_dma_write_long(uint32_t dat);
 
 // via1 & via2 (+ CPU interrupts)
-void check_time();
 void via_raise_interrupt(uint8_t vianum, uint8_t ifr_bit);
 void process_pending_interrupt();
-void via_reg_read();
-void via_reg_write();
+void via_read_raw();
+void via_write_raw();
 void *via_clock_thread(void *arg);
 
 // VIA registers

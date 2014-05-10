@@ -34,135 +34,16 @@
 #include "coff.h"
 #include "core_api.h"
 
-/*
-char *ring, *ring_tmp;
-const uint32_t ring_len = 64 * 1024 * 1024;
-uint32_t ring_i = 0;
-
-void print_mmu_rp(uint64_t rp)
-{
-    printf("lu=%u limit=0x%x sg=%u dt=%u addr=0x%08x\n", rp_lu(rp), rp_limit(rp), rp_sg(rp), rp_dt(rp), rp_addr(rp));
-}
-
-void printregs()
-{
-	sprintf(ring_tmp+strlen(ring_tmp), "[d0]%08x  [d1]%08x  [d2]%08x  [d3]%08x\n", shoe.d[0], shoe.d[1], shoe.d[2], shoe.d[3]);
-	sprintf(ring_tmp+strlen(ring_tmp), "[d4]%08x  [d5]%08x  [d6]%08x  [d7]%08x\n", shoe.d[4], shoe.d[5], shoe.d[6], shoe.d[7]);
-	sprintf(ring_tmp+strlen(ring_tmp), "[a0]%08x  [a1]%08x  [a2]%08x  [a3]%08x\n", shoe.a[0], shoe.a[1], shoe.a[2], shoe.a[3]);
-	sprintf(ring_tmp+strlen(ring_tmp), "[a4]%08x  [a5]%08x  [a6]%08x  [a7]%08x\n", shoe.a[4], shoe.a[5], shoe.a[6], shoe.a[7]);
-	sprintf(ring_tmp+strlen(ring_tmp), "[pc]%08x  [sr]%c%c%c%c%c%c%c  [tc]%08x\n", shoe.pc,
-           sr_s()?'S':'s',
-           sr_m()?'M':'m',
-           sr_x()?'X':'x',
-           sr_n()?'N':'n',
-           sr_z()?'Z':'z',
-           sr_v()?'V':'v',
-           sr_c()?'C':'c',
-           shoe.tc
-           );
-    
-    sprintf(ring_tmp+strlen(ring_tmp), "[vbr]%08x\n", shoe.vbr);
-    
-    //printf("srp: ");
-    //print_mmu_rp(shoe.srp);
-    
-    //printf("crp: ");
-    //print_mmu_rp(shoe.crp);
- 
-    sprintf(ring_tmp+strlen(ring_tmp), "tc: e=%u sre=%u fcl=%u ps=%u is=%u (tia=%u tib=%u tic=%u tid=%u)\n\n",
-           tc_enable(), tc_sre(), tc_fcl(), tc_ps(), tc_is(), tc_tia(), tc_tib(), tc_tic(), tc_tid());
-    
-}
-
-void dump_ring()
-{
-    uint32_t i = ring_i+1;
-    
-    while (i != ring_i) {
-        fwrite(&ring[i], 1, 1, stdout);
-        i = (i+1) % ring_len;
-    }
-}
-
-void ring_print(const char *str)
-{
-    uint32_t i;
-    for (i=0; str[i]; i++) {
-        ring[ring_i] = str[i];
-        ring_i = (ring_i+1) % ring_len;
-    }
-}
-
-void print_pc()
-{
-    char str[1024];
-    uint8_t binary[64];
-    uint32_t i;
-    uint32_t len;
-    const char *name = NULL;
-    
-    if ((shoe.pc >= 0x40000000) && (shoe.pc < 0x50000000)) {
-        uint32_t i, addr = shoe.pc % (shoe.physical_rom_size);
-        for (i=0; macii_rom_symbols[i].name; i++) {
-            if (macii_rom_symbols[i].addr > addr) {
-                break;
-            }
-            name = macii_rom_symbols[i].name;
-        }
-    }
-    else if (sr_s()) { // these symbols are only meaningful in supervisor mode
-        coff_symbol *symb = coff_find_func(shoe.coff, shoe.pc);
-        if (symb && strlen(symb->name))
-            name = symb->name;
-    }
-    else
-        name = "";
-    
-    if ((name == NULL) || (name[0] == 0))
-        return;
-    if (strncmp("scsi", name, 4) != 0)
-        return ;
-    
-    const uint16_t old_abort = shoe.abort;
-    shoe.suppress_exceptions = 1;
-    
-    for (i=0; i<32; i++) {
-        binary[i] = (uint8_t) lget(shoe.pc+i, 1);
-    }
-    
-    disassemble_inst(binary, shoe.pc, str, &len);
-    
-    sprintf(ring_tmp, "*0x%08x %s [ ", shoe.pc, name ? name : "");
-    for (i=0; i<len; i+=2) {
-        sprintf(ring_tmp+strlen(ring_tmp), "%02x%02x ", binary[i], binary[i+1]);
-    }
-    sprintf(ring_tmp+strlen(ring_tmp), "]  %s\n", str);
-    
-    printregs();
-    
-    for (i=0; ring_tmp[i]; i++) {
-        ring[ring_i] = ring_tmp[i];
-        ring_i = (ring_i+1) % ring_len;
-    }
-    
-    shoe.abort = old_abort;
-    shoe.suppress_exceptions = 0;
-    
-}
-*/
 
 void shoebill_start()
 {
-    pthread_mutex_unlock(&shoe.cpu_thread_lock);
     pthread_mutex_unlock(&shoe.via_clock_thread_lock);
+    pthread_mutex_unlock(&shoe.cpu_thread_lock);
 }
 
-void *_cpu_thread (void *arg) {
-     
+void *_cpu_thread (void *arg)
+{
     pthread_mutex_lock(&shoe.cpu_thread_lock);
-    
-    // ring = calloc(ring_len, 1);
-    // ring_tmp = malloc(128 * 1024);
     
     while (1) {
         if (shoe.cpu_thread_notifications) {
@@ -177,13 +58,14 @@ void *_cpu_thread (void *arg) {
                 continue; // FIXME: yield or block on a condition variable here
             }
         }
-        // print_pc();
         cpu_step();
     }
 }
 
-/*static void _cpu_loop_debug()
+static void _cpu_loop_debug()
 {
+    pthread_mutex_lock(&shoe.cpu_thread_lock);
+    
     while (1) {
         if (shoe.cpu_thread_notifications) {
             // I think we can safely ignore "stop" instructions for A/UX in debug mode
@@ -193,9 +75,14 @@ void *_cpu_thread (void *arg) {
                 process_pending_interrupt();
             }
             
+            if (shoe.cpu_thread_notifications & SHOEBILL_STATE_STOPPED) {
+                continue; // FIXME: yield or block on a condition variable here
+            }
         }
+        
+        cpu_step();
     }
-}*/
+}
  
 /*void shoebill_cpu_stepi (void)
 {
@@ -319,16 +206,7 @@ static void _init_macintosh_lomem_globals (const uint32_t offset)
     pset(offset+0xdd8, 4, 0);
     pset(offset+0x1d4, 4, 0x50000000); // VIA (via1 ptr)
     pset(offset+0x1d8, 4, 0x50004000); // SCC
-    
-    #define hwCbSCSI (1<<15)
-    #define hwCbClock (1<<14)
-    #define hwCbExPRAM (1<<13)
-    #define hwCbFPU (1<<12)
-    #define hwCbMMU (1<<11)
-    #define hwCbADB (1<<10)
-    #define hwCbAUX (1<<9) /* not sure if I need to set this one */
-    const uint16_t HWCfgFlags = hwCbSCSI | hwCbClock | hwCbFPU | hwCbMMU | hwCbADB;
-    pset(offset+0xb22, 2, HWCfgFlags); // HWCfgFlags
+    pset(offset+0xb22, 2, 0xfc00); // HWCfgFlags
 }
 
 
@@ -482,7 +360,7 @@ static uint32_t _compute_rom_checksum (const uint8_t *rom, const uint32_t len)
 static uint32_t _load_rom (shoebill_control_t *control, uint8_t **_rom_data, uint32_t *_rom_size)
 {
     uint32_t i, rom_size;
-    uint8_t *rom_data = (uint8_t*)malloc(64 * 1024);
+    uint8_t *rom_data = (uint8_t*)p_alloc(shoe.pool, 64 * 1024);
     FILE *f = fopen(control->rom_path, "r");
     
     if (f == NULL) {
@@ -491,7 +369,7 @@ static uint32_t _load_rom (shoebill_control_t *control, uint8_t **_rom_data, uin
     }
     
     for (rom_size = 0; rom_size < (2*1024*1024); rom_size += (64*1024)) {
-        rom_data = (uint8_t*)realloc(rom_data, rom_size + (64*1024));
+        rom_data = (uint8_t*)p_realloc(rom_data, rom_size + (64*1024));
         if (fread(rom_data + rom_size, 64*1024, 1, f) != 1)
             break;
     }
@@ -514,7 +392,7 @@ static uint32_t _load_rom (shoebill_control_t *control, uint8_t **_rom_data, uin
         goto fail;
     }
     
-    rom_data = realloc(rom_data, rom_size);
+    // rom_data = p_realloc(rom_data, rom_size);
     assert(rom_data);
     
     *_rom_size = rom_size;
@@ -524,7 +402,7 @@ static uint32_t _load_rom (shoebill_control_t *control, uint8_t **_rom_data, uin
     return 1;
     
 fail:
-    if (rom_data) free(rom_data);
+    if (rom_data) p_free(rom_data);
     if (f) fclose(f);
     return 0;
 }
@@ -697,7 +575,7 @@ uint32_t shoebill_initialize(shoebill_control_t *control)
         goto fail;
     
     coff = coff_parse(kernel_data, kernel_size);
-    free(kernel_data);
+    free(kernel_data); // kernel_data was allocated with malloc()
     
     if (coff == NULL) {
         sprintf(control->error_msg, "Can't open that A/UX kernel [%s]\n",
@@ -718,13 +596,13 @@ uint32_t shoebill_initialize(shoebill_control_t *control)
     }
     
     shoe.physical_rom_size = rom_size;
-    shoe.physical_rom_base = valloc(rom_size+8); // +8 because of physical_get hack
+    shoe.physical_rom_base = p_alloc(shoe.pool, rom_size+8); // +8 because of physical_get hack
     memcpy(shoe.physical_rom_base, rom_data, rom_size);
-    free(rom_data);
+    p_free(rom_data);
     rom_data = NULL;
     
     shoe.physical_mem_size = control->ram_size;
-    shoe.physical_mem_base = valloc(control->ram_size+8); // +8 because of physical_get hack
+    shoe.physical_mem_base = p_alloc(shoe.pool, control->ram_size+8); // +8 because of physical_get hack
     memset(shoe.physical_mem_base, 0, shoe.physical_mem_size);
     
     // Initialize Macintosh lomem variables that A/UX actually cares about
@@ -746,40 +624,49 @@ uint32_t shoebill_initialize(shoebill_control_t *control)
      * (Can't fail after this point)
      */
     
-    // FIXME: Don't do this! Rewrite the via timers!
-    gettimeofday(&shoe.start_time, NULL);
-    shoe.total_ticks = 0;
+    /*
+     * FIXME: to implement clean resetting, everything with a global structure needs
+     *        an initialization function. Starting here with via/pram...
+     */
+    init_via_state();
+    
     
     // Put the adb chip in state 3 (idle)
+    // FIXME: put this in a "init_adb_state()"-type function
     shoe.adb.state = 3;
     pthread_mutex_init(&shoe.adb.lock, NULL);
+    
     
     set_sr(0x2000);
     shoe.pc = pc;
     memcpy(shoe.scsi_devices, disks, 8 * sizeof(scsi_device_t));
     
-    pthread_mutex_init(&shoe.cpu_thread_lock, NULL);
     pthread_mutex_init(&shoe.via_clock_thread_lock, NULL);
-    
-    pthread_mutex_lock(&shoe.cpu_thread_lock);
     pthread_mutex_lock(&shoe.via_clock_thread_lock);
-    
-    pthread_create(&control->cpu_thread_pid, NULL, _cpu_thread, NULL);
-    // pthread_create(&control->cpu_thread_pid, NULL, debug_cpu_thread, NULL);
     pthread_create(&control->via_thread_pid, NULL, via_clock_thread, NULL);
+    
+    /*
+     * control->debug_mode is a hack - the debugger implements its own CPU thread
+     */
+    pthread_mutex_init(&shoe.cpu_thread_lock, NULL);
+    pthread_mutex_lock(&shoe.cpu_thread_lock);
+    if (!control->debug_mode)
+        pthread_create(&control->cpu_thread_pid, NULL, _cpu_thread, NULL);
     
     return 1;
     
 fail:
-    if (rom_data) free(rom_data);
+    if (rom_data) p_free(rom_data);
     
     for (i=0; i<7; i++)
         if (disks[i].f) fclose(disks[i].f);
     
-    if (shoe.physical_rom_base) free(shoe.physical_rom_base);
-    if (shoe.physical_mem_base) free(shoe.physical_mem_base);
+    if (shoe.physical_rom_base) p_free(shoe.physical_rom_base);
+    if (shoe.physical_mem_base) p_free(shoe.physical_mem_base);
     
-    // No way to free *coff yet
+    p_free_pool(shoe.pool);
+    memset(&shoe, 0, sizeof(global_shoebill_context_t));
+    
     return 0;
 }
 

@@ -98,6 +98,8 @@ typedef struct {
     
     pthread_t cpu_thread_pid, via_thread_pid;
     
+    _Bool debug_mode;
+    
     char error_msg[8192];
 } shoebill_control_t;
 

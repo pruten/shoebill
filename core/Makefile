@@ -1,13 +1,13 @@
 
 CC = clang
-CFLAGS = -O3 -flto -ggdb -Wno-deprecated-declarations
+CFLAGS = -O3 -ggdb -flto -Wno-deprecated-declarations
 # CFLAGS = -O0 -ggdb -Wno-deprecated-declarations
 
 
 DEPS = core_api.h coff.h mc68851.h redblack.h shoebill.h Makefile macro.pl
 NEED_DECODER = cpu dis
 NEED_PREPROCESSING = adb fpu mc68851 mem via
-NEED_NOTHING = atrap_tab coff exception floppy macii_symbols redblack scsi toby_frame_buffer video core_api filesystem debug_server alloc_pool
+NEED_NOTHING = atrap_tab coff exception floppy macii_symbols redblack scsi video core_api filesystem alloc_pool
 
 # Object files that can be compiled directly from the source
 OBJ_NEED_NOTHING = $(patsubst %,$(TEMP)/%.o,$(NEED_NOTHING))
@@ -73,7 +73,7 @@ $(TEMP)/dis_decoder_guts.c: $(TEMP)/decoder_gen $(DEPS)
 
 # Compile the decoder generator
 $(TEMP)/decoder_gen: decoder_gen.c $(DEPS)
-	$(CC) $(CFLAGS) decoder_gen.c -o $(TEMP)/decoder_gen
+	$(CC) decoder_gen.c -o $(TEMP)/decoder_gen
 
 
 $(TEMP):

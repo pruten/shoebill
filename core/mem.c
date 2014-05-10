@@ -46,8 +46,26 @@ void _physical_get_ram (void)
     else
         addr = (uint64_t*)&shoe.physical_mem_base[shoe.physical_addr % shoe.physical_mem_size];
     
+    /*if ((shoe.physical_addr >= 0x100) && (shoe.physical_addr < (0x4000+256))) {
+        uint32_t i, val = 0;
+        _Bool uninit = 0;
+        for (i=0; i<shoe.physical_size; i++) {
+            const uint8_t byte = shoe.physical_mem_base[shoe.physical_addr+i];
+            val = val << 8;
+            val |= byte;
+            if (byte == 0xbc) uninit = 1;
+        }
+        if (uninit) {
+            printf("LOMEM: *0x%08x = 0x%x UNSET\n", shoe.physical_addr, val);
+        }
+    }*/
+    
     const uint8_t bits = (8 - shoe.physical_size) * 8;
     shoe.physical_dat = ntohll(*addr) >> bits;
+    
+    if ((shoe.physical_addr >= 256) && (shoe.physical_addr < 0x4000)) {
+        printf("LOMEM get: *0x%08x = 0x%x\n", shoe.physical_addr, (uint32_t)shoe.physical_dat);
+    }
 }
 
 void _physical_get_rom (void)
@@ -61,13 +79,8 @@ void _physical_get_rom (void)
 void _physical_get_io (void)
 {
     switch (shoe.physical_addr & 0x5003ffff) {
-        case 0x50000000 ... 0x50001fff: // VIA1
-            via_reg_read();
-            // printf("physical_get: got read to VIA1 (%x & 0x5003ffff = %x)\n", shoe.physical_addr, shoe.physical_addr & 0x5003ffff);
-            return ;
-        case 0x50002000 ... 0x50003fff: // VIA2
-            via_reg_read();
-            // printf("physical_get: got read to VIA2\n");
+        case 0x50000000 ... 0x50003fff: // VIA1 + VIA2
+            via_read_raw();
             return ;
         case 0x50004000 ... 0x50005fff: {// SCC
             //printf("physical_get: got read to SCC\n");
@@ -77,8 +90,6 @@ void _physical_get_io (void)
             return ;
         }
         case 0x50006000 ... 0x50007fff: // SCSI (pseudo-DMA with DRQ?)
-            //printf("physical_get: got read to SCSI low\n");
-            //assert(!"physical_get: got read to SCSI low");
             assert(shoe.logical_size == 4);
             shoe.physical_dat = scsi_dma_read_long();
             return ;
@@ -88,11 +99,12 @@ void _physical_get_io (void)
         case 0x50012000 ... 0x50013fff: // SCSI (pseudo-DMA with no DRQ?)
             assert(shoe.logical_size == 1);
             shoe.physical_dat = scsi_dma_read();
-            // printf("physical_get: got read to SCSI hi\n");
-            // assert(!"physical_get: got read to SCSI hi\n");
             return ;
         case 0x50014000 ... 0x50015fff: // Sound
             //printf("physical_get: got read to sound\n");
+            printf("soundsound read : register 0x%04x sz=%u\n",
+                   shoe.physical_addr - 0x50014000, shoe.physical_size);
+            shoe.physical_dat = 0;
             return ;
         case 0x50016000 ... 0x50017fff: // SWIM (IWM?)
             // printf("physical_get: got read to IWM\n");
@@ -157,6 +169,10 @@ void _physical_set_ram (void)
     else
         addr = &shoe.physical_mem_base[shoe.physical_addr];
     
+    if ((shoe.physical_addr >= 0x100) && (shoe.physical_addr < (0x8000))) {
+        printf("LOMEM set: *0x%08x = 0x%x\n", shoe.physical_addr, (uint32_t)chop(shoe.physical_dat, shoe.physical_size));
+    }
+    
     const uint32_t sz = shoe.physical_size;
     switch (sz) {
         case 1:
@@ -195,13 +211,8 @@ void _physical_set_rom (void)
 void _physical_set_io (void)
 {
     switch (shoe.physical_addr & 0x5003ffff) {
-        case 0x50000000 ... 0x50001fff: // VIA1
-            via_reg_write();
-            // printf("physical_set: got write to VIA1\n");
-            return ;
-        case 0x50002000 ... 0x50003fff: // VIA2
-            via_reg_write();
-            // printf("physical_set: got write to VIA2\n");
+        case 0x50000000 ... 0x50003fff: // VIA1 + VIA2
+            via_write_raw();
             return ;
         case 0x50004000 ... 0x50005fff: // SCC
             //printf("physical_set: got write to SCC\n");
@@ -216,11 +227,11 @@ void _physical_set_io (void)
         case 0x50012000 ... 0x50013fff: // SCSI (pseudo-DMA with no DRQ?)
             assert(shoe.physical_size == 1);
             scsi_dma_write(shoe.physical_dat);
-            //printf("physical_set: got write to SCSI hi\n");
-            //assert(!"physical_set: got write to SCSI hi\n");
             return ;
         case 0x50014000 ... 0x50015fff: // Sound
-            printf("physical_set: got write to sound\n");
+            printf("soundsound write: register 0x%04x sz=%u dat=0x%x\n",
+                   shoe.physical_addr - 0x50014000, shoe.physical_size, (uint32_t)shoe.physical_dat);
+            // printf("physical_set: got write to sound\n");
             return ;
         case 0x50016000 ... 0x50017fff: // SWIM (IWM?)
             //printf("physical_set: got write to IWM\n");
@@ -339,7 +350,7 @@ static void translate_logical_addr()
     uint8_t desc_size = 1; // And the root pointer descriptor is always 8 bytes (1==8 bytes, 0==4 bytes)
     uint8_t used_bits = tc_is(); // Keep track of how many bits will be the effective "page size"
     // (If the table search terminates early (before used_bits == ts_ps()),
-    //  then this will be the effective page size. That is, the number of bits
+    //  then (32 - used_bits) will be the effective page size. That is, the number of bits
     //  we or into the physical addr from the virtual addr)
     
     desc_addr = -1; // address of the descriptor (-1 -> register)
@@ -801,273 +812,579 @@ static void ea_decode_extended()
 }
 
 
-void ea_read()
+// Data register direct mode
+void _ea_000_read (void)
 {
-    const uint8_t mode = (shoe.mr>>3)&7, reg = (shoe.mr&7);
+    shoe.dat = get_d(shoe.mr & 7, shoe.sz);
+}
+void _ea_000_write (void)
+{
+    set_d(shoe.mr & 7, shoe.dat, shoe.sz);
+}
+
+
+// address register direct mode
+void _ea_001_read (void)
+{
+    shoe.dat = get_a(shoe.mr & 7, shoe.sz);
+}
+void _ea_001_write (void)
+{
+    assert(shoe.sz==4);
+    shoe.a[shoe.mr & 7] = shoe.dat;
+}
+
+
+// address register indirect mode
+void _ea_010_read (void)
+{
+    shoe.dat = lget(shoe.a[shoe.mr & 7], shoe.sz);
+}
+void _ea_010_write (void)
+{
+    lset(shoe.a[shoe.mr & 7], shoe.sz, shoe.dat);
+}
+void _ea_010_addr (void)
+{
+    shoe.dat = shoe.a[shoe.mr & 7];
+}
+
+
+// address register indirect with postincrement mode
+void _ea_011_read (void)
+{
+    shoe.dat = lget(shoe.a[shoe.mr & 7], shoe.sz);
+}
+void _ea_011_read_commit (void)
+{
+    const uint8_t reg = shoe.mr & 7;
+    shoe.a[reg] += (((reg==7) && (shoe.sz==1)) ? 2 : shoe.sz);
+}
+void _ea_011_write (void)
+{
+    const uint8_t reg = shoe.mr & 7;
+    const uint8_t delta = ((reg==7) && (shoe.sz==1)) ? 2 : shoe.sz;
+    
+    lset(shoe.a[reg], shoe.sz, shoe.dat);
+    if (!shoe.abort)
+        shoe.a[reg] += delta;
+}
+
+
+// address register indirect with predecrement mode
+void _ea_100_read (void)
+{
+    const uint8_t reg = shoe.mr & 7;
+    const uint8_t delta = ((reg==7) && (shoe.sz==1))?2:shoe.sz;
+    shoe.dat = lget(shoe.a[reg]-delta, shoe.sz);
+}
+void _ea_100_read_commit (void)
+{
+    const uint8_t reg = shoe.mr & 7;
+    shoe.a[reg] -= (((reg==7) && (shoe.sz==1)) ? 2 : shoe.sz);
+}
+void _ea_100_write (void)
+{
+    const uint8_t reg = shoe.mr & 7;
+    const uint8_t delta = ((reg==7) && (shoe.sz==1)) ? 2 : shoe.sz;
+    
+    lset(shoe.a[reg] - delta, shoe.sz, shoe.dat);
+    if (!shoe.abort)
+        shoe.a[reg] -= delta;
+}
+
+
+// address register indirect with displacement mode
+void _ea_101_read (void)
+{
     shoe.uncommitted_ea_read_pc = shoe.pc;
-    switch (mode) {
-        case 0: { // Data register direct mode
-            shoe.dat = get_d(reg, shoe.sz);
-            return ;
-        }
-        case 1: { // address register direct mode
-            shoe.dat = get_a(reg, shoe.sz);
-            return ;
-        }
-        case 2: { // address register indirect mode
-            shoe.dat = lget(shoe.a[reg], shoe.sz);
-            return ;
-        }
-        case 3: { // address register indirect with postincrement mode
-            shoe.dat = lget(shoe.a[reg], shoe.sz);
-            // printf("ea_read(): %u %u not implemented\n", mode, reg);
-            return ;
-        }
-        case 4: { // address register indirect with predecrement mode
-            const uint8_t delta = ((reg==7) && (shoe.sz==1))?2:shoe.sz;
-            shoe.dat = lget(shoe.a[reg]-delta, shoe.sz);
-            return ;
-        }
-        case 5: { // address register indirect with displacement mode
-            const int16_t disp = nextword(shoe.uncommitted_ea_read_pc);
-            shoe.dat = lget(shoe.a[reg]+disp, shoe.sz);
-            return ;
-        }
-        case 6: {
-            ea_decode_extended();
-            if (shoe.abort) return ;
-            shoe.dat = lget(shoe.extended_addr, shoe.sz);
-            return ;
-        }
-        case 7: {
-            switch (reg) {
-                case 0: { // absolute short addressing mode
-                    const int32_t addr = (int16_t)nextword(shoe.uncommitted_ea_read_pc);
-                    shoe.dat = lget((uint32_t)addr, shoe.sz);
-                    return ;
-                }
-                case 1: { // absolute long addressing mode
-                    const uint32_t addr = nextlong(shoe.uncommitted_ea_read_pc);
-                    shoe.dat = lget(addr, shoe.sz);
-                    return ;
-                }
-                case 2: { // program counter indirect with displacement mode
-                    const uint32_t base_pc = shoe.uncommitted_ea_read_pc;
-                    const uint16_t u_disp = nextword(shoe.uncommitted_ea_read_pc);
-                    const int16_t disp = (int16_t)u_disp;
-                    
-                    shoe.dat = lget(base_pc + disp, shoe.sz);
-                    return ;
-                }
-                case 3: { // (program counter ...)
-                    ea_decode_extended();
-                    if (shoe.abort) return ;
-                    shoe.dat = lget(shoe.extended_addr, shoe.sz);
-                    return ;
-                }
-                case 4: { // immediate data
-                    if (shoe.sz==1) {
-                        shoe.dat = nextword(shoe.uncommitted_ea_read_pc) & 0xff;
-                    } else if (shoe.sz == 2) {
-                        shoe.dat = nextword(shoe.uncommitted_ea_read_pc);
-                    } else if (shoe.sz == 4) {
-                        shoe.dat = nextlong(shoe.uncommitted_ea_read_pc);
-                    } else if (shoe.sz == 8) {
-                        const uint64_t q = nextlong(shoe.uncommitted_ea_read_pc);
-                        shoe.dat = (q<<32) | nextlong(shoe.uncommitted_ea_read_pc);
-                    }
-                    return ;
-                }
-                default:
-                    throw_illegal_instruction();
-                    return ;
-            }
-        }
+    const int16_t disp = nextword(shoe.uncommitted_ea_read_pc);
+    shoe.dat = lget(shoe.a[shoe.mr & 7] + disp, shoe.sz);
+}
+void _ea_101_read_commit (void)
+{
+    shoe.pc += 2;
+}
+void _ea_101_write (void)
+{
+    const int16_t disp = nextword(shoe.pc);
+    lset(shoe.a[shoe.mr & 7] + disp, shoe.sz, shoe.dat);
+}
+void _ea_101_addr (void)
+{
+    const int16_t disp = nextword(shoe.pc);
+    shoe.dat = shoe.a[shoe.mr & 7] + disp;
+}
+
+
+// memory/address register indirect with index
+void _ea_110_read (void)
+{
+    ea_decode_extended();
+    if (!shoe.abort)
+        shoe.dat = lget(shoe.extended_addr, shoe.sz);
+    shoe.uncommitted_ea_read_pc = shoe.pc + shoe.extended_len;
+}
+void _ea_110_read_commit (void)
+{
+    shoe.pc = shoe.uncommitted_ea_read_pc;
+}
+void _ea_110_write (void)
+{
+    ea_decode_extended();
+    if (!shoe.abort) {
+        lset(shoe.extended_addr, shoe.sz, shoe.dat);
+        if (!shoe.abort)
+            shoe.pc += shoe.extended_len;
+    }
+}
+void _ea_110_addr (void)
+{
+    ea_decode_extended();
+    if (!shoe.abort) {
+        shoe.dat = shoe.extended_addr;
+        shoe.pc += shoe.extended_len;
     }
 }
 
-void ea_read_commit()
+
+// absolute short addressing mode
+void _ea_111_000_read (void)
 {
-    const uint8_t mode = (shoe.mr>>3)&7, reg = (shoe.mr&7);
-    switch (mode) {
-        case 0: // Data register direct mode
-        case 1: // address register direct mode
-        case 2: // address register indirect mode
-            return ; // nothing to do
-            
-        case 3: { // address register indirect with postincrement mode
-            const uint8_t delta = ((reg==7) && (shoe.sz==1))?2:shoe.sz;
-            shoe.a[reg] += delta;
-            return ;
-        }
-        case 4: { // address register indirect with predecrement mode
-            const uint8_t delta = ((reg==7) && (shoe.sz==1))?2:shoe.sz;
-            shoe.a[reg] -= delta;
-            return ;
-        }
-        case 5: { // address register indirect with displacement mode
-            shoe.pc += 2; // this mode fetches one word
-            return ;
-        }
-        case 6: {
-            // shoe.extended_len was set in the previous ea_read() call.
-            shoe.pc += shoe.extended_len;
-            return ;
-        }
-        case 7: {
-            switch (reg) {
-                case 0: { // absolute short addressing mode
-                    shoe.pc+=2;
-                    return ;
-                }
-                case 1: { // absolute long addressing mode
-                    shoe.pc+=4;
-                    return ;
-                }
-                case 2: { // program counter indirect with displacement mode
-                    shoe.pc+=2;
-                    return ;
-                }
-                case 3: { // (program counter ...)
-                    // shoe.extended_len was set in the previous ea_read() call.
-                    shoe.pc += shoe.extended_len;
-                    return ;
-                }
-                case 4: { // immediate data
-                    if (shoe.sz==1) shoe.pc += 2;
-                    else shoe.pc += shoe.sz;
-                    return ;
-                }
-                default:
-                    throw_illegal_instruction();
-                    return ;
-            }
-        }
+    shoe.uncommitted_ea_read_pc = shoe.pc;
+    const int32_t addr = (int16_t)nextword(shoe.uncommitted_ea_read_pc);
+    shoe.dat = lget((uint32_t)addr, shoe.sz);
+}
+void _ea_111_000_read_commit (void)
+{
+    shoe.pc += 2;
+}
+void _ea_111_000_write (void)
+{
+    const int32_t addr = (int16_t)nextword(shoe.pc);
+    lset((uint32_t)addr, shoe.sz, shoe.dat);
+}
+void _ea_111_000_addr (void)
+{
+    const int32_t addr = (int16_t)nextword(shoe.pc);
+    shoe.dat = (uint32_t)addr;
+}
+
+
+// absolute long addressing mode
+void _ea_111_001_read (void)
+{
+    shoe.uncommitted_ea_read_pc = shoe.pc;
+    const uint32_t addr = nextlong(shoe.uncommitted_ea_read_pc);
+    shoe.dat = lget(addr, shoe.sz);
+}
+void _ea_111_001_read_commit (void)
+{
+    shoe.pc += 4;
+}
+void _ea_111_001_write (void)
+{
+    const uint32_t addr = nextlong(shoe.pc);
+    lset(addr, shoe.sz, shoe.dat);
+}
+void _ea_111_001_addr (void)
+{
+    const uint32_t addr = nextlong(shoe.pc);
+    shoe.dat = addr;
+}
+
+// program counter indirect with displacement mode
+void _ea_111_010_read (void)
+{
+    const uint32_t base_pc = shoe.pc;
+    shoe.uncommitted_ea_read_pc = base_pc;
+    const int16_t disp = nextword(shoe.uncommitted_ea_read_pc);
+    shoe.dat = lget(base_pc + disp, shoe.sz);
+}
+void _ea_111_010_read_commit (void)
+{
+    shoe.pc += 2;
+}
+void _ea_111_010_addr (void)
+{
+    const uint32_t oldpc = shoe.pc;
+    const int16_t displacement = nextword(shoe.pc);
+    shoe.dat = oldpc + displacement;
+}
+
+
+// (program counter ...)
+void _ea_111_011_read (void)
+{
+    ea_decode_extended();
+    if (!shoe.abort)
+        shoe.dat = lget(shoe.extended_addr, shoe.sz);
+    shoe.uncommitted_ea_read_pc = shoe.pc + shoe.extended_len;
+}
+void _ea_111_011_read_commit (void)
+{
+    shoe.pc = shoe.uncommitted_ea_read_pc;
+}
+void _ea_111_011_addr (void)
+{
+    ea_decode_extended();
+    if (!shoe.abort) {
+        shoe.dat = shoe.extended_addr;
+        shoe.pc += shoe.extended_len;
     }
 }
 
-void ea_write()
+
+// immediate data
+void _ea_111_100_read (void)
 {
-    const uint8_t mode = (shoe.mr>>3)&7, reg = (shoe.mr&7);
-    switch (mode) {
-        case 0: { // Data register direct mode
-            set_d(reg, shoe.dat, shoe.sz);
-            return ;
-        }
-        case 1: { // address register direct mode
-            assert(shoe.sz==4);
-            shoe.a[reg] = shoe.dat;
-            return ;
-        }
-        case 2: { // address register indirect mode
-            lset(shoe.a[reg], shoe.sz, shoe.dat);
-            return ;
-        }
-        case 3: { // address register indirect with postincrement mode
-            const uint8_t delta = ((reg==7) && (shoe.sz==1))?2:shoe.sz;
-            
-            lset(shoe.a[reg], shoe.sz, shoe.dat);
-            if (!shoe.abort)
-                shoe.a[reg] += delta;
-            return ;
-        }
-        case 4: { // address register indirect with predecrement mode
-            const uint8_t delta = ((reg==7) && (shoe.sz==1))?2:shoe.sz;
-            lset(shoe.a[reg]-delta, shoe.sz, shoe.dat);
-            if (!shoe.abort)
-                shoe.a[reg] -= delta;
-            return ;
-        }
-        case 5: { // address register indirect with displacement mode
-            const uint16_t u_disp = nextword(shoe.pc);
-            const int16_t disp = (int16_t)u_disp; // sign-extend word to long
-            lset(shoe.a[reg]+disp, shoe.sz, shoe.dat);
-            return ;
-        }
-        case 6: {
-            ea_decode_extended();
-            if (shoe.abort) return ;
-            
-            lset(shoe.extended_addr, shoe.sz, shoe.dat);
-            if (shoe.abort) return ;
-            
-            shoe.pc += shoe.extended_len;
-            return ;
-        }
-        case 7: {
-            switch (reg) {
-                case 0: { // absolute short addressing mode
-                    const int32_t addr = (int16_t)nextword(shoe.pc);
-                    lset((uint32_t)addr, shoe.sz, shoe.dat);
-                    return ;
-                }
-                case 1: { // absolute long addressing mode
-                    const uint32_t addr = nextlong(shoe.pc);
-                    lset(addr, shoe.sz, shoe.dat);
-                    // printf("ea_write(): %u %u not implemented\n", mode, reg);
-                    return ;
-                }
-            }
-        }
-        // fall through
-        default:
-            throw_illegal_instruction();
-            return ;
+    if (shoe.sz == 1) {
+        shoe.uncommitted_ea_read_pc = shoe.pc + 2;
+        shoe.dat = lget(shoe.pc, 2) & 0xff;
     }
+    else {
+        shoe.uncommitted_ea_read_pc = shoe.pc + shoe.sz;
+        shoe.dat = lget(shoe.pc, shoe.sz);
+    }
+}
+void _ea_111_100_read_commit (void)
+{
+    shoe.pc = shoe.uncommitted_ea_read_pc;
 }
 
-void ea_addr()
+
+// illegal EA mode
+void _ea_illegal (void)
 {
-    const uint8_t mode = (shoe.mr>>3)&7, reg = (shoe.mr&7);
-    switch (mode) {
-        case 2: { // address register indirect mode
-            shoe.dat = shoe.a[reg];
-            return ;
-        }
-        case 5: { // address register indirect with displacement mode
-            int16_t disp = nextword(shoe.pc);
-            shoe.dat = shoe.a[reg] + disp;
-            return ;
-        }
-        case 6: {
-            ea_decode_extended();
-            if (shoe.abort) return ;
-            shoe.dat = shoe.extended_addr;
-            shoe.pc += shoe.extended_len;
-            return ;
-        }
-        case 7: {
-            switch (reg) {
-                case 0: { // absolute short addressing mode
-                    int32_t addr = (int16_t)nextword(shoe.pc);
-                    shoe.dat = (uint32_t)addr;
-                    return ;
-                }
-                case 1: { // absolute long addressing mode
-                    const uint32_t addr = nextlong(shoe.pc);
-                    shoe.dat = addr;
-                    return ;
-                }
-                case 2: { // program counter indirect with displacement mode
-                    const uint32_t oldpc = shoe.pc;
-                    const uint16_t displacement = nextword(shoe.pc);
-                    shoe.dat = oldpc + (int16_t)displacement;
-                    return ;
-                }
-                case 3: { // (program counter ...)
-                    ea_decode_extended();
-                    if (shoe.abort) return ;
-                    shoe.dat = shoe.extended_addr;
-                    shoe.pc += shoe.extended_len;
-                    return ;
-                }
-            }
-        }
-        default:
-            throw_illegal_instruction();
-            return ;
-    }
+    throw_illegal_instruction();
 }
+
+// nothing to do
+void _ea_nop (void)
+{
+}
+
+
+const _ea_func ea_read_jump_table[64] = {
+    // Data register direct mode
+    _ea_000_read,
+    _ea_000_read,
+    _ea_000_read,
+    _ea_000_read,
+    _ea_000_read,
+    _ea_000_read,
+    _ea_000_read,
+    _ea_000_read,
+    // address register direct mode
+    _ea_001_read,
+    _ea_001_read,
+    _ea_001_read,
+    _ea_001_read,
+    _ea_001_read,
+    _ea_001_read,
+    _ea_001_read,
+    _ea_001_read,
+    // address register indirect mode
+    _ea_010_read,
+    _ea_010_read,
+    _ea_010_read,
+    _ea_010_read,
+    _ea_010_read,
+    _ea_010_read,
+    _ea_010_read,
+    _ea_010_read,
+    // address register indirect with postincrement mode
+    _ea_011_read,
+    _ea_011_read,
+    _ea_011_read,
+    _ea_011_read,
+    _ea_011_read,
+    _ea_011_read,
+    _ea_011_read,
+    _ea_011_read,
+    // address register indirect with predecrement mode
+    _ea_100_read,
+    _ea_100_read,
+    _ea_100_read,
+    _ea_100_read,
+    _ea_100_read,
+    _ea_100_read,
+    _ea_100_read,
+    _ea_100_read,
+    // address register indirect with displacement mode
+    _ea_101_read,
+    _ea_101_read,
+    _ea_101_read,
+    _ea_101_read,
+    _ea_101_read,
+    _ea_101_read,
+    _ea_101_read,
+    _ea_101_read,
+    // memory/address register indirect with index
+    _ea_110_read,
+    _ea_110_read,
+    _ea_110_read,
+    _ea_110_read,
+    _ea_110_read,
+    _ea_110_read,
+    _ea_110_read,
+    _ea_110_read,
+    // absolute short addressing mode
+    _ea_111_000_read,
+    // absolute long addressing mode
+    _ea_111_001_read,
+    // program counter indirect with displacement mode
+    _ea_111_010_read,
+    // program counter indirect with index
+    _ea_111_011_read,
+    // immediate
+    _ea_111_100_read,
+    // The rest are illegal EA modes
+    _ea_illegal,
+    _ea_illegal,
+    _ea_illegal
+};
+
+const _ea_func ea_read_commit_jump_table[64] = {
+    // Data register direct mode
+    _ea_nop,
+    _ea_nop,
+    _ea_nop,
+    _ea_nop,
+    _ea_nop,
+    _ea_nop,
+    _ea_nop,
+    _ea_nop,
+    // address register direct mode
+    _ea_nop,
+    _ea_nop,
+    _ea_nop,
+    _ea_nop,
+    _ea_nop,
+    _ea_nop,
+    _ea_nop,
+    _ea_nop,
+    // address register indirect mode
+    _ea_nop,
+    _ea_nop,
+    _ea_nop,
+    _ea_nop,
+    _ea_nop,
+    _ea_nop,
+    _ea_nop,
+    _ea_nop,
+    // address register indirect with postincrement mode
+    _ea_011_read_commit,
+    _ea_011_read_commit,
+    _ea_011_read_commit,
+    _ea_011_read_commit,
+    _ea_011_read_commit,
+    _ea_011_read_commit,
+    _ea_011_read_commit,
+    _ea_011_read_commit,
+    // address register indirect with predecrement mode
+    _ea_100_read_commit,
+    _ea_100_read_commit,
+    _ea_100_read_commit,
+    _ea_100_read_commit,
+    _ea_100_read_commit,
+    _ea_100_read_commit,
+    _ea_100_read_commit,
+    _ea_100_read_commit,
+    // address register indirect with displacement mode
+    _ea_101_read_commit,
+    _ea_101_read_commit,
+    _ea_101_read_commit,
+    _ea_101_read_commit,
+    _ea_101_read_commit,
+    _ea_101_read_commit,
+    _ea_101_read_commit,
+    _ea_101_read_commit,
+    // memory/address register indirect with index
+    _ea_110_read_commit,
+    _ea_110_read_commit,
+    _ea_110_read_commit,
+    _ea_110_read_commit,
+    _ea_110_read_commit,
+    _ea_110_read_commit,
+    _ea_110_read_commit,
+    _ea_110_read_commit,
+    // absolute short addressing mode
+    _ea_111_000_read_commit,
+    // absolute long addressing mode
+    _ea_111_001_read_commit,
+    // program counter indirect with displacement mode
+    _ea_111_010_read_commit,
+    // program counter indirect with index
+    _ea_111_011_read_commit,
+    // immediate
+    _ea_111_100_read_commit,
+    // The rest are illegal EA modes
+    NULL,
+    NULL,
+    NULL
+};
+
+const _ea_func ea_write_jump_table[64] = {
+    // Data register direct mode
+    _ea_000_write,
+    _ea_000_write,
+    _ea_000_write,
+    _ea_000_write,
+    _ea_000_write,
+    _ea_000_write,
+    _ea_000_write,
+    _ea_000_write,
+    // address register direct mode
+    _ea_001_write,
+    _ea_001_write,
+    _ea_001_write,
+    _ea_001_write,
+    _ea_001_write,
+    _ea_001_write,
+    _ea_001_write,
+    _ea_001_write,
+    // address register indirect mode
+    _ea_010_write,
+    _ea_010_write,
+    _ea_010_write,
+    _ea_010_write,
+    _ea_010_write,
+    _ea_010_write,
+    _ea_010_write,
+    _ea_010_write,
+    // address register indirect with postincrement mode
+    _ea_011_write,
+    _ea_011_write,
+    _ea_011_write,
+    _ea_011_write,
+    _ea_011_write,
+    _ea_011_write,
+    _ea_011_write,
+    _ea_011_write,
+    // address register indirect with predecrement mode
+    _ea_100_write,
+    _ea_100_write,
+    _ea_100_write,
+    _ea_100_write,
+    _ea_100_write,
+    _ea_100_write,
+    _ea_100_write,
+    _ea_100_write,
+    // address register indirect with displacement mode
+    _ea_101_write,
+    _ea_101_write,
+    _ea_101_write,
+    _ea_101_write,
+    _ea_101_write,
+    _ea_101_write,
+    _ea_101_write,
+    _ea_101_write,
+    // memory/address register indirect with index
+    _ea_110_write,
+    _ea_110_write,
+    _ea_110_write,
+    _ea_110_write,
+    _ea_110_write,
+    _ea_110_write,
+    _ea_110_write,
+    _ea_110_write,
+    // absolute short addressing mode
+    _ea_111_000_write,
+    // absolute long addressing mode
+    _ea_111_001_write,
+    // program counter indirect with displacement mode
+    _ea_illegal,
+    // program counter indirect with index
+    _ea_illegal,
+    // immediate
+    _ea_illegal,
+    // The rest are illegal EA modes
+    _ea_illegal,
+    _ea_illegal,
+    _ea_illegal
+};
+
+
+const _ea_func ea_addr_jump_table[64] = {
+    // Data register direct mode
+    _ea_illegal,
+    _ea_illegal,
+    _ea_illegal,
+    _ea_illegal,
+    _ea_illegal,
+    _ea_illegal,
+    _ea_illegal,
+    _ea_illegal,
+    // address register direct mode
+    _ea_illegal,
+    _ea_illegal,
+    _ea_illegal,
+    _ea_illegal,
+    _ea_illegal,
+    _ea_illegal,
+    _ea_illegal,
+    _ea_illegal,
+    // address register indirect mode
+    _ea_010_addr,
+    _ea_010_addr,
+    _ea_010_addr,
+    _ea_010_addr,
+    _ea_010_addr,
+    _ea_010_addr,
+    _ea_010_addr,
+    _ea_010_addr,
+    // address register indirect with postincrement mode
+    _ea_illegal,
+    _ea_illegal,
+    _ea_illegal,
+    _ea_illegal,
+    _ea_illegal,
+    _ea_illegal,
+    _ea_illegal,
+    _ea_illegal,
+    // address register indirect with predecrement mode
+    _ea_illegal,
+    _ea_illegal,
+    _ea_illegal,
+    _ea_illegal,
+    _ea_illegal,
+    _ea_illegal,
+    _ea_illegal,
+    _ea_illegal,
+    // address register indirect with displacement mode
+    _ea_101_addr,
+    _ea_101_addr,
+    _ea_101_addr,
+    _ea_101_addr,
+    _ea_101_addr,
+    _ea_101_addr,
+    _ea_101_addr,
+    _ea_101_addr,
+    // memory/address register indirect with index
+    _ea_110_addr,
+    _ea_110_addr,
+    _ea_110_addr,
+    _ea_110_addr,
+    _ea_110_addr,
+    _ea_110_addr,
+    _ea_110_addr,
+    _ea_110_addr,
+    // absolute short addressing mode
+    _ea_111_000_addr,
+    // absolute long addressing mode
+    _ea_111_001_addr,
+    // program counter indirect with displacement mode
+    _ea_111_010_addr,
+    // program counter indirect with index
+    _ea_111_011_addr,
+    // immediate
+    _ea_illegal,
+    // The rest are illegal EA modes
+    _ea_illegal,
+    _ea_illegal,
+    _ea_illegal
+};
 
 
 

@@ -95,10 +95,11 @@ void nubus_video_init(void *_ctx, uint8_t slotnum,
     ctx->scanline_width = scanline_width;
     ctx->pixels = scanline_width * height;
     
-    ctx->direct_buf = valloc(ctx->pixels * sizeof(video_ctx_color_t));
-    ctx->indexed_buf = valloc(ctx->pixels);
-    ctx->clut = malloc(256 * sizeof(video_ctx_color_t));
-    ctx->rom = malloc(4096);
+    ctx->direct_buf = p_alloc(shoe.pool, ctx->pixels * sizeof(video_ctx_color_t));
+    ctx->indexed_buf = p_alloc(shoe.pool, ctx->pixels);
+    
+    ctx->clut = p_alloc(shoe.pool, 256 * sizeof(video_ctx_color_t));
+    ctx->rom = p_alloc(shoe.pool, 4096);
     
     // Set the depth and clut for B&W
     _switch_depth(ctx, 1);
@@ -207,7 +208,7 @@ void nubus_video_write_func(const uint32_t rawaddr, const uint32_t size,
         if ((addr >> 16) == 0xf0) {
             switch ((addr & 0x0000ffff) >> 2) {
                 case 0: {// Clear interrupt flag
-                    shoe.via[1].rega |= (1 << (slotnum - 9));
+                    shoe.via[1].rega_input |= (1 << (slotnum - 9));
                     break;
                 }
                 case 1: { // Set depth

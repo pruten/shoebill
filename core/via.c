@@ -29,6 +29,7 @@
 #include <pthread.h>
 #include <math.h>
 #include <unistd.h>
+#include <string.h>
 #include "../core/shoebill.h"
 
 char *via_reg_str[16] = {
@@ -66,8 +67,8 @@ void via_raise_interrupt(uint8_t vianum, uint8_t ifr_bit)
     // Only if the bit is enabled in IER do we raise a cpu interrupt
     if (via->ier & (1 << ifr_bit)) 
         set_pending_interrupt(vianum);
-    else
-        printf("didn't set pending interrupt\n");
+    //else
+        // printf("didn't set pending interrupt\n");
 }
 
 
@@ -184,6 +185,7 @@ void process_pending_interrupt ()
 
 #define VIA_REGB_DONE 8
 
+
 // VIA registers
 #define VIA_ORB 0
 #define VIA_ORA 1
@@ -202,75 +204,413 @@ void process_pending_interrupt ()
 #define VIA_IER 14
 #define VIA_ORA_AUX 15
 
-uint16_t counter;
+// Interrupt flag register bits
+#define VIA_IFR_CA2 (1<<0)
+#define VIA_IFR_CA1 (1<<1)
+#define VIA_IFR_SHIFT_REG (1<<2)
+#define VIA_IFR_CB2 (1<<3)
+#define VIA_IFR_CB1 (1<<4)
+#define VIA_IFR_T2 (1<<5)
+#define VIA_IFR_T1 (1<<6)
+#define VIA_IFR_IRQ (1<<7)
 
-void via_reg_read ()
+static long double _now (void)
 {
-    const uint8_t vianum = (shoe.physical_addr >= 0x50002000) ? 2 : 1;
-    const uint8_t reg = (shoe.physical_addr >> 9) & 15;
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    
+    long double secs = tv.tv_sec;
+    long double usecs = tv.tv_usec;
+    
+    return secs + (usecs / 1000000.0);
+}
+
+static void handle_pram_write_byte (void)
+{
+    pram_state_t *pram = &shoe.pram;
+    
+    printf("PRAMPRAM: wrote_byte 0x%02x\n", pram->byte);
+    
+    pram->mode = PRAM_READ;
+    pram->byte = 0;
+}
+
+static void handle_pram_read_byte (void)
+{
+    pram_state_t *pram = &shoe.pram;
+    
+    assert(pram->command_i < 8);
+    pram->command[pram->command_i++] = pram->byte;
+    
+    printf("PRAMPRAM: read_byte: 0x%02x\n", pram->byte);
+    
+    // If this is a pram-read/write...
+    if ((pram->command[0] & 0x78) == 0x38) {
+        const _Bool isget = pram->command[0] >> 7;
+        const uint8_t addr = (pram->command[0] << 5) | ((pram->command[1] >> 2) & 0x1f);
+        
+        if ((pram->command_i == 3) && !isget) { // complete set command
+            pram->mode = PRAM_READ; // stay in read-mode
+            pram->data[addr] = pram->command[2];
+            
+            FILE *f = fopen("pram.dump", "w");
+            if (f) {
+                fwrite(pram->data, 256, 1, f);
+                fclose(f);
+            }
+            
+            printf("PRAMPRAM: setting pram addr 0x%02x = 0x%02x\n", addr, pram->command[2]);
+            
+            pram->byte = 0;
+            pram->command_i = 0;
+            
+            return ;
+        }
+        else if ((pram->command_i == 2) && isget) { // complete get command
+            pram->mode = PRAM_WRITE; // switch to write-mode
+            pram->byte = pram->data[addr];
+            pram->command_i = 0;
+            
+            printf("PRAMPRAM: fetching pram addr 0x%02x (= 0x%02x)\n", addr, pram->byte);
+            
+            return ;
+        }
+        else { // incomplete command, keep reading
+            assert(pram->command_i < 4);
+            pram->mode = PRAM_READ; // keep reading
+            
+            return ;
+        }
+    }
+    
+    // if this is clock-read/write
+    else if (~bmatch(pram->command[0], x 00x xx 01)) {
+        const _Bool isget = pram->command[0] >> 7;
+        const uint8_t addr = (pram->command[0] >> 2) & 3;
+        const _Bool mysterybit = (pram->command[0] >> 4) & 1; // FIXME: What does this do?
+        
+        if ((pram->command_i == 2) && !isget) { // complete set command
+            pram->mode = PRAM_READ; // stay in read-mode
+            
+            printf("PRAMPRAM: setting time byte %u to 0x%02x (mysterybit=%u)\n", addr, pram->command[1], mysterybit);
+            
+            pram->byte = 0;
+            pram->command_i = 0;
+            return ;
+        }
+        else if ((pram->command_i == 1) && isget) { // complete get command
+            const uint32_t now = time(NULL) + 0x7c25b080;
+            //uint32_t now = 0xafd56d80; // Tue, 24 Jun 1997 12:26:40 GMT
+            const uint8_t now_byte = now >> (8*addr);
+            
+            pram->mode = PRAM_WRITE;
+            pram->byte = now_byte;
+            pram->command_i = 0;
+            
+            printf("PRAMPRAM: fetching time byte %u of 0x%08x (mysterybit=%u)\n", addr, now, mysterybit);
+            return ;
+        }
+        else { // incomplete command, keep reading
+            assert(pram->command_i < 3);
+            pram->mode = PRAM_READ;
+            
+            return ;
+        }
+    }
+    
+    // This is mystery command # 2
+    else if (pram->command[0] == 0x35) {
+        // Arrives in pairs of two bytes
+        if (pram->command_i == 2) {
+            printf("PRAMPRAM: mystery command 2 0x%02x 0x%02x (?))\n", pram->command[0], pram->command[1]);
+            
+            pram->mode = PRAM_READ;
+            pram->command_i = 0;
+            return ;
+        }
+        else { // keep reading
+            assert(pram->command_i < 3);
+            pram->mode = PRAM_READ;
+            
+            return ;
+        }
+    
+    }
+    
+    
+    printf("PRAMPRAM: don't understand this command\n");
+    pram->command_i = 0;
+    pram->mode = PRAM_READ;
+}
+
+static void handle_pram_state_change (void)
+{
+    pram_state_t *pram = &shoe.pram;
+    
+    // If rtcClock or rtcEnable changed, then the state machine needs updating
+    if (pram->last_bits == (shoe.via[0].regb_output & shoe.via[0].ddrb & 6))
+        return ;
+    
+    printf("PRAMPRAM: pram->last_bits = %u, (shoe.via[0].regb & 6) = %u\n", pram->last_bits, (shoe.via[0].regb_output & shoe.via[0].ddrb & 6));
+    
+    // it doesn't matter what the last rtcData value was
+    const _Bool last_rtcClock = (pram->last_bits >> 1) & 1;
+    const _Bool last_rtcEnable = (pram->last_bits >> 2) & 1;
+    
+    const _Bool rtcData = shoe.via[0].regb_output & 1;
+    const _Bool rtcClock = (shoe.via[0].regb_output >> 1) & 1;
+    const _Bool rtcEnable = (shoe.via[0].regb_output >> 2) & 1;
+    
+    printf("PRAMPRAM: bits changed %u%ux -> %u%u%u\n", last_rtcEnable, last_rtcClock, rtcEnable, rtcClock, rtcData);
+    
+    if (rtcEnable) {
+        // rtcEnable==true => the RTC chip is enabled and we are talking to it
+        // Not sure what happens when you toggle data/clock bits while rtcEnable is asserted...
+        if (last_rtcEnable)
+            printf("PRAMPRAM: toggled bits while rtcEnable was asserted!\n");
+        goto done;
+    }
+    
+    if (!rtcEnable && last_rtcEnable) {
+        // if rtcEnable went from hi to low, then reset all the state stuff
+        pram->mode = PRAM_READ;
+        pram->command_i = 0; // the current command byte we're working on
+        pram->bit_i = 0; // the current bit num we're reading/writing
+        pram->byte = 0; // the current byte we're reading/writing
+        memset(pram->command, 0, 8);
+        goto done;
+    }
+    
+    
+    switch (pram->mode) {
+        case PRAM_READ: {
+            // if rtcClock goes from low to hi, then rtcData represents a new bit
+            if (rtcClock && !last_rtcClock) {
+                pram->byte <<= 1;
+                pram->byte |= rtcData;
+                pram->bit_i++;
+            }
+            
+            if ((shoe.via[0].ddrb & 1) == 0) {
+                // This is input-mode -- should be output-mode
+                printf("PRAMPRAM: BOGUS MODE ddrb&1 == 0\n");
+            }
+            
+            
+            if (pram->bit_i >= 8) {
+                pram->bit_i = 0;
+                handle_pram_read_byte();
+            }
+            goto done;
+        }
+            
+        case PRAM_WRITE: {
+            // if rtcClock goes from hi to low, load in the new rtcData bit
+            if (!rtcClock && last_rtcClock) {
+                const uint8_t newData = (pram->byte >> (7 - pram->bit_i)) & 1;
+                shoe.via[0].regb_input &= 0xfe;
+                shoe.via[0].regb_input |= newData;
+            }
+            
+            // if B goes from low to hi, skip to the next bit
+            if (rtcClock && !last_rtcClock)
+                pram->bit_i++;
+            
+            assert((shoe.via[0].ddrb & 1) == 0);
+            
+            if (pram->bit_i >= 8) {
+                pram->bit_i = 0;
+                handle_pram_write_byte();
+            }
+            goto done;
+        }
+            
+        default:
+            assert(!"can't get here");
+    }
+    
+done:
+    
+    // Remember the last state of the bits
+    pram->last_bits = (shoe.via[0].regb_output & shoe.via[0].ddrb & 6);
+}
+
+void init_via_state (void)
+{
+    /* -- Zero everything -- */
+    
+    memset(&shoe.pram, 0, sizeof(pram_state_t));
+    memset(&shoe.via, 0, 2 * sizeof(via_state_t));
+    
+    // Jeez, keep this straight!
+    // DDR 0 -> input (from pins to OS)
+    //     1 -> output (from OS to pins)
+    
+    /* -- Initialize VIA1 -- */
+    
+    /* VIA 1 reg A
+     * Bit 7 - input  - vSCCWrReq
+     * Bit 6 - input  - CPU.ID1
+     * Bit 5 - output - vHeadSel
+     * Bit 4 - output - vOverlay
+     * Bit 3 - output - vSync
+     * Bit 2-0 unused
+    */
+    shoe.via[0].ddra = 0b00111000;
+    
+    /* VIA 1 reg B 
+     * Bit 7 - output - vSndEnb
+     * Bit 6 - unused
+     * Bit 5 - output - vFDesk2
+     * Bit 4 - output - vFDesk1
+     * Bit 3 - input  - vFDBInt
+     * Bit 2 - output - rTCEnb
+     * Bit 1 - output - rtcClk
+     * Bit 0 - in/out - rtcData (initialize to output)
+     */
+    shoe.via[0].ddrb = 0b10110111; // A/UX apparently neglects to initialize ddra/b
+    
+    /* -- Initialize VIA2 -- */
+    
+    /* VIA 2 reg A
+     * Bit 7 - unused
+     * Bit 6 - unused
+     * Bit 5 - Interrupt for slot 15
+     * ...
+     * Bit 0 - Interrupt for slot 9
+     */
+    shoe.via[1].ddra = 0x00; // via2/rega consists of input pins for nubus interrupts
+    shoe.via[1].rega_input = 0b00111111; // no nubus interrupts currently asserted
+    
+    /* VIA 2 reg B
+     * Bit 7 - output - v2VBL
+     * Bit 6 - input  - v2SNDEXT
+     * Bit 5 - input  - v2TM0A (nubus transfer what??)
+     * Bit 4 - input  - v2TM1A
+     * Bit 3 - output - AMU/PMMU control
+     * Bit 2 - output - v2PowerOff
+     * Bit 1 - output - v2BusLk
+     * Bit 0 - output - v2cdis
+     */
+    shoe.via[1].ddrb = 0b10001111;
+    // FIXME: apparently via2/regb bit 7 is tied to VIA1, and driven by timer T1, to
+    //        generate 60.15hz interrupts on VIA1
+    //        emulate this more accurately!
+    
+    /* -- Initialize PRAM -- */
+    
+    pram_state_t *pram = &shoe.pram;
+    pram->mode = PRAM_READ;
+    
+    FILE *f = fopen("pram.dump", "r");
+    if (f) {
+        fread(pram->data, 256, 1, f);
+        fclose(f);
+    }
+}
+
+#define E_CLOCK 783360
+#define HALF_E_CLOCK (E_CLOCK / 2)
+
+#define _via_get_delta_counter(last_set) ({ \
+    const long double delta_t = now - (last_set); \
+    const long double delta_ticks = fmodl((delta_t * (long double)E_CLOCK), 0x10000); \
+    /* The VIA timers decrement by 2 for every E_CLOCK tick */ \
+    const uint16_t delta_counter = ((uint16_t)delta_ticks) << 1; \
+    printf("_via_get_delta_counter: now = %Lf delta_t = %Lf delta_ticks = %Lf delta_counter = %u\n", now, delta_t, delta_ticks, delta_counter); \
+    delta_counter; \
+})
+
+// from the pins' perspective
+#define VIA_REGA_PINS(n) ((shoe.via[(n)-1].rega_output & shoe.via[(n)-1].ddra) | \
+                          (shoe.via[(n)-1].rega_input & (~~shoe.via[(n)-1].ddra)))
+
+#define VIA_REGB_PINS(n) ((shoe.via[(n)-1].regb_output & shoe.via[(n)-1].ddrb) | \
+                          (shoe.via[(n)-1].regb_input & (~~shoe.via[(n)-1].ddrb)))
+
+static uint8_t via_read_reg(const uint8_t vianum, const uint8_t reg, const long double now)
+{
     via_state_t *via = &shoe.via[vianum - 1];
     
     printf("via_reg_read: reading from via%u reg %s (%u)\n", vianum, via_reg_str[reg], reg);
     
     switch (reg) {
+        case VIA_ACR:
+            return via->acr;
+            
+        case VIA_PCR:
+            return via->pcr;
+            
         case VIA_IER:
             // According to the eratta, bit 7 is always set during a read
-            shoe.physical_dat = via->ier | 0x80;
-            break ;
+            return via->ier | 0x80;
+            
         case VIA_IFR: {
             // Figure out whether any enabled interrupts are set, and set IRQ accordingly
             const uint8_t irq = (via->ifr & via->ier & 0x7f) ? 0x80 : 0x0;
-            shoe.physical_dat = (via->ifr & 0x7f) | irq;
-            break ;
+            return (via->ifr & 0x7f) | irq;
         }
             
         case VIA_SR:
-            shoe.physical_dat = via->sr;
-            break;
-            
-        case VIA_ORB:
-            shoe.physical_dat = via->regb;
-            break;
+            return via->sr;
+
+        case VIA_ORB: {
+            /*
+             * FIXME: this is not exactly correct.
+             *        if input latching is enabled, then the value of input pins
+             *        is held in escrow until a CB1 transition occurs. I'm not doing that.
+             */
+            printf("via_reg_read: FYI: regb_output=0x%02x regb_input=0x%02x ddrb=0x%02x combined=0x%02x\n",
+                   shoe.via[vianum-1].regb_output, shoe.via[vianum-1].regb_input, via->ddrb, VIA_REGB_PINS(vianum));
+            return VIA_REGB_PINS(vianum);
+        }
             
         case VIA_ORA_AUX:
-        case VIA_ORA:
-            //if ((vianum==2) && !(via->ifr & (1<<IFR_CA1)))
-                //via->rega = 0x3f;
-            shoe.physical_dat = via->rega;
-            break;
+        case VIA_ORA: {
+            /*
+             * FIXME: This is not exactly correct either, and it behaves differently from regb
+             *        Reading regA never returns the contents of the output register directly,
+             *        it returns the the value of the pins - unless input latching is enabled,
+             *        then it holds the pin values in escrow until a CA1 transition occurs.
+             *        I'm just returning the value of the "pins"
+             */
+            return VIA_REGA_PINS(vianum);
+        }
             
         case VIA_DDRB:
-            shoe.physical_dat = via->ddrb;
-            break;
+            return via->ddrb;
             
         case VIA_DDRA:
-            shoe.physical_dat = via->ddra;
-            break;
+            return via->ddra;
+
+        case VIA_T2C_HI: {
+            const uint16_t counter = via->t2c - _via_get_delta_counter(via->t2_last_set);
+            return counter >> 8;
+        }
+        case VIA_T2C_LO: {
+            const uint16_t counter = via->t2c - _via_get_delta_counter(via->t2_last_set);
+            via->ifr &= ~~VIA_IFR_T2; // Read from T2C_LOW clears TIMER 2 interrupt
+            return (uint8_t)counter;
+        }
             
-        case VIA_T2C_LO:
-            // XXX: A/UX 3.0.1 tries to precisely time a huge dbra loop
-            //      using via timer2. It won't accept any result shorter than
-            //      0x492, and hypothetically, this emulator could execute the
-            //      loop faster than that (although not currently). So this is
-            //      a super dumb hack that always returns a delta-t of 0x492
-            //      between sequential reads from t2c.
-            //      (oh, also, a/ux 3.0.1 cleverly reads from both t2c_lo and _hi
-            //      simultaneously by doing a word-size read at VIA+0x11ff)
-            counter -= 0x492;
-            shoe.physical_dat = 0xffff & ((counter >> 8) | (counter << 8));
-            break;
+        case VIA_T1C_LO:
+            via->ifr &= ~~VIA_IFR_T1; // Read from T1C_LOW clears TIMER 1 interrupt
+            return 0; // FIXME
             
-        default:
-            printf("via_reg_read: (unhandled!)\n");
-            break;
+        case VIA_T1C_HI:
+            return 0; // FIXME
+            
+        case VIA_T1L_LO:
+            return 0; // FIXME
+            
+        case VIA_T1L_HI:
+            return 0; // FIXME
     }
+    assert(!"never get here");
 }
 
-void via_reg_write()
+static void via_write_reg(const uint8_t vianum, const uint8_t reg, const uint8_t data, const long double now)
 {
-    const uint8_t vianum = (shoe.physical_addr >= 0x50002000) ? 2 : 1;
-    const uint8_t reg = (shoe.physical_addr >> 9) & 15;
-    const uint8_t data = (uint8_t)shoe.physical_dat;
     via_state_t *via = &shoe.via[vianum - 1];
     
     printf("via_reg_write: writing 0x%02x to via%u reg %s (%u)\n", (uint8_t)shoe.physical_dat, vianum, via_reg_str[reg], reg);
@@ -300,25 +640,49 @@ void via_reg_write()
             break;
             
         case VIA_ORB: {
-            via->regb = data;
+            
+            // The OS should only be able to "set" the bits that are marked as "output" in ddra/b
+            
+            // FIXME: we need separate ORA/ORB and IRA/IRB registers
+            
+            /*const uint8_t ddr_mask = via->ddrb;
+            const uint8_t data_sans_input = data & ddr_mask;
+            const uint8_t reg_sans_output = via->regb & (~~ddr_mask);
+            via->regb = data_sans_input | reg_sans_output;
+            // via->regb = data;*/
+            via->regb_output = data;
             
             if (vianum == 1) {
-                const uint8_t adb_state = (data >> 4) & 3;
+                const uint8_t adb_state = (data >> 4) & 3; // just assume that the corresponding ddrb bits are marked "output"
                 if (shoe.adb.state != adb_state) {
                     const uint8_t old_state = shoe.adb.state;
                     shoe.adb.state = adb_state;
                     
                     adb_handle_state_change(old_state, adb_state);
                 }
+                
+                handle_pram_state_change();
             }
             
             break;
         }
             
         case VIA_ORA_AUX:
-        case VIA_ORA:
-            via->rega = data;
+        case VIA_ORA: {
+            // The OS should only be able to "set" the bits that are marked as "output" in ddra/b
+            
+            // FIXME: we need separate ORA/ORB and IRA/IRB registers
+            
+            /*const uint8_t ddr_mask = via->ddra;
+            const uint8_t data_sans_input = data & ddr_mask;
+            const uint8_t reg_sans_output = via->rega & (~~ddr_mask);
+            via->rega = data_sans_input | reg_sans_output;
+            // via->rega = data;*/
+            
+            via->rega_output = data;
+            
             break;
+        }
             
         case VIA_DDRB:
             via->ddrb = data;
@@ -328,55 +692,90 @@ void via_reg_write()
             via->ddra = data;
             break;
         
-        default:
-            printf("via_reg_read: (unhandled!)\n");
+        case VIA_ACR:
+            via->acr = data;
+            break;
+            
+        case VIA_PCR:
+            via->pcr = data;
+            break;
+            
+        case VIA_T2C_LO:
+            break;
+            
+        case VIA_T2C_HI:
+            via->ifr &= ~~VIA_IFR_T2; // Write to T2C_HI clears TIMER 2 interrupt
+            break;
+            
+        case VIA_T1C_LO:
+            break;
+            
+        case VIA_T1C_HI:
+            via->ifr &= ~~VIA_IFR_T1; // Write to T1C_HI clears TIMER 1 interrupt
+            break;
+            
+        case VIA_T1L_LO:
+            break;
+            
+        case VIA_T1L_HI:
             break;
     }
 }
 
-// FIXME: check_time() is bad and needs rewritten
-void check_time()
+void via_write_raw (void)
 {
-    struct timeval now, delta_tv;
-    const uint32_t hz = 10;
+    const uint8_t vianum = ((shoe.physical_addr >> 13) & 1) + 1;
+    const uint8_t reg = (shoe.physical_addr >> 9) & 15;
     
-    // return ;
-    
-    gettimeofday(&now, NULL);
-    
-    delta_tv.tv_sec = now.tv_sec - shoe.start_time.tv_sec;
-    if (now.tv_usec < shoe.start_time.tv_usec) {
-        delta_tv.tv_sec--;
-        delta_tv.tv_usec = (now.tv_usec + 1000000) - shoe.start_time.tv_usec;
+    if (shoe.physical_size == 1) {
+        const long double now = ((reg >= VIA_T1C_LO) && (reg <= VIA_T2C_HI)) ? _now() : 0.0;
+        // Common case: writing to only one register
+        
+        via_write_reg(vianum, reg, (uint8_t)shoe.physical_dat, now);
+    }
+    else if ((shoe.physical_size == 2) && ((shoe.physical_addr & 0x1ff) == 0x1ff)) {
+        const long double now = ((reg >= VIA_T1C_LO) && ((reg+1) <= VIA_T2C_HI)) ? _now() : 0.0;
+        // Uncommon case: writing to two registers simultaneously
+        
+        printf("via_write_raw: writing to two registers simultaneously %u and %u\n", reg, reg+1);
+        
+        assert(reg != 15); // If A/UX is trying to write to two VIA chips simultanously, that's not cool
+        
+        via_write_reg(vianum, reg, (uint8_t)(shoe.physical_dat >> 8), now);
+        via_write_reg(vianum, reg+1, (uint8_t)shoe.physical_dat, now);
     }
     else
-        delta_tv.tv_usec = now.tv_usec - shoe.start_time.tv_usec;
-    
-    uint64_t delta = delta_tv.tv_sec * 1000;
-    delta += delta_tv.tv_usec / 1000;
-    
-    uint64_t ticks = delta / hz;
-    if (ticks <= shoe.total_ticks)
-        return ;
-    
-    shoe.total_ticks = ticks;
-    //printf("ticks = %llu\n", ticks);
-    
-    via_raise_interrupt(1, IFR_CA1);
-    //
-    shoe.via[1].rega = 0b00111101;
-    via_raise_interrupt(2, IFR_CA1);
+        assert("Writing multiple bytes to the same VIA register!");
+
 }
 
-static long double _now (void)
+void via_read_raw (void)
 {
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
+    const uint8_t vianum = ((shoe.physical_addr >> 13) & 1) + 1;
+    const uint8_t reg = (shoe.physical_addr >> 9) & 15;
     
-    long double secs = tv.tv_sec;
-    long double usecs = tv.tv_usec;
-    
-    return secs + (usecs / 1000000.0);
+    if (shoe.physical_size == 1) {
+        const long double now = ((reg >= VIA_T1C_LO) && (reg <= VIA_T2C_HI)) ? _now() : 0.0;
+        
+        // Common case: reading only one register
+        shoe.physical_dat = via_read_reg(vianum, reg, now);
+    }
+    else if ((shoe.physical_size == 2) && ((shoe.physical_addr & 0x1ff) == 0x1ff)) {
+        const long double now = ((reg >= VIA_T1C_LO) && ((reg+1) <= VIA_T2C_HI)) ? _now() : 0.0;
+        
+        // Uncommon case: reading from two registers simultaneously
+        
+        printf("via_read_raw: reading from two registers simultaneously %u and %u\n", reg, reg+1);
+        
+        assert(reg != 15); // If A/UX is trying to read from two VIA chips simultaneously, that's not cool
+        
+        uint16_t result = via_read_reg(vianum, reg, now);
+        result = (result << 8) | via_read_reg(vianum, reg+1, now);
+        shoe.physical_dat = result;
+        
+    }
+    else
+        assert(!"Reading multiple bytes from the same VIA register!");
 }
 
 #define fire(s) ({assert((s) >= 0); if (earliest_next_timer > (s)) earliest_next_timer = (s);})
@@ -416,14 +815,14 @@ void *via_clock_thread(void *arg)
             
             via_raise_interrupt(1, IFR_CA2);
             
-            /*via_raise_interrupt(1, IFR_TIMER1);
+            via_raise_interrupt(1, IFR_TIMER1);
             via_raise_interrupt(1, IFR_TIMER2);
             via_raise_interrupt(2, IFR_TIMER1);
-            via_raise_interrupt(2, IFR_TIMER2);*/
+            via_raise_interrupt(2, IFR_TIMER2);
         }
         
         // Check if any nubus cards have interrupt timers
-        shoe.via[1].rega = 0b00111111;
+        shoe.via[1].rega_input = 0b00111111;
         for (i=9; i<15; i++) {
             if (!shoe.slots[i].connected)
                 continue;
@@ -435,9 +834,9 @@ void *via_clock_thread(void *arg)
                 
                 if (shoe.slots[i].interrupts_enabled) {
                     // shoe.via[1].rega = 0b00111111 & ~~(1<<(i-9));
-                    shoe.via[1].rega &= 0b00111111 & ~~(1<<(i-9));
+                    shoe.via[1].rega_input &= 0b00111111 & ~~(1<<(i-9));
                     via_raise_interrupt(2, IFR_CA1);
-                    printf("Fired nubus interrupt %u\n", i);
+                    // printf("Fired nubus interrupt %u\n", i);
                 }
             }
         }

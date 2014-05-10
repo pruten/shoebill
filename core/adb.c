@@ -81,7 +81,7 @@
 
 void adb_start_service_request()
 {
-    printf("adb_start_service_request: pending_requests = 0x%02x\n", shoe.adb.pending_service_requests);
+    //printf("adb_start_service_request: pending_requests = 0x%02x\n", shoe.adb.pending_service_requests);
     if (shoe.adb.pending_service_requests) {
         shoe.adb.service_request = 1;
         
@@ -245,7 +245,7 @@ static void adb_handle_state_zero(uint8_t command_byte, uint8_t is_poll) // "Com
     
     shoe.adb.poll = 0;
     
-    via->regb |= VIA_REGB_ADB_STATUS;
+    via->regb_input |= VIA_REGB_ADB_STATUS;
     via_raise_interrupt(1, IFR_SHIFT_REG);
 }
 
@@ -269,7 +269,7 @@ static void adb_handle_state_one (void) // "Even" state
             printf("adb_talk: ");
             if (shoe.adb.timeout) {
                 shoe.adb.timeout = 0;
-                via->regb &= ~~VIA_REGB_ADB_STATUS; // adb_status_line cleared == timeout
+                via->regb_input &= ~~VIA_REGB_ADB_STATUS; // adb_status_line cleared == timeout
                 via_raise_interrupt(1, IFR_SHIFT_REG);
                 printf("timeout\n");
                 return ;
@@ -288,7 +288,7 @@ static void adb_handle_state_one (void) // "Even" state
             printf("adb_listen: ");
             if (shoe.adb.timeout) {
                 shoe.adb.timeout = 0;
-                via->regb &= ~~VIA_REGB_ADB_STATUS; // adb_status_line cleared == timeout
+                via->regb_input &= ~~VIA_REGB_ADB_STATUS; // adb_status_line cleared == timeout
                 via_raise_interrupt(1, IFR_SHIFT_REG);
                 printf("timeout\n");
                 return ;
@@ -304,7 +304,7 @@ static void adb_handle_state_one (void) // "Even" state
             break;
     }
     
-    via->regb |= VIA_REGB_ADB_STATUS; // adb_status_line set == didn't-timeout
+    via->regb_input |= VIA_REGB_ADB_STATUS; // adb_status_line set == didn't-timeout
     via_raise_interrupt(1, IFR_SHIFT_REG);
 }
 
@@ -317,11 +317,11 @@ static void adb_handle_state_two (void) // "Odd" state
     // If this transaction was part of a service request, clear the service_request flag now
     if (shoe.adb.service_request) {
         shoe.adb.service_request = 0;
-        via->regb &= ~~VIA_REGB_ADB_STATUS; // adb_status_line cleared == service request
+        via->regb_input &= ~~VIA_REGB_ADB_STATUS; // adb_status_line cleared == service request
         printf("(service request) ");
     }
     else
-        via->regb |= VIA_REGB_ADB_STATUS; // adb_status_line set == no-service request
+        via->regb_input |= VIA_REGB_ADB_STATUS; // adb_status_line set == no-service request
     
     switch (shoe.adb.command_type) {
         case adb_flush:

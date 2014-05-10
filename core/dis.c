@@ -794,24 +794,40 @@ void dis_movea () {
 }
 
 void dis_move () {
-    ~decompose(dis_op, 00 ss RRR MMM oooooo)
+    ~decompose(dis_op, 00 ss RRR MMM oooooo);
     // (oooooo = source EA), (MMMRRR = dest EA)
-    const uint8_t sizes[3] = {1, 4, 2};
-    const char *sourceStr = decode_ea_rw(o, sizes[s-1]);
-    const char *destStr = decode_ea_rw((M<<3)|R, sizes[s-1]);
-    sprintf(dis.str, "move.%c %s,%s", "blw"[s-1], sourceStr, destStr);
+    const uint8_t sizes[4] = {0, 1, 4, 2};
+    const char *sourceStr = decode_ea_rw(o, sizes[s]);
+    const char *destStr = decode_ea_rw((M<<3)|R, sizes[s]);
+    sprintf(dis.str, "move.%c %s,%s", "?blw"[s], sourceStr, destStr);
 }
 
 void dis_move_d_to_d () {
-    sprintf(dis.str, "move_d_to_d ???");
+    ~decompose(dis_op, 00 ss DDD 000 000 SSS);
+    sprintf(dis.str, "move.%c d%u,d%u", "?blw"[s], S, D);
 }
 
 void dis_move_to_d () {
-    sprintf(dis.str, "move_to_d ???");
+    ~decompose(dis_op, 00 ss rrr 000 MMMMMM);
+    const uint8_t sizes[4] = {0, 1, 4, 2};
+    
+    sprintf(dis.str,
+            "move.%c %s,d%u",
+            "?blw"[s],
+            decode_ea_rw(M, sizes[s]),
+            r);
 }
 
 void dis_move_from_d () {
-    sprintf(dis.str, "move_from_d ???");
+    ~decompose(dis_op, 00 ss RRR MMM 000 rrr);
+    const uint8_t sizes[4] = {0, 1, 4, 2};
+    
+    sprintf(dis.str,
+            "move.%c d%u,%s",
+            "?blw"[s],
+            r,
+            decode_ea_rw((M<<3) | R, sizes[s]));
+            
 }
 
 void dis_scc () {
