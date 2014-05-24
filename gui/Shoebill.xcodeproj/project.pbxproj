@@ -32,9 +32,9 @@
 		87495444189980E200E80F5B /* shoeScreenView.xib */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.xib; path = shoeScreenView.xib; sourceTree = "<group>"; };
 		8749544618999F5300E80F5B /* OpenGL.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = OpenGL.framework; path = /System/Library/Frameworks/OpenGL.framework; sourceTree = "<absolute>"; };
 		874954481899A22D00E80F5B /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = /System/Library/Frameworks/QuartzCore.framework; sourceTree = "<absolute>"; };
-		8781D24918A19C340016F604 /* shoePreferencesWindowController.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = shoePreferencesWindowController.h; sourceTree = "<group>"; };
-		8781D24A18A19C340016F604 /* shoePreferencesWindowController.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = shoePreferencesWindowController.m; sourceTree = "<group>"; };
-		8781D24B18A19C340016F604 /* shoePreferencesWindowController.xib */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.xib; path = shoePreferencesWindowController.xib; sourceTree = "<group>"; };
+		8781D24918A19C340016F604 /* shoePreferencesWindowController.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = shoePreferencesWindowController.h; path = Shoebill/shoePreferencesWindowController.h; sourceTree = "<group>"; };
+		8781D24A18A19C340016F604 /* shoePreferencesWindowController.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = shoePreferencesWindowController.m; path = Shoebill/shoePreferencesWindowController.m; sourceTree = "<group>"; };
+		8781D24B18A19C340016F604 /* shoePreferencesWindowController.xib */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.xib; name = shoePreferencesWindowController.xib; path = Shoebill/shoePreferencesWindowController.xib; sourceTree = "<group>"; };
 		8782FCE2189AFEFB0081E19E /* shoeApplication.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = shoeApplication.h; sourceTree = "<group>"; };
 		8782FCE3189AFEFB0081E19E /* shoeApplication.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = shoeApplication.m; sourceTree = "<group>"; };
 		87F9772818987700000D589E /* Shoebill.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Shoebill.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -134,10 +134,8 @@
 				8782FCE3189AFEFB0081E19E /* shoeApplication.m */,
 				87F9773D18987700000D589E /* shoeAppDelegate.h */,
 				87F9773E18987700000D589E /* shoeAppDelegate.m */,
-				8781D24B18A19C340016F604 /* shoePreferencesWindowController.xib */,
-				8781D24918A19C340016F604 /* shoePreferencesWindowController.h */,
-				8781D24A18A19C340016F604 /* shoePreferencesWindowController.m */,
 				870A2F9F192D2ADA00ABBC14 /* Screen */,
+				AE0D1AAB193132E700EBBED0 /* Preferences */,
 				87F9773218987700000D589E /* Supporting Files */,
 			);
 			path = Shoebill;
@@ -154,6 +152,17 @@
 				87F9773A18987700000D589E /* Credits.rtf */,
 			);
 			name = "Supporting Files";
+			sourceTree = "<group>";
+		};
+		AE0D1AAB193132E700EBBED0 /* Preferences */ = {
+			isa = PBXGroup;
+			children = (
+				8781D24B18A19C340016F604 /* shoePreferencesWindowController.xib */,
+				8781D24918A19C340016F604 /* shoePreferencesWindowController.h */,
+				8781D24A18A19C340016F604 /* shoePreferencesWindowController.m */,
+			);
+			name = Preferences;
+			path = ..;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */

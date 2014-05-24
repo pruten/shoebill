@@ -30,8 +30,9 @@
 
 // Create a new red-black tree 
 // (just return an empty black leaf pointer)
-rb_tree* rb_new(alloc_pool_t *pool)
+rb_tree* rb_new(alloc_pool_t *parent_pool)
 {
+    alloc_pool_t *pool = p_new_pool(parent_pool);
     rb_tree *tree = (rb_tree*)p_alloc(pool, sizeof(rb_tree));
     tree->root = NULL;
     tree->pool = pool;
@@ -255,21 +256,10 @@ uint32_t rb_count (rb_tree *tree)
 {
     return _rb_count(tree->root);
 }
-
-void _rb_free (rb_node *node)
-{
-    if (!node) return ;
-    _rb_free(node->right);
-    if (node->right) p_free(node->right);
-    _rb_free(node->left);
-    if (node->left) p_free(node->left);
-}
     
 // Free all the nodes (and the rb_tree ptr itself)
 void rb_free (rb_tree *tree)
 {
-    _rb_free(tree->root);
-    p_free(tree->root);
-    p_free(tree);
+    p_free_pool(tree->pool);
 }
 
