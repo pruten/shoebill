@@ -27,7 +27,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include "shoebill.h"
-#include "core_api.h"
 
 #include "video_rom/rom.c"
 

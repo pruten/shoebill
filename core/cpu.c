@@ -1241,12 +1241,7 @@ static void inst_not (void) {
 static void inst_reset (void) {
     verify_supervisor();
     
-    // Reset does a number of things (so... look them up)
-    // 1: reset the "enabled" bit of the TC register
-    
-    printf("Reset! (not implemented)\n");
-    assert(!"reset called");
-    //dbg_state.running = 0;
+    shoebill_restart();
 }
 
 static void inst_movec (void) {

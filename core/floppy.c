@@ -26,7 +26,8 @@
 
 #include <stdio.h>
 #include <assert.h>
-#include "shoebill.h"
+#include <string.h>
+#include "../core/shoebill.h"
 
 const char *latch_names[8] = {
     "phase0", "phase1", "phase2", "phase3",
@@ -47,7 +48,7 @@ uint8_t iwm_dma_read()
     if (latch_val)
         shoe.iwm.latch |= (1 << latch_addr);
     else
-        shoe.iwm.latch &= (~(1 << latch_addr));
+        shoe.iwm.latch &= (~~(1 << latch_addr));
     
     // reg = {q7, q6, motor}
     const uint8_t reg = ((shoe.iwm.latch >> 5) & 6) |
@@ -75,12 +76,12 @@ uint8_t iwm_dma_read()
         case 2:
         case 3: // Read  status register
             // High 3 bits are mode register, low 5 are status
-            result = (shoe.iwm.status & 0b10100000);
-            result |= (shoe.iwm.mode & 0b11111);
+            result = (shoe.iwm.status & ~b(10100000));
+            result |= (shoe.iwm.mode & ~b(11111));
             break;
         case 4:
         case 5: // Read "write-handshake" register
-            result = (shoe.iwm.handshake | 0b00111111); // low 6 bits all 1's
+            result = (shoe.iwm.handshake | ~b(00111111)); // low 6 bits all 1's
             break;
         default:
             result = 0;
@@ -102,7 +103,7 @@ void iwm_dma_write()
     if (latch_val)
         shoe.iwm.latch |= (1 << latch_addr);
     else
-        shoe.iwm.latch &= (~(1 << latch_addr));
+        shoe.iwm.latch &= (~~(1 << latch_addr));
     
     // reg = {q7, q6, motor}
     const uint8_t reg = ((shoe.iwm.latch >> 5) & 6) |
@@ -121,10 +122,20 @@ void iwm_dma_write()
     
     switch (reg) {
         case 6: // Write mode
-            shoe.iwm.mode = data & 0b01111111;
+            shoe.iwm.mode = data & ~b(01111111);
             break;
         case 7: // Write data
             shoe.iwm.data = data;
             break;
     }
+}
+
+void init_iwm_state ()
+{
+    memset(&shoe.iwm, 0, sizeof(iwm_state_t));
+}
+
+void reset_iwm_state ()
+{
+    memset(&shoe.iwm, 0, sizeof(iwm_state_t));
 }

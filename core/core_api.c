@@ -30,19 +30,61 @@
 #include <assert.h>
 #include <pthread.h>
 #include <unistd.h>
-#include "shoebill.h"
-#include "coff.h"
-#include "core_api.h"
+#include <signal.h>
+#include "../core/shoebill.h"
 
 
 void shoebill_start()
 {
+    shoe.running = 1;
     pthread_mutex_unlock(&shoe.via_clock_thread_lock);
     pthread_mutex_unlock(&shoe.cpu_thread_lock);
 }
 
+void shoebill_stop()
+{
+    uint32_t i;
+    
+    // Tear down the CPU / timer threads
+    shoe.cpu_thread_notifications |= SHOEBILL_STATE_RETURN;
+    shoe.via_thread_notifications = SHOEBILL_STATE_RETURN;
+    
+    pthread_mutex_lock(&shoe.via_clock_thread_lock);
+    pthread_mutex_unlock(&shoe.via_clock_thread_lock);
+    pthread_join(shoe.via_thread_pid, NULL);
+    pthread_mutex_destroy(&shoe.via_clock_thread_lock);
+    
+    pthread_kill(shoe.cpu_thread_pid, SIGUSR2); // wake up the CPU thread if it was STOPPED
+    pthread_mutex_lock(&shoe.cpu_thread_lock);
+    pthread_mutex_unlock(&shoe.cpu_thread_lock);
+    pthread_join(shoe.cpu_thread_pid, NULL);
+    pthread_mutex_destroy(&shoe.cpu_thread_lock);
+    
+    shoe.running = 0;
+    
+    // Close all the SCSI disk images
+    for (i=0; i<8; i++) {
+        if (shoe.scsi_devices[i].f)
+            fclose(shoe.scsi_devices[i].f);
+        shoe.scsi_devices[i].f = NULL;
+    }
+    
+    // Free the alloc pool
+    p_free_pool(shoe.pool);
+    
+    // Zero the global context
+    memset(&shoe, 0, sizeof(shoe));
+}
+
+void _sigusr2 (int p)
+{
+    return ;
+}
+
 void *_cpu_thread (void *arg)
 {
+    signal(SIGUSR2, _sigusr2);
+    
     pthread_mutex_lock(&shoe.cpu_thread_lock);
     
     while (1) {
@@ -54,61 +96,19 @@ void *_cpu_thread (void *arg)
                 process_pending_interrupt();
             }
             
+            if (shoe.cpu_thread_notifications & SHOEBILL_STATE_RETURN) {
+                pthread_mutex_unlock(&shoe.cpu_thread_lock);
+                return NULL;
+            }
+            
             if (shoe.cpu_thread_notifications & SHOEBILL_STATE_STOPPED) {
-                continue; // FIXME: yield or block on a condition variable here
+                sleep(1);
+                continue;
             }
         }
         cpu_step();
     }
 }
-
-static void _cpu_loop_debug()
-{
-    pthread_mutex_lock(&shoe.cpu_thread_lock);
-    
-    while (1) {
-        if (shoe.cpu_thread_notifications) {
-            // I think we can safely ignore "stop" instructions for A/UX in debug mode
-            shoe.cpu_thread_notifications &= ~SHOEBILL_STATE_STOPPED;
-            
-            if (shoe.cpu_thread_notifications & 0xff) {
-                process_pending_interrupt();
-            }
-            
-            if (shoe.cpu_thread_notifications & SHOEBILL_STATE_STOPPED) {
-                continue; // FIXME: yield or block on a condition variable here
-            }
-        }
-        
-        cpu_step();
-    }
-}
- 
-/*void shoebill_cpu_stepi (void)
-{
-    if (shoe.cpu_mode != CPU_MODE_FREEZE)
-        return ;
-    
-    shoe.cpu_mode = CPU_MODE_STEPI;
-    pthread_mutex_unlock(&shoe.cpu_freeze_lock);
-    
-    // Just spin until the instruction completes - it should be quick
-    while (shoe.cpu_mode != CPU_MODE_STEPI_COMPLETE)
-        pthread_yield_np();
-    
-    pthread_mutex_lock(&shoe.cpu_freeze_lock);
-    shoe.cpu_mode = CPU_MODE_FREEZE;
-}
-
-void shoebill_cpu_freeze (void)
-{
-    pthread_mutex_lock(&shoe.cpu_freeze_lock);
-    shoe.cpu_mode = CPU_MODE_FREEZE;
-    shoe.cpu_thread_notifications &= SHOEBILL_STATE_SWITCH_MODE;
-    
-    while (shoe.cpu_thread_notifications & SHOEBILL_STATE_SWITCH_MODE);
-        pthread_yield_np();
-}*/
 
 /*
  * The A/UX bootloader blasts this structure into memory
@@ -215,7 +215,7 @@ static void _init_macintosh_lomem_globals (const uint32_t offset)
  * before booting A/UX.
  * Side-effects: sets CPU registers d0 and a0
  */
-static void _init_kernel_info(shoebill_control_t *control, scsi_device_t *disks, uint32_t offset)
+static void _init_kernel_info(shoebill_config_t *config, scsi_device_t *disks, uint32_t offset)
 {
     struct kernel_info ki, *p;
     uint32_t i, p_addr;
@@ -242,7 +242,7 @@ static void _init_kernel_info(shoebill_control_t *control, scsi_device_t *disks,
     // FIXME: I need to stick the auto_id for each nubus card in here
     // ki.auto_id[0xb] = 0x5; // Macintosh II video card has an auto_id of 5 (I guess?)
     
-    ki.auto_command = control->aux_autoconfig; // AUTO_NONE/AUTO_CONFIG
+    ki.auto_command = config->aux_autoconfig; // AUTO_NONE/AUTO_CONFIG
     
     /*
      * Note: ctrl -> SCSI controller chip
@@ -252,16 +252,16 @@ static void _init_kernel_info(shoebill_control_t *control, scsi_device_t *disks,
      *                  (Used by escher/eschatology somehow)
      */
     
-    ki.root_ctrl = control->root_ctrl;
-    ki.swap_ctrl = control->swap_ctrl;
+    ki.root_ctrl = config->root_ctrl;
+    ki.swap_ctrl = config->swap_ctrl;
     
-    ki.root_drive = control->root_drive;
-    ki.swap_drive = control->swap_drive;
+    ki.root_drive = config->root_drive;
+    ki.swap_drive = config->swap_drive;
     
-    ki.root_partition = control->root_partition;
-    ki.swap_partition = control->swap_partition;
+    ki.root_partition = config->root_partition;
+    ki.swap_partition = config->swap_partition;
     
-    ki.root_cluster = control->root_cluster;
+    ki.root_cluster = config->root_cluster;
     
     // Find the text, data, and bss segments in the kernel
     for (i = 0; i < shoe.coff->num_sections; i++) {
@@ -287,7 +287,7 @@ static void _init_kernel_info(shoebill_control_t *control, scsi_device_t *disks,
     // +4 because the DrvQEl structure has a hidden "flags" field 4 bytes below the pointer
     ki.drive_queue_offset = sizeof(struct kernel_info) + 4;
     
-    ki.ki_flags = control->aux_verbose;
+    ki.ki_flags = config->aux_verbose;
     ki.ki_version = 1;
     
     /* ----- Copy ki into memory ----- */
@@ -357,14 +357,14 @@ static uint32_t _compute_rom_checksum (const uint8_t *rom, const uint32_t len)
     return checksum;
 }
 
-static uint32_t _load_rom (shoebill_control_t *control, uint8_t **_rom_data, uint32_t *_rom_size)
+static uint32_t _load_rom (shoebill_config_t *config, uint8_t **_rom_data, uint32_t *_rom_size)
 {
     uint32_t i, rom_size;
     uint8_t *rom_data = (uint8_t*)p_alloc(shoe.pool, 64 * 1024);
-    FILE *f = fopen(control->rom_path, "r");
+    FILE *f = fopen(config->rom_path, "r");
     
     if (f == NULL) {
-        sprintf(control->error_msg, "Couldn't open rom path [%s]\n", control->rom_path);
+        sprintf(config->error_msg, "Couldn't open rom path [%s]\n", config->rom_path);
         goto fail;
     }
     
@@ -376,7 +376,7 @@ static uint32_t _load_rom (shoebill_control_t *control, uint8_t **_rom_data, uin
     
     // Rom_size had better be a power of two
     if ((rom_size & (rom_size - 1)) != 0) {
-        sprintf(control->error_msg,
+        sprintf(config->error_msg,
                 "Rom is probably corrupt (size not a power of two %u)\n",
                 rom_size);
         goto fail;
@@ -386,7 +386,7 @@ static uint32_t _load_rom (shoebill_control_t *control, uint8_t **_rom_data, uin
     const uint32_t computed_checksum = _compute_rom_checksum(rom_data, rom_size);
     const uint32_t purported_checksum = ntohl(*(uint32_t*)rom_data);
     if (computed_checksum != purported_checksum) {
-        sprintf(control->error_msg,
+        sprintf(config->error_msg,
                 "Rom checksum doesn't match (computed=0x%08x, expected=0x%08x)\n",
                 computed_checksum, purported_checksum);
         goto fail;
@@ -407,7 +407,7 @@ fail:
     return 0;
 }
 
-static uint32_t _open_disk_images (shoebill_control_t *control, scsi_device_t *disks)
+static uint32_t _open_disk_images (shoebill_config_t *config, scsi_device_t *disks)
 {
     uint32_t i;
     
@@ -421,27 +421,31 @@ static uint32_t _open_disk_images (shoebill_control_t *control, scsi_device_t *d
     
     for (i=0; i<7; i++) {
         struct stat stat_buf;
-        const char *path = control->scsi_devices[i].path;
+        const char *path = config->scsi_devices[i].path;
+        char *tmp;
         
         if (!path) continue;
         
         FILE *f = fopen(path, "r+");
         
         if (f == NULL) {
-            sprintf(control->error_msg, "Couldn't open scsi id #%u disk [%s]\n", i, path);
+            sprintf(config->error_msg, "Couldn't open scsi id #%u disk [%s]\n", i, path);
             goto fail;
         }
         
         disks[i].scsi_id = i;
         disks[i].f = f;
-        disks[i].image_path = path;
+        tmp = p_alloc(shoe.pool, strlen(path+1));
+        strcpy(tmp, path);
+        disks[i].image_path = tmp;
+                            
         
         if (fstat(fileno(f), &stat_buf)) {
-            sprintf(control->error_msg, "Couldn't fstat() scsi id #%u disk [%s]\n", i, path);
+            sprintf(config->error_msg, "Couldn't fstat() scsi id #%u disk [%s]\n", i, path);
             goto fail;
         }
         else if (stat_buf.st_size % 512) {
-            sprintf(control->error_msg, "Not aligned to 512 byte blocks: [%s]\n", path);
+            sprintf(config->error_msg, "Not aligned to 512 byte blocks: [%s]\n", path);
             goto fail;
         }
         
@@ -458,7 +462,7 @@ fail:
     return 0;
 }
 
-static uint32_t _load_aux_kernel(shoebill_control_t *control, coff_file *coff, uint32_t *_pc)
+static uint32_t _load_aux_kernel(shoebill_config_t *config, coff_file *coff, uint32_t *_pc)
 {
     uint32_t j, i, pc = 0xffffffff;
     for (i = 0; i < coff->num_sections; i++) {
@@ -486,7 +490,7 @@ static uint32_t _load_aux_kernel(shoebill_control_t *control, coff_file *coff, u
     }
     
     if (pc == 0xffffffff) {
-        sprintf(control->error_msg, "This unix kernel doesn't contain a pstart segment\n");
+        sprintf(config->error_msg, "This unix kernel doesn't contain a pstart segment\n");
         return 0;
     }
 
@@ -498,16 +502,21 @@ fail:
     return 0;
 }
 
-uint32_t shoebill_install_video_card(shoebill_control_t *control, uint8_t slotnum,
+uint32_t shoebill_install_video_card(shoebill_config_t *config, uint8_t slotnum,
                                      uint16_t width, uint16_t height,
                                      double refresh_rate)
 {
-    shoebill_card_video_t *ctx = &control->slots[slotnum].card.video;
+    shoebill_card_video_t *ctx;
     
-    if (control->slots[slotnum].card_type != card_none) {
-        sprintf(control->error_msg, "This slot (%u) already has a card\n", slotnum);
+    if (shoe.slots[slotnum].card_type != card_none) {
+        sprintf(config->error_msg, "This slot (%u) already has a card\n", slotnum);
         return 0;
     }
+    
+    ctx = p_alloc(shoe.pool, sizeof(shoebill_card_video_t));
+    shoe.slots[slotnum].ctx = ctx;
+    
+    shoe.slots[slotnum].card_type = card_shoebill_video;
     
     // Make sure the scanline width is a multiple of 32 pixels, and is at least 32 pixels
     // beyond the end of the display. If scanline_width==width, A/UX 2.0 will wrap the mouse around
@@ -526,13 +535,92 @@ uint32_t shoebill_install_video_card(shoebill_control_t *control, uint8_t slotnu
     return 1;
 }
 
+static void _do_clut_translation(shoebill_card_video_t *ctx)
+{
+    uint32_t i;
+    
+    switch (ctx->depth) {
+        case 1: {
+            for (i=0; i < ctx->pixels/8; i++) {
+                const uint8_t byte = ctx->indexed_buf[i];
+                ctx->direct_buf[i * 8 + 0] = ctx->clut[(byte >> 7) & 1];
+                ctx->direct_buf[i * 8 + 1] = ctx->clut[(byte >> 6) & 1];
+                ctx->direct_buf[i * 8 + 2] = ctx->clut[(byte >> 5) & 1];
+                ctx->direct_buf[i * 8 + 3] = ctx->clut[(byte >> 4) & 1];
+                ctx->direct_buf[i * 8 + 4] = ctx->clut[(byte >> 3) & 1];
+                ctx->direct_buf[i * 8 + 5] = ctx->clut[(byte >> 2) & 1];
+                ctx->direct_buf[i * 8 + 6] = ctx->clut[(byte >> 1) & 1];
+                ctx->direct_buf[i * 8 + 7] = ctx->clut[(byte >> 0) & 1];
+            }
+            break;
+        }
+        case 2: {
+            for (i=0; i < ctx->pixels/4; i++) {
+                const uint8_t byte = ctx->indexed_buf[i];
+                ctx->direct_buf[i * 4 + 0] = ctx->clut[(byte >> 6) & 3];
+                ctx->direct_buf[i * 4 + 1] = ctx->clut[(byte >> 4) & 3];
+                ctx->direct_buf[i * 4 + 2] = ctx->clut[(byte >> 2) & 3];
+                ctx->direct_buf[i * 4 + 3] = ctx->clut[(byte >> 0) & 3];
+            }
+            break;
+        }
+        case 4: {
+            for (i=0; i < ctx->pixels/2; i++) {
+                const uint8_t byte = ctx->indexed_buf[i];
+                ctx->direct_buf[i * 2 + 0] = ctx->clut[(byte >> 4) & 0xf];
+                ctx->direct_buf[i * 2 + 1] = ctx->clut[(byte >> 0) & 0xf];
+            }
+            break;
+        }
+        case 8:
+            for (i=0; i < ctx->pixels; i++)
+                ctx->direct_buf[i] = ctx->clut[ctx->indexed_buf[i]];
+            break;
+            
+        default:
+            assert(!"unknown depth");
+    }
+}
+
+shoebill_video_frame_info_t shoebill_get_video_frame(uint8_t slotnum,
+                                                     _Bool just_params)
+{
+    shoebill_card_video_t *ctx = (shoebill_card_video_t*)shoe.slots[slotnum].ctx;
+    shoebill_video_frame_info_t result;
+    
+    assert(shoe.slots[slotnum].card_type == card_shoebill_video); // TBF not supported yet
+    
+    if (!shoe.running) {
+        memset(&result, 0, sizeof(result));
+        return result;
+    }
+    
+    result.width = ctx->width;
+    result.height = ctx->height;
+    result.scan_width = ctx->scanline_width;
+    result.depth = ctx->depth;
+    
+    // If caller just wants video parameters...
+    if (just_params)
+        return result;
+    
+    if (ctx->depth <= 8) {
+        _do_clut_translation(ctx);
+        result.buf = (uint8_t*)ctx->direct_buf;
+        
+        return result;
+    }
+    
+    assert(!"depth not supported");
+}
+
 /*
- * Given a config_control_t structure, configure and initialize
+ * Given a shoebill_config_t structure, configure and initialize
  * the emulator.
  * This is the first function you should call if you're writing an
  * interface to Shoebill.
  */
-uint32_t shoebill_initialize(shoebill_control_t *control)
+uint32_t shoebill_initialize(shoebill_config_t *config)
 {
     uint32_t i, j, pc = 0xffffffff;
     coff_file *coff = NULL;
@@ -544,54 +632,57 @@ uint32_t shoebill_initialize(shoebill_control_t *control)
     memset(&disks[0], 0, 8 * sizeof(scsi_device_t));
     memset(&shoe, 0, sizeof(global_shoebill_context_t));
     
-    shoe.pool = p_new_pool();
+    // Keep a copy of *config in shoe.config_copy, so shoebill_reset() can refer to it
+    memcpy(&shoe.config_copy, config, sizeof(shoebill_config_t));
+    
+    shoe.pool = p_new_pool(NULL);
     
     fpu_setup_jump_table();
     
     // Try to load the ROM
-    if (control->rom_path == NULL) {
-        sprintf(control->error_msg, "No rom file specified\n");
+    if (config->rom_path == NULL) {
+        sprintf(config->error_msg, "No rom file specified\n");
         goto fail;
     }
-    else if (!_load_rom(control, &rom_data, &rom_size))
+    else if (!_load_rom(config, &rom_data, &rom_size))
             goto fail;
     
     // Try to load the A/UX kernel
-    if (control->aux_kernel_path == NULL) {
-        sprintf(control->error_msg, "No A/UX kernel specified\n");
+    if (config->aux_kernel_path == NULL) {
+        sprintf(config->error_msg, "No A/UX kernel specified\n");
         goto fail;
     }
-    else if (!control->scsi_devices[0].path || strlen((char*)control->scsi_devices[0].path)==0) {
-        sprintf(control->error_msg, "The root A/UX disk needs to be at scsi ID 0\n");
+    else if (!config->scsi_devices[0].path || strlen((char*)config->scsi_devices[0].path)==0) {
+        sprintf(config->error_msg, "The root A/UX disk needs to be at scsi ID 0\n");
         goto fail;
     }
     
     // Load the kernel from the disk at scsi id #0
-    kernel_data = shoebill_extract_kernel((char*)control->scsi_devices[0].path,
-                                 control->aux_kernel_path,
-                                 control->error_msg,
+    kernel_data = shoebill_extract_kernel((char*)config->scsi_devices[0].path,
+                                 config->aux_kernel_path,
+                                 config->error_msg,
                                  &kernel_size);
     if (!kernel_data)
         goto fail;
     
-    coff = coff_parse(kernel_data, kernel_size);
+    coff = coff_parse(kernel_data, kernel_size, shoe.pool);
     free(kernel_data); // kernel_data was allocated with malloc()
     
     if (coff == NULL) {
-        sprintf(control->error_msg, "Can't open that A/UX kernel [%s]\n",
-                control->aux_kernel_path);
+        sprintf(config->error_msg, "Can't open that A/UX kernel [%s]\n",
+                config->aux_kernel_path);
         goto fail;
     }
     shoe.coff = coff;
     
     // Try to open the disk images
-    if (!_open_disk_images(control, disks))
+    if (!_open_disk_images(config, disks))
         goto fail;
     
     // Allocate and configure the rom and memory space
     
-    if (control->ram_size < (1024*1024)) {
-        sprintf(control->error_msg, "%u bytes is too little ram\n", control->ram_size);
+    if (config->ram_size < (1024*1024)) {
+        sprintf(config->error_msg, "%u bytes is too little ram\n", config->ram_size);
         goto fail;
     }
     
@@ -601,8 +692,8 @@ uint32_t shoebill_initialize(shoebill_control_t *control)
     p_free(rom_data);
     rom_data = NULL;
     
-    shoe.physical_mem_size = control->ram_size;
-    shoe.physical_mem_base = p_alloc(shoe.pool, control->ram_size+8); // +8 because of physical_get hack
+    shoe.physical_mem_size = config->ram_size;
+    shoe.physical_mem_base = p_alloc(shoe.pool, config->ram_size+8); // +8 because of physical_get hack
     memset(shoe.physical_mem_base, 0, shoe.physical_mem_size);
     
     // Initialize Macintosh lomem variables that A/UX actually cares about
@@ -612,11 +703,11 @@ uint32_t shoebill_initialize(shoebill_control_t *control)
     
     // Initialize A/UX's kernel_info structure
     
-    _init_kernel_info(control, disks, AUX_LOMEM_OFFSET);
+    _init_kernel_info(config, disks, AUX_LOMEM_OFFSET);
     
     // Load A/UX kernel COFF segments into memory (returns PC, the entry point into the kernel)
     
-    if (!_load_aux_kernel(control, coff, &pc))
+    if (!_load_aux_kernel(config, coff, &pc))
         goto fail;
     
     /*
@@ -628,13 +719,10 @@ uint32_t shoebill_initialize(shoebill_control_t *control)
      * FIXME: to implement clean resetting, everything with a global structure needs
      *        an initialization function. Starting here with via/pram...
      */
-    init_via_state();
-    
-    
-    // Put the adb chip in state 3 (idle)
-    // FIXME: put this in a "init_adb_state()"-type function
-    shoe.adb.state = 3;
-    pthread_mutex_init(&shoe.adb.lock, NULL);
+    init_via_state(config->pram, config->pram_callback, config->pram_callback_param);
+    init_adb_state();
+    init_scsi_bus_state();
+    init_iwm_state();
     
     
     set_sr(0x2000);
@@ -643,15 +731,15 @@ uint32_t shoebill_initialize(shoebill_control_t *control)
     
     pthread_mutex_init(&shoe.via_clock_thread_lock, NULL);
     pthread_mutex_lock(&shoe.via_clock_thread_lock);
-    pthread_create(&control->via_thread_pid, NULL, via_clock_thread, NULL);
+    pthread_create(&shoe.via_thread_pid, NULL, via_clock_thread, NULL);
     
     /*
-     * control->debug_mode is a hack - the debugger implements its own CPU thread
+     * config->debug_mode is a hack - the debugger implements its own CPU thread
      */
     pthread_mutex_init(&shoe.cpu_thread_lock, NULL);
     pthread_mutex_lock(&shoe.cpu_thread_lock);
-    if (!control->debug_mode)
-        pthread_create(&control->cpu_thread_pid, NULL, _cpu_thread, NULL);
+    if (!config->debug_mode)
+        pthread_create(&shoe.cpu_thread_pid, NULL, _cpu_thread, NULL);
     
     return 1;
     
@@ -670,6 +758,108 @@ fail:
     return 0;
 }
 
+/* 
+ * This should only be called from the context of cpu_thread
+ * Specifically, inst_reset()
+ */
+void shoebill_restart (void)
+{
+    coff_file *coff;
+    uint32_t pc, kernel_size;
+    uint8_t *kernel_data;
+    
+    // block other threads from twiddling shoe.adb
+    pthread_mutex_lock(&shoe.adb.lock);
+    
+    // FIXME: block via thread from firing timers
+    
+    // zero memory
+    memset(shoe.physical_mem_base, 0, shoe.physical_mem_size);
+    
+    // clear the pmmu cache
+    memset(shoe.pmmu_cache, 0, sizeof(shoe.pmmu_cache));
+    
+    // Reset all CPU registers
+    memset(shoe.d, 0, sizeof(shoe.d));
+    memset(shoe.a, 0, sizeof(shoe.a));
+    shoe.vbr = 0;
+    shoe.sfc = 0;
+    shoe.dfc = 0;
+    shoe.cacr = 0;
+    shoe.usp = 0;
+    shoe.isp = 0;
+    shoe.msp = 0;
+    
+    // Reset all pmmu registers
+    shoe.crp = shoe.srp = shoe.drp = 0;
+    shoe.tc = 0;
+    shoe.pcsr = 0;
+    shoe.ac = 0;
+    memset(shoe.bad, 0, sizeof(shoe.bad));
+    memset(shoe.bac, 0, sizeof(shoe.bac));
+    shoe.cal = 0;
+    shoe.val = 0;
+    shoe.scc = 0;
+    shoe.psr.word = 0;
+    
+    // Reset all FPU registers
+    shoe.fpiar = 0;
+    shoe.fpcr.raw = 0;
+    shoe.fpsr.raw = 0;
+    memset(shoe.fp, 0, sizeof(shoe.fp));
+    
+    
+    // Free the old unix coff_file,
+    coff_free(shoe.coff);
+    
+    // Close the disk at scsi id #0
+    fclose(shoe.scsi_devices[0].f);
+    
+    // Reload the kernel from that disk
+    kernel_data = shoebill_extract_kernel((char*)shoe.scsi_devices[0].image_path,
+                                          shoe.config_copy.aux_kernel_path,
+                                          shoe.config_copy.error_msg,
+                                          &kernel_size);
+    
+    // FIXME: handle this more gracefully
+    assert(kernel_data && "can't reload the kernel from the root filesystem");
+    
+    // Re-parse the kernel binary
+    coff = coff_parse(kernel_data, kernel_size, shoe.pool);
+    free(kernel_data); // kernel_data was allocated with malloc()
+    
+    // FIXME: also handle this more gracefully
+    assert(coff && "can't parse the kernel");
+    
+    // Re-open the root disk image
+    shoe.scsi_devices[0].f = fopen(shoe.scsi_devices[0].image_path, "r+");
+    assert(shoe.scsi_devices[0].f && "couldn't reopen the disk image at scsi id #0"); // FIXME: and this
+    
+    shoe.coff = coff;
+    
+    // Initialize Macintosh lomem variables that A/UX actually cares about
+    _init_macintosh_lomem_globals(AUX_LOMEM_OFFSET);
+    
+    // Initialize A/UX's kernel_info structure
+    _init_kernel_info(&shoe.config_copy, shoe.scsi_devices, AUX_LOMEM_OFFSET);
+    
+    // Load A/UX kernel COFF segments into memory (returns PC, the entry point into the kernel)
+    if (!_load_aux_kernel(&shoe.config_copy, shoe.coff, &pc))
+        assert(!"_load_aux_kernel failed, and I can't handle that yet...");
+    
+    // reset all devices
+    reset_adb_state();
+    reset_scsi_bus_state();
+    reset_iwm_state();
+    reset_via_state();
+    
+    set_sr(0x2000);
+    shoe.pc = pc;
+    shoe.cpu_thread_notifications = 0;
+    
+    pthread_mutex_unlock(&shoe.adb.lock);
+}
+
 static void _send_key(uint8_t code)
 {
     if ((shoe.key.key_i+1) < KEYBOARD_STATE_MAX_KEYS) {
@@ -681,6 +871,9 @@ static void _send_key(uint8_t code)
 
 void shoebill_key(uint8_t down, uint8_t key)
 {
+    if (!shoe.running)
+        return ;
+    
     const uint8_t down_mask = down ? 0 : 0x80;
     assert(pthread_mutex_lock(&shoe.adb.lock) == 0);
     
@@ -692,6 +885,9 @@ void shoebill_key(uint8_t down, uint8_t key)
 
 void shoebill_key_modifier(uint8_t modifier_mask)
 {
+    if (!shoe.running)
+        return ;
+    
     assert(pthread_mutex_lock(&shoe.adb.lock) == 0);
     
     const uint8_t changed_mask = shoe.key.last_modifier_mask ^ modifier_mask;
@@ -717,6 +913,9 @@ void shoebill_key_modifier(uint8_t modifier_mask)
 
 void shoebill_mouse_move(int32_t x, int32_t y)
 {
+    if (!shoe.running)
+        return ;
+    
     assert(pthread_mutex_lock(&shoe.adb.lock) == 0);
     
     int32_t delta_x = x - shoe.mouse.old_x;
@@ -736,6 +935,9 @@ void shoebill_mouse_move(int32_t x, int32_t y)
 
 void shoebill_mouse_move_delta (int32_t x, int32_t y)
 {
+    if (!shoe.running)
+        return ;
+    
     assert(pthread_mutex_lock(&shoe.adb.lock) == 0);
     
     shoe.mouse.delta_x += x;
@@ -749,6 +951,9 @@ void shoebill_mouse_move_delta (int32_t x, int32_t y)
 
 void shoebill_mouse_click(uint8_t down)
 {
+    if (!shoe.running)
+        return ;
+    
     assert(pthread_mutex_lock(&shoe.adb.lock) == 0);
     
     shoe.mouse.button_down = (down != 0);
@@ -757,5 +962,18 @@ void shoebill_mouse_click(uint8_t down)
     adb_request_service_request(3);
     
     pthread_mutex_unlock(&shoe.adb.lock);
+}
+
+void shoebill_send_vbl_interrupt(uint8_t slotnum)
+{
+    if (!shoe.running)
+        return ;
+    
+    assert((slotnum >= 9) && (slotnum <= 14) && shoe.slots[slotnum].connected);
+    
+    if (shoe.slots[slotnum].interrupts_enabled) {
+        shoe.via[1].rega_input &= ~b(00111111) & ~~(1 << (slotnum - 9));
+        via_raise_interrupt(2, IFR_CA1);
+    }
 }
 

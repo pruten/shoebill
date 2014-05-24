@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013, Peter Rutenbar <pruten@gmail.com>
+ * Copyright (c) 2014, Peter Rutenbar <pruten@gmail.com>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -23,28 +23,13 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _REDBLACK_H
-#define _REDBLACK_H
+#import <Cocoa/Cocoa.h>
 
-typedef uint32_t rb_key_t;
-typedef void* rb_value_t;
+@interface shoeScreenWindowController : NSWindowController {
+@public
+    uint8_t slotnum;
+}
 
-typedef struct _rb_node {
-    struct _rb_node *left, *right, *parent;
-    rb_key_t key;
-    rb_value_t value;
-    uint8_t is_red : 1;
-} rb_node;
+- (id)initWithWindowNibName:(NSString *)windowNibName slotnum:(uint8_t)_slotnum;
 
-typedef rb_node* rb_tree;
-
-
-rb_tree* rb_new();
-void rb_free (rb_tree *tree);
-
-uint8_t rb_insert (rb_tree *root, rb_key_t key, rb_value_t value, rb_value_t *old_value);
-uint8_t rb_find (rb_tree *tree, rb_key_t key, rb_value_t *value);
-uint8_t rb_index (rb_tree *tree, uint32_t index, rb_key_t *key, rb_value_t *value);
-uint32_t rb_count (rb_tree *tree);
-
-#endif // _REDBLACK_H
+@end

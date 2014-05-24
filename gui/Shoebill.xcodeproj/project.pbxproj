@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		870A2F9E192D2A6D00ABBC14 /* shoeScreenWindowController.m in Sources */ = {isa = PBXBuildFile; fileRef = 870A2F9D192D2A6D00ABBC14 /* shoeScreenWindowController.m */; };
 		87495445189980E200E80F5B /* shoeScreenView.xib in Resources */ = {isa = PBXBuildFile; fileRef = 87495444189980E200E80F5B /* shoeScreenView.xib */; };
 		8749544718999F5300E80F5B /* OpenGL.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8749544618999F5300E80F5B /* OpenGL.framework */; };
 		874954491899A22D00E80F5B /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 874954481899A22D00E80F5B /* QuartzCore.framework */; };
@@ -26,6 +27,8 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		870A2F9C192D2A6D00ABBC14 /* shoeScreenWindowController.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = shoeScreenWindowController.h; sourceTree = "<group>"; };
+		870A2F9D192D2A6D00ABBC14 /* shoeScreenWindowController.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = shoeScreenWindowController.m; sourceTree = "<group>"; };
 		87495444189980E200E80F5B /* shoeScreenView.xib */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.xib; path = shoeScreenView.xib; sourceTree = "<group>"; };
 		8749544618999F5300E80F5B /* OpenGL.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = OpenGL.framework; path = /System/Library/Frameworks/OpenGL.framework; sourceTree = "<absolute>"; };
 		874954481899A22D00E80F5B /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = /System/Library/Frameworks/QuartzCore.framework; sourceTree = "<absolute>"; };
@@ -70,6 +73,20 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		870A2F9F192D2ADA00ABBC14 /* Screen */ = {
+			isa = PBXGroup;
+			children = (
+				870A2F9C192D2A6D00ABBC14 /* shoeScreenWindowController.h */,
+				870A2F9D192D2A6D00ABBC14 /* shoeScreenWindowController.m */,
+				87495444189980E200E80F5B /* shoeScreenView.xib */,
+				AE75B30718A8210D00E66DB6 /* shoeScreenWindow.h */,
+				AE75B30818A8210D00E66DB6 /* shoeScreenWindow.m */,
+				87F9775F18987767000D589E /* shoeScreenView.h */,
+				87F9776018987767000D589E /* shoeScreenView.m */,
+			);
+			name = Screen;
+			sourceTree = "<group>";
+		};
 		87F9771F18987700000D589E = {
 			isa = PBXGroup;
 			children = (
@@ -117,14 +134,10 @@
 				8782FCE3189AFEFB0081E19E /* shoeApplication.m */,
 				87F9773D18987700000D589E /* shoeAppDelegate.h */,
 				87F9773E18987700000D589E /* shoeAppDelegate.m */,
-				87495444189980E200E80F5B /* shoeScreenView.xib */,
-				AE75B30718A8210D00E66DB6 /* shoeScreenWindow.h */,
-				AE75B30818A8210D00E66DB6 /* shoeScreenWindow.m */,
-				87F9775F18987767000D589E /* shoeScreenView.h */,
-				87F9776018987767000D589E /* shoeScreenView.m */,
 				8781D24B18A19C340016F604 /* shoePreferencesWindowController.xib */,
 				8781D24918A19C340016F604 /* shoePreferencesWindowController.h */,
 				8781D24A18A19C340016F604 /* shoePreferencesWindowController.m */,
+				870A2F9F192D2ADA00ABBC14 /* Screen */,
 				87F9773218987700000D589E /* Supporting Files */,
 			);
 			path = Shoebill;
@@ -219,6 +232,7 @@
 				8781D24C18A19C340016F604 /* shoePreferencesWindowController.m in Sources */,
 				AE75B30918A8210D00E66DB6 /* shoeScreenWindow.m in Sources */,
 				8782FCE4189AFEFB0081E19E /* shoeApplication.m in Sources */,
+				870A2F9E192D2A6D00ABBC14 /* shoeScreenWindowController.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

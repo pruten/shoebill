@@ -30,7 +30,6 @@
 #include <stdint.h>
 #include <assert.h>
 #include "shoebill.h"
-#include "coff.h"
 
 void symb_inorder(rb_node *cur) {
     const coff_symbol *sym = (coff_symbol*)cur->value;
@@ -59,15 +58,19 @@ void symb_inorder(rb_node *cur) {
     _result; \
 })
 
+void coff_free(coff_file *coff)
+{
+    p_free_pool(coff->pool);
+}
 
 // Given a path to a COFF binary, create a coff_file structure and return a pointer.
-// God help you if you want to free it.
-coff_file* coff_parse(uint8_t *buf, uint32_t buflen)
+coff_file* coff_parse(uint8_t *buf, uint32_t buflen, alloc_pool_t *parent_pool)
 {
     uint8_t rawhead[20], *ptr;
     uint32_t i;
     coff_file *cf = NULL;
     uint32_t bufptr = 0;
+    alloc_pool_t *pool = p_new_pool(parent_pool);
     
     // Pull out 20 bytes (the file header)
     if (!_coff_buf_read(rawhead, 20)) {
@@ -76,8 +79,10 @@ coff_file* coff_parse(uint8_t *buf, uint32_t buflen)
     }
     
     // Allocate a coff_file and copy in the header
-    cf = (coff_file*)p_alloc(shoe.pool, sizeof(coff_file));
+    cf = (coff_file*)p_alloc(pool, sizeof(coff_file));
+    cf->pool = pool;
     ptr = rawhead;
+    
     cf->magic = be2native(&ptr, 2);
     cf->num_sections = be2native(&ptr, 2);
     cf->timestamp = be2native(&ptr, 4);
@@ -98,7 +103,7 @@ coff_file* coff_parse(uint8_t *buf, uint32_t buflen)
     
     // pull out cf->opt_header bytes (a.out-format header, I guess?)
     if (cf->opt_header_len > 0) {
-        uint8_t *opt = p_alloc(shoe.pool, cf->opt_header_len);
+        uint8_t *opt = p_alloc(cf->pool, cf->opt_header_len);
         if (!_coff_buf_read(opt, cf->opt_header_len)) {
             printf("coff_parse: I ran out of data pulling the optional header (%u bytes)\n", cf->opt_header_len);
             p_free(opt);
@@ -108,7 +113,7 @@ coff_file* coff_parse(uint8_t *buf, uint32_t buflen)
     }
     
     // start pulling out sections
-    cf->sections = p_alloc(shoe.pool, cf->num_sections * sizeof(coff_section));
+    cf->sections = p_alloc(cf->pool, cf->num_sections * sizeof(coff_section));
     for (i=0; i<cf->num_sections; i++) {
         // read the header
         uint8_t rawsec[40];
@@ -158,7 +163,7 @@ coff_file* coff_parse(uint8_t *buf, uint32_t buflen)
         }
         
         // load the data and attach it to the section struct
-        data = p_alloc(shoe.pool, cf->sections[i].sz); // FIXME: sz might not be a sane value
+        data = p_alloc(cf->pool, cf->sections[i].sz); // FIXME: sz might not be a sane value
         if (!_coff_buf_read(data, cf->sections[i].sz)) {
             printf("coff_parse: I couldn't fread section %u (%s)'s data (%u bytes)\n", i+1, cf->sections[i].name, cf->sections[i].sz);
             p_free(data);
@@ -172,9 +177,9 @@ coff_file* coff_parse(uint8_t *buf, uint32_t buflen)
     if (cf->num_symbols == 0) // if num_symbols==0, symtab_offset may be bogus
         return cf; // just return
     
-    cf->func_tree = rb_new();
+    cf->func_tree = rb_new(cf->pool);
     //printf("func_tree = %llx, *func_tree = %llx\n", cf->func_tree, *cf->func_tree);
-    cf->symbols = (coff_symbol*)p_alloc(shoe.pool, sizeof(coff_symbol) *cf->num_symbols);
+    cf->symbols = (coff_symbol*)p_alloc(cf->pool, sizeof(coff_symbol) *cf->num_symbols);
     
     // Seek to the symbol table
     if (!_coff_buf_seek(cf->symtab_offset)) {
@@ -208,7 +213,7 @@ coff_file* coff_parse(uint8_t *buf, uint32_t buflen)
                     goto fail;
                 }
             }
-            cf->symbols[i].name = p_alloc(shoe.pool, j+1);
+            cf->symbols[i].name = p_alloc(cf->pool, j+1);
             memcpy(cf->symbols[i].name, tmp_name, j);
             cf->symbols[i].name[j] = 0;
             _coff_buf_seek(cf->symtab_offset + (i+1)*18);
@@ -267,15 +272,15 @@ fail:
     return NULL;
 }
 
-coff_file* coff_parse_from_path(const char *path)
+coff_file* coff_parse_from_path(const char *path, alloc_pool_t *parent_pool)
 {
     FILE *f = fopen(path, "r");
-    uint8_t *buf = p_alloc(shoe.pool, 1);
+    uint8_t *buf = malloc(1);
     uint32_t i=0, tmp;
     coff_file *coff;
     
     do {
-        buf = p_realloc(buf, i + 128*1024);
+        buf = realloc(buf, i + 128*1024);
         assert(buf);
         tmp = fread(buf+i, 1, 128*1024, f);
         i += tmp;
@@ -284,8 +289,8 @@ coff_file* coff_parse_from_path(const char *path)
     } while ((tmp > 0) && (i < 64*1024*1024));
     
     
-    coff = coff_parse(buf, i);
-    p_free(buf);
+    coff = coff_parse(buf, i, parent_pool);
+    free(buf);
     return coff;
 }
 
@@ -331,7 +336,7 @@ coff_symbol* coff_find_func(coff_file *coff, uint32_t addr)
     // printf("coff->num_symbols = %u\n", coff->num_symbols);
     if (coff->num_symbols == 0) 
         return NULL;
-    cur = *coff->func_tree;
+    cur = coff->func_tree->root;
     
     while (cur) {
         // printf("... iterating\n");

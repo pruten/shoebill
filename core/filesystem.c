@@ -197,7 +197,7 @@ static disk_t* open_disk (const char *disk_path, char *error_str)
     uint8_t block[512];
     apple_partition_map_t apm;
     uint32_t i;
-    alloc_pool_t *pool = p_new_pool();
+    alloc_pool_t *pool = p_new_pool(NULL);
     FILE *f;
     
     disk = p_alloc(pool, sizeof(disk_t));

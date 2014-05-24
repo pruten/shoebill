@@ -27,23 +27,27 @@
 #include <stdlib.h>
 #include <assert.h>
 #include "shoebill.h"
-#include "redblack.h"
 
 // Create a new red-black tree 
 // (just return an empty black leaf pointer)
-rb_tree* rb_new()
+rb_tree* rb_new(alloc_pool_t *pool)
 {
-    return p_alloc(shoe.pool, sizeof(rb_tree));
+    rb_tree *tree = (rb_tree*)p_alloc(pool, sizeof(rb_tree));
+    tree->root = NULL;
+    tree->pool = pool;
+    return tree;
 }
 
 // Insert a new key/value into the tree 
 // (and return the old value if *old_value is non-null.)
 // Returns true if the key already existed.
-uint8_t rb_insert(rb_tree *root, rb_key_t key, rb_value_t value, rb_value_t *old_value)
-{    
+uint8_t rb_insert(rb_tree *tree, rb_key_t key, rb_value_t value, rb_value_t *old_value)
+{
+    rb_node **root = &tree->root;
+    
     // Special edge case: insert the root node if tree's empty
     if (*root == NULL) {
-        *root = p_alloc(shoe.pool, sizeof(rb_node));
+        *root = p_alloc(tree->pool, sizeof(rb_node));
         (*root)->key = key;
         (*root)->value = value;
         return 0;
@@ -66,7 +70,7 @@ uint8_t rb_insert(rb_tree *root, rb_key_t key, rb_value_t value, rb_value_t *old
     }
     
     // insert
-    *cur = p_alloc(shoe.pool, sizeof(rb_node));
+    *cur = p_alloc(tree->pool, sizeof(rb_node));
     (*cur)->parent = parent;
     (*cur)->key = key;
     (*cur)->value = value;
@@ -194,7 +198,7 @@ uint8_t rb_insert(rb_tree *root, rb_key_t key, rb_value_t value, rb_value_t *old
 // Find a value given a key
 uint8_t rb_find (rb_tree *tree, rb_key_t key, rb_value_t *value)
 {
-    rb_node *cur = *tree;
+    rb_node *cur = tree->root;
     
     while (cur) {
         if (key < cur->key) 
@@ -230,7 +234,7 @@ uint8_t _rb_index (rb_node *cur, uint32_t *index, rb_node **result)
 // Do an in-order traversal, and retrieve the (index)th sorted key/value
 uint8_t rb_index (rb_tree *tree, uint32_t index, rb_key_t *key, rb_value_t *value)
 {
-    rb_node *cur = *tree, *result;    
+    rb_node *cur = tree->root, *result;
     if (_rb_index(cur, &index, &result)) {
         if (key) *key = result->key;
         if (value) *value = result->value;
@@ -240,12 +244,16 @@ uint8_t rb_index (rb_tree *tree, uint32_t index, rb_key_t *key, rb_value_t *valu
 }
 
 // Count the number of nodes in the tree
-uint32_t rb_count (rb_tree *tree)
+static uint32_t _rb_count (rb_node *node)
 {
-    rb_node *node = *tree;
     if (!node) 
         return 0;
-    return 1 + rb_count(&node->left) + rb_count(&node->right);
+    return 1 + _rb_count(node->left) + _rb_count(node->right);
+}
+
+uint32_t rb_count (rb_tree *tree)
+{
+    return _rb_count(tree->root);
 }
 
 void _rb_free (rb_node *node)
@@ -260,8 +268,8 @@ void _rb_free (rb_node *node)
 // Free all the nodes (and the rb_tree ptr itself)
 void rb_free (rb_tree *tree)
 {
-    _rb_free(*tree);
-    p_free(*tree);
+    _rb_free(tree->root);
+    p_free(tree->root);
     p_free(tree);
 }
 

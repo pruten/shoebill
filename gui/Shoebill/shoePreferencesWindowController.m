@@ -186,4 +186,11 @@
     [[self window] close];
 }
 
+-(IBAction)zapPramPressed:(id)sender
+{
+    shoeApplication *shoeApp = (shoeApplication*) NSApp;
+    [shoeApp zapPram:[NSUserDefaults standardUserDefaults] ptr:nil];
+}
+
+
 @end

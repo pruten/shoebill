@@ -757,11 +757,11 @@ static void ea_decode_extended()
         uint32_t outer_disp = 0;
         // based on the I/IS behavior
         switch ((i<<3)|I) {
-            case 0b0010: case 0b0110: case 0b1010:
+            case ~b(0010): case ~b(0110): case ~b(1010):
                 // sign-extended word-length outer displacement
                 outer_disp = (int16_t)nextword(mypc);
                 break;
-            case 0b0011: case 0b0111: case 0b1011: {
+            case ~b(0011): case ~b(0111): case ~b(1011): {
                 // long word outer displacement
                 outer_disp = nextlong(mypc);
                 break ;
@@ -775,8 +775,8 @@ static void ea_decode_extended()
         
         // Now mash all these numbers together to get an EA
         switch ((i<<3)|I) {
-            case 0b0001: case 0b0010: case 0b0011:
-            case 0b1001: case 0b1010: case 0b1011: {
+            case ~b(0001): case ~b(0010): case ~b(0011):
+            case ~b(1001): case ~b(1010): case ~b(1011): {
                 // Indirect preindexed
                 const uint32_t intermediate = lget(base_addr + base_disp + index_val, 4);
                 if (shoe.abort) return ;
@@ -786,7 +786,7 @@ static void ea_decode_extended()
                 return ;
             }
                 
-            case 0b0101: case 0b0110: case 0b0111: {
+            case ~b(0101): case ~b(0110): case ~b(0111): {
                 // Indirect postindexed
                 const uint32_t intermediate = lget(base_addr + base_disp, 4);
                 if (shoe.abort) return ;
@@ -795,7 +795,7 @@ static void ea_decode_extended()
                 return ;
             }
                 
-            case 0b1000: case 0b0000: {
+            case ~b(1000): case ~b(0000): {
                 // No memory indirect action
                 // EA = base_addr + base_disp + index
                 shoe.extended_addr = base_addr + base_disp + index_val;

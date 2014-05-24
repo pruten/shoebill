@@ -25,6 +25,8 @@
 
 #import "shoeApplication.h"
 #import "shoeScreenWindow.h"
+#import "shoeScreenWindowController.h"
+#include <ctype.h>
 
 @implementation shoeApplication
 
@@ -38,7 +40,7 @@
 
 - (void)initKeyboardMap
 {
-    keymap = rb_new();
+    keymap = rb_new(p_new_pool(NULL));
     
     // Letters
     mapkey('a', 0x00);
@@ -223,6 +225,7 @@
     NSString *romPathStr = [defaults objectForKey:@"romPath"];
     NSInteger verboseState = [defaults integerForKey:@"verboseState"];
     NSInteger memsize = [defaults integerForKey:@"memorySize"];
+    NSData *pramData = [defaults objectForKey:@"pramData"];
     
     if (rootKernelPathStr == Nil || [rootKernelPathStr length]==0) {
         [self complain:@"Kernel path invalid!"];
@@ -250,22 +253,30 @@
     for (i=0; i<7; i++) {
         NSString *str = [defaults objectForKey:[NSString stringWithFormat:@"scsiPath%u", i]];
         if (str == nil || [str length] == 0)
-            control.scsi_devices[i].path = NULL;
+            config.scsi_devices[i].path = NULL;
         else
-            control.scsi_devices[i].path = strdup([str UTF8String]);
+            config.scsi_devices[i].path = strdup([str UTF8String]);
         
     }
     
     char *rootKernelPathCString = strdup([rootKernelPathStr UTF8String]);
     char *romPathCString = strdup([romPathStr UTF8String]);
     
-    // FIXME: I'm leaking these strings. Stop leaking stuff when the UI is more finalized
+    config.aux_verbose = (verboseState == NSOnState);
+    config.ram_size = (uint32_t)memsize * 1024 * 1024;
+    config.aux_kernel_path = rootKernelPathCString;
+    config.rom_path = romPathCString;
+    config.debug_mode = 0;
     
-    control.aux_verbose = (verboseState == NSOnState);
-    control.ram_size = (uint32_t)memsize * 1024 * 1024;
-    control.aux_kernel_path = rootKernelPathCString;
-    control.rom_path = romPathCString;
-    control.debug_mode = 0;
+    [pramData getBytes:config.pram length:256];
+    
+    /* 
+     * If the pram is corrupt, zap it.
+     * A/UX will apparently never zap corrupted pram,
+     * probably because it expects the bootloader/MacOS to do it.
+     */
+    if (memcmp(config.pram+0xc, "NuMc", 4) != 0)
+        [self zapPram:defaults ptr:config.pram];
     
     *width = screenWidthValue;
     *height = screenHeightValue;
@@ -278,15 +289,67 @@
                       width:(uint16_t)width
                refresh_freq:(double)refresh_freq
 {
-    shoebill_install_video_card(&control,
+    shoebill_install_video_card(&config,
                                 slotnum,
                                 width,
                                 height,
                                 refresh_freq);
     
-    windowController[slotnum] = [[NSWindowController alloc] initWithWindowNibName:@"shoeScreenView"];
-    shoeScreenWindow *win = (shoeScreenWindow*)windowController[slotnum].window;
-    [win configure:slotnum];
+    windowController[slotnum] = [[shoeScreenWindowController alloc]
+                                 initWithWindowNibName:@"shoeScreenView"
+                                 slotnum:slotnum];
+}
+
+- (void) zapPram:(NSUserDefaults*)defaults ptr:(uint8_t*)ptr
+{
+    uint8_t init[256];
+    
+    memset(init, 0, 256);
+    
+    /* Mark PRAM as "valid" */
+    memcpy(init+0xc, "NuMc", 4);
+    /*
+     * Set text box I-beam blink speed and mouse acceleration
+     * to something reasonable
+     */
+    init[9] = 0x88;
+    
+    if (ptr)
+        memcpy(ptr, init, 256);
+    
+    NSData *data = [NSData dataWithBytes:init length:256];
+    [defaults setObject:data forKey:@"pramData"];
+    [defaults synchronize];
+    
+    assert("zapPram" && (memcmp(init+0xc, "NuMc", 4) == 0));
+}
+
+void pram_callback (void *param, const uint8_t addr, const uint8_t byte)
+{
+    struct shoe_app_pram_data_t *pram = (struct shoe_app_pram_data_t*)param;
+    pram->pram[addr] = byte;
+    pram->updated = 1;
+    //printf("pram_callback: set pram[0x%x] = 0x%02x (%c)\n", addr, byte, isprint(byte)?byte:'.');
+}
+
+- (void) flushPram
+{
+    uint8_t copy[256];
+    if (pram->updated) {
+        pram->updated = 0;
+        memcpy(copy, pram->pram, 256);
+        
+        NSData* data = [NSData dataWithBytes:copy length:256];
+        NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+        
+        [defaults setObject:data forKey:@"pramData"];
+        [defaults synchronize];
+    }
+}
+
+- (void) pramFlushTimerFired:(NSTimer *)timer
+{
+    [self flushPram];
 }
 
 - (void) startEmulator
@@ -297,38 +360,81 @@
     uint16_t width, height;
     uint32_t i;
     
-    bzero(&control, sizeof(shoebill_control_t));
+    bzero(&config, sizeof(shoebill_config_t));
     
     [self fetchUserDefaults:&height width:&width];
     
-    uint32_t result = shoebill_initialize(&control);
+    self->pram = calloc(1, sizeof(struct shoe_app_pram_data_t));
+    memcpy(self->pram, config.pram, 256);
+    pram_flush_timer = [NSTimer
+                        scheduledTimerWithTimeInterval:1.0
+                        target:self
+                        selector:@selector(pramFlushTimerFired:)
+                        userInfo:nil
+                        repeats:YES];
+    config.pram_callback = pram_callback;
+    config.pram_callback_param = (void*)self->pram;
+    
+    uint32_t result = shoebill_initialize(&config);
     
     if (!result) {
-        [self complain:[NSString stringWithFormat:@"%s", control.error_msg]];
+        [self complain:[NSString stringWithFormat:@"%s", config.error_msg]];
         return ;
     }
     
     [self createScreenWindow:9 height:height width:width refresh_freq:200.0/3.0];
-    /*[self createScreenWindow:10 height:height width:width refresh_freq:200.0/3.0];
-    [self createScreenWindow:11 height:height width:width refresh_freq:200.0/3.0];
-    [self createScreenWindow:12 height:height width:width refresh_freq:200.0/3.0];
-    [self createScreenWindow:13 height:height width:width refresh_freq:200.0/3.0];
-    [self createScreenWindow:14 height:height width:width refresh_freq:200.0/3.0];*/
     
     shoebill_start();
+    
     isRunning = true;
     
-    for (i=0; i<16; i++)
+    for (i=0; i<16; i++) {
         if (windowController[i]) {
             shoeScreenWindow *win = (shoeScreenWindow*)[windowController[i] window];
             [win reevaluateKeyWindowness];
         }
+    }
+    
+    [run_stop_menu_item setTitle: @"Stop"];
+    [run_stop_menu_item setKeyEquivalent:@""];
+}
 
+- (void) stopEmulator
+{
+    uint32_t i;
+    
+    for (i=0; i<16; i++) {
+        if (windowController[i]) {
+            [windowController[i] close];
+            windowController[i] = NULL;
+        }
+    }
+    doCaptureKeys = false;
+    doCaptureMouse = false;
+    isRunning = false;
+    
+    shoebill_stop();
+    
+    [pram_flush_timer invalidate];
+    pram_flush_timer = nil;
+    [self flushPram];
+    free(self->pram);
+    
+    if (config.aux_kernel_path)
+        free((void*)config.aux_kernel_path);
+    if (config.rom_path)
+        free((void*)config.rom_path);
+    
+    [run_stop_menu_item setTitle: @"Run"];
+    [run_stop_menu_item setKeyEquivalent:@"r"];
 }
 
 - (IBAction)runMenuItem:(id)sender
 {
-    [self startEmulator];
+    if (isRunning)
+        [self stopEmulator];
+    else
+        [self startEmulator];
 }
 
 

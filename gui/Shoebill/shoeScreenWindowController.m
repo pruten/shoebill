@@ -23,18 +23,54 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#import <Cocoa/Cocoa.h>
-#import <OpenGL/gl.h>
-#import <QuartzCore/QuartzCore.h>
+#import "shoeScreenWindowController.h"
 #import "shoeApplication.h"
 
+@interface shoeScreenWindowController ()
 
-@interface shoeScreenView : NSOpenGLView {
-    CGColorSpaceRef colorspace;
-    NSTimer *timer;
-    NSRecursiveLock *lock;
-    CIContext *ciContext;
-    shoeApplication *shoeApp;
+@end
+
+@implementation shoeScreenWindowController
+
+- (id)initWithWindowNibName:(NSString *)windowNibName
+                    slotnum:(uint8_t)_slotnum
+{
+    shoeScreenWindowController *result = [super initWithWindowNibName:windowNibName];
+    result->slotnum = _slotnum;
+    return result;
+}
+
+- (void)windowDidLoad
+{
+    [super windowDidLoad];
+    
+    shoebill_video_frame_info_t frame = shoebill_get_video_frame(slotnum, 1);
+    NSSize size = {
+        .height=frame.height,
+        .width=frame.width,
+    };
+    
+    [[self window] setContentSize:size];
+}
+
+- (NSApplicationPresentationOptions)window:(NSWindow *)window
+      willUseFullScreenPresentationOptions:(NSApplicationPresentationOptions)proposedOptions
+{
+
+    return (NSApplicationPresentationFullScreen |       // support full screen for this window (required)
+            NSApplicationPresentationHideDock |         // completely hide the dock
+            NSApplicationPresentationAutoHideMenuBar);  // yes we want the menu bar to show/hide
+}
+
+- (NSSize)window:(NSWindow *)window willUseFullScreenContentSize:(NSSize)proposedSize
+{
+    shoebill_video_frame_info_t frame = shoebill_get_video_frame(slotnum, 1);
+    NSSize size = {
+        .height=frame.height,
+        .width=frame.width,
+    };
+    
+    return size;
 }
 
 @end

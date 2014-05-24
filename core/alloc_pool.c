@@ -28,15 +28,44 @@
 #include <stdint.h>
 #include "../core/shoebill.h"
 
-/*typedef struct _alloc_pool_t {
+
+
+/*
+#define POOL_ALLOC_TYPE 0
+#define POOL_CHILD_LINK 1
+#define POOL_HEAD 2
+typedef struct _alloc_pool_t {
     struct _alloc_pool_t *prev, *next;
-    uint32_t size, magic;
-} alloc_pool_t;*/
+    uint8_t type;
+    union {
+        struct {
+            uint32_t size;
+        } alloc;
+        struct {
+            struct _alloc_pool_t *child; // pointer to the child's HEAD
+        } child_link;
+        struct {
+            struct _alloc_pool_t *parent_link; // pointer to the parent's CHILD_LINK
+        } head;
+    } t;
+    
+    uint32_t magic;
+} alloc_pool_t;
+*/
+
+static alloc_pool_t* _ptr_to_header(void *ptr)
+{
+    alloc_pool_t *apt = (alloc_pool_t*)ptr;
+    return &apt[-1];
+}
 
 void* p_alloc(alloc_pool_t *pool, uint64_t size)
 {
     alloc_pool_t *buf = calloc(sizeof(alloc_pool_t) + size, 1);
-    buf->size = size;
+    
+    buf->type = POOL_ALLOC_TYPE;
+    buf->t.alloc.size = size;
+    
     buf->magic = 'moof';
     
     buf->next = pool->next;
@@ -51,18 +80,33 @@ void* p_alloc(alloc_pool_t *pool, uint64_t size)
 
 void* p_realloc(void *ptr, uint64_t size)
 {
-    alloc_pool_t *header = &((alloc_pool_t*)ptr)[-1];
+    alloc_pool_t *header = _ptr_to_header(ptr);
+
+    assert(header->magic == 'moof');
+    assert(header->type == POOL_ALLOC_TYPE);
+    
     alloc_pool_t *new_header = realloc(header, size + sizeof(alloc_pool_t));
     
-    if (new_header)
+    if (new_header) {
+        new_header->t.alloc.size = size;
+        
+        if (new_header->next)
+            new_header->next->prev = new_header;
+        
+        if (new_header->prev)
+            new_header->prev->next = new_header;
+    
         return &new_header[1];
+    }
     
     return NULL;
 }
 
-void p_free(void *ptr)
+/* 
+ * Free *any* kind of alloc_pool_t header
+ */
+static void _p_free_any(alloc_pool_t *header)
 {
-    alloc_pool_t *header = &((alloc_pool_t*)ptr)[-1];
     assert(header->magic == 'moof');
     
     if (header->next)
@@ -74,6 +118,16 @@ void p_free(void *ptr)
     free(header);
 }
 
+/*
+ * Free an alloc_pool allocation (but not HEAD or CHILD_LINK)
+ */
+void p_free(void *ptr)
+{
+    alloc_pool_t *header = _ptr_to_header(ptr);
+    assert(header->type == POOL_ALLOC_TYPE);
+    _p_free_any(header);
+}
+
 void p_free_pool(alloc_pool_t *pool)
 {
     while (pool->prev)
@@ -83,13 +137,47 @@ void p_free_pool(alloc_pool_t *pool)
         alloc_pool_t *cur = pool;
         pool = cur->next;
         assert(cur->magic == 'moof');
-        free(cur);
+        
+        switch (cur->type) {
+            case POOL_ALLOC_TYPE:
+                _p_free_any(cur);
+                break;
+            case POOL_CHILD_LINK: {
+                // p_free_pool will free and unlink cur
+                // (its parent's CHILD_LINK)
+                p_free_pool(cur->t.child_link.child);
+                break;
+            }
+            case POOL_HEAD: {
+                if (cur->t.head.parent_link) {
+                    assert(cur->t.head.parent_link->type == POOL_CHILD_LINK);
+                    _p_free_any(cur->t.head.parent_link);
+                }
+                _p_free_any(cur);
+                break;
+            }
+            default:
+                assert(!"unknown POOL_ type");
+        }
     }
 }
 
-alloc_pool_t* p_new_pool(void)
+alloc_pool_t* p_new_pool(alloc_pool_t *parent_pool)
 {
     alloc_pool_t *pool = calloc(sizeof(alloc_pool_t), 1);
+    
     pool->magic = 'moof';
+    pool->type = POOL_HEAD;
+    
+    if (parent_pool) {
+        alloc_pool_t *link = _ptr_to_header(p_alloc(parent_pool, 0));
+        link->type = POOL_CHILD_LINK;
+        link->t.child_link.child = pool; // child_link.child points to the child's HEAD
+        
+        pool->t.head.parent_link = link; // head.parent_link points to the parent's CHILD_LINK
+    }
+    else
+        pool->t.head.parent_link = NULL;
+    
     return pool;
 }

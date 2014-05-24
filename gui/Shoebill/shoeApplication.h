@@ -24,19 +24,31 @@
  */
 
 #import <Cocoa/Cocoa.h>
-#include "../../core/core_api.h"
-#include "../../core/redblack.h"
+#import "shoeScreenWindowController.h"
+#include "../../core/shoebill.h"
+
+struct shoe_app_pram_data_t
+{
+    uint8_t pram[256];
+    volatile _Bool updated;
+};
 
 @interface shoeApplication : NSApplication {
     rb_tree *keymap;
-    NSWindowController *windowController[16];
+    shoeScreenWindowController *windowController[16];
+    IBOutlet __weak NSMenuItem *run_stop_menu_item;
+    
+    NSTimer *pram_flush_timer;
+    struct shoe_app_pram_data_t *pram;
     
     @public
+    
     BOOL doCaptureMouse, doCaptureKeys;
     BOOL isRunning;
-    shoebill_control_t control;
+    shoebill_config_t config;
 }
 
-- (void) startEmulator;
 
+- (void) startEmulator;
+- (void) zapPram:(NSUserDefaults*)defaults ptr:(uint8_t*)ptr;
 @end

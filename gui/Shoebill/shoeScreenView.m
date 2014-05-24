@@ -35,7 +35,6 @@
 - (void)initCommon
 {
     shoeApp = (shoeApplication*) NSApp;
-    control = &shoeApp->control;
 }
 
 
@@ -73,7 +72,7 @@
     colorspace = CGColorSpaceCreateDeviceRGB();
     
     timer = [NSTimer
-             scheduledTimerWithTimeInterval:0.001
+             scheduledTimerWithTimeInterval:(1.0/60.0)
              target:self
              selector:@selector(timerFireMethod:)
              userInfo:nil
@@ -83,15 +82,6 @@
     [[NSRunLoop currentRunLoop] addTimer:timer
                                 forMode:NSEventTrackingRunLoopMode];
     
-    
-    
-    shoebill_card_video_t *video = &control->slots[10].card.video;
-    NSSize size = {
-        .height=video->height,
-        .width=video->width
-    };
-
-    [[self window] setContentSize:size];
     [[self window] setTitle:[NSString stringWithFormat:@"Shoebill - Screen 1"]];
     [[self window] makeKeyAndOrderFront:nil];
 }
@@ -103,83 +93,35 @@
 
 - (void)prepareOpenGL
 {
-    NSRect      frame = [self frame];
-    NSRect      bounds = [self bounds];
-    GLfloat     minX, minY, maxX, maxY;
-    
-    minX = NSMinX(bounds);
-    minY = NSMinY(bounds);
-    maxX = NSMaxX(bounds);
-    maxY = NSMaxY(bounds);
-    
     GLint swapInt = 1;
     [[self openGLContext] setValues:&swapInt forParameter:NSOpenGLCPSwapInterval];
-    
-    if(NSIsEmptyRect([self visibleRect]))
-    {
-        glViewport(0, 0, 1, 1);
-    } else {
-        glViewport(0, 0,  frame.size.width ,frame.size.height);
-    }
-    glMatrixMode(GL_MODELVIEW);
-    glLoadIdentity();
-    glMatrixMode(GL_PROJECTION);
-    glLoadIdentity();
-    glOrtho(minX, maxX, minY, maxY, -1.0, 1.0);
-}
-
-static void _do_clut_translation(shoebill_card_video_t *ctx)
-{
-    uint32_t i;
-
-    switch (ctx->depth) {
-        case 1: {
-            for (i=0; i < ctx->pixels/8; i++) {
-                const uint8_t byte = ctx->indexed_buf[i];
-                ctx->direct_buf[i * 8 + 0] = ctx->clut[(byte >> 7) & 1];
-                ctx->direct_buf[i * 8 + 1] = ctx->clut[(byte >> 6) & 1];
-                ctx->direct_buf[i * 8 + 2] = ctx->clut[(byte >> 5) & 1];
-                ctx->direct_buf[i * 8 + 3] = ctx->clut[(byte >> 4) & 1];
-                ctx->direct_buf[i * 8 + 4] = ctx->clut[(byte >> 3) & 1];
-                ctx->direct_buf[i * 8 + 5] = ctx->clut[(byte >> 2) & 1];
-                ctx->direct_buf[i * 8 + 6] = ctx->clut[(byte >> 1) & 1];
-                ctx->direct_buf[i * 8 + 7] = ctx->clut[(byte >> 0) & 1];
-            }
-            break;
-        }
-        case 2: {
-            for (i=0; i < ctx->pixels/4; i++) {
-                const uint8_t byte = ctx->indexed_buf[i];
-                ctx->direct_buf[i * 4 + 0] = ctx->clut[(byte >> 6) & 3];
-                ctx->direct_buf[i * 4 + 1] = ctx->clut[(byte >> 4) & 3];
-                ctx->direct_buf[i * 4 + 2] = ctx->clut[(byte >> 2) & 3];
-                ctx->direct_buf[i * 4 + 3] = ctx->clut[(byte >> 0) & 3];
-            }
-            break;
-        }
-        case 4: {
-            for (i=0; i < ctx->pixels/2; i++) {
-                const uint8_t byte = ctx->indexed_buf[i];
-                ctx->direct_buf[i * 2 + 0] = ctx->clut[(byte >> 4) & 0xf];
-                ctx->direct_buf[i * 2 + 1] = ctx->clut[(byte >> 0) & 0xf];
-            }
-            break;
-        }
-        case 8:
-            for (i=0; i < ctx->pixels; i++)
-                ctx->direct_buf[i] = ctx->clut[ctx->indexed_buf[i]];
-            break;
-            
-        default:
-            assert(!"unknown depth");
-    }
 }
 
 
 - (void)drawRect:(NSRect)rect
 {
+    const uint8_t slotnum = ((shoeScreenWindowController*)[[self window] windowController])->slotnum;
+    
     [[self openGLContext] makeCurrentContext];
     
+    NSRect frame = [self frame];
+    NSRect bounds = [self bounds];
+    
+    GLfloat minX = NSMinX(bounds);
+    GLfloat minY = NSMinY(bounds);
+    GLfloat maxX = NSMaxX(bounds);
+    GLfloat maxY = NSMaxY(bounds);
+ 
+    if(NSIsEmptyRect([self visibleRect]))
+        glViewport(0, 0, 1, 1);
+    else
+        glViewport(0, 0,  frame.size.width ,frame.size.height);
+    
+    glMatrixMode(GL_MODELVIEW);
+    glLoadIdentity();
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+    glOrtho(minX, maxX, minY, maxY, -1.0, 1.0);
     
     glDrawBuffer(GL_BACK);
     glClear(GL_COLOR_BUFFER_BIT);
@@ -187,32 +129,29 @@ static void _do_clut_translation(shoebill_card_video_t *ctx)
     glClearColor(0.0, 0.0, 0.0, 0.0);
 
     if (shoeApp->isRunning) {
-        uint8_t slotnum = ((shoeScreenWindow*)[self window])->slotnum;
-        shoebill_card_video_t *video = &control->slots[slotnum].card.video;
+        shoebill_video_frame_info_t frame = shoebill_get_video_frame(slotnum, 0);
         
-        /*NSSize size = {
-            .height=video->height,
-            .width=video->width
-        };
-        [self setFrameSize:size];
-        [[self window] setContentSize:size];*/
-        
-        _do_clut_translation(video);
-        glViewport(0, 0, video->width, video->height);
-        glRasterPos2i(0, video->height);
+        glViewport(0, 0, frame.width, frame.height);
+        glRasterPos2i(0, frame.height);
         glPixelStorei(GL_UNPACK_LSB_FIRST, GL_TRUE);
         glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
         
         glPixelZoom(1.0, -1.0);
         
-        glDrawPixels(video->width,
-                     video->height,
+        glDrawPixels(frame.width,
+                     frame.height,
                      GL_RGBA,
                      GL_UNSIGNED_BYTE,
-                     video->direct_buf);
+                     frame.buf);
+        
+        [[self openGLContext] flushBuffer];
+        
+        shoebill_send_vbl_interrupt(slotnum);
+    }
+    else {
+        [[self openGLContext] flushBuffer];
     }
     
-    [[self openGLContext] flushBuffer];
 }
 
 - (void)viewDidMoveToWindow
@@ -246,18 +185,6 @@ static void _do_clut_translation(shoebill_card_video_t *ctx)
 {
     [self mouseMoved:theEvent];
 }
-
-/*- (void) say:(NSString*)str
-{
-    NSAlert *theAlert = [NSAlert
-                         alertWithMessageText:nil
-                         defaultButton:nil
-                         alternateButton:nil
-                         otherButton:nil
-                         informativeTextWithFormat:@"%@", str
-                         ];
-    [theAlert runModal];
-}*/
 
 - (void)mouseDown:(NSEvent *)theEvent
 {

@@ -24,7 +24,7 @@
  */
 
 #import "shoeAppDelegate.h"
-
+#import "shoeApplication.h"
 
 @implementation shoeAppDelegate
 
@@ -33,6 +33,7 @@
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
     uint32_t i;
     
+    [((shoeApplication*)NSApp) zapPram:defaults ptr:nil];
     [defaults setObject:@"/unix" forKey:@"rootKernelPath"];
     [defaults setObject:@"" forKey:@"romPath"];
     [defaults setInteger:NSOnState forKey:@"verboseState"];
@@ -59,6 +60,10 @@
     // Going from 0.0.1 to 0.0.2 leaves rootKernelPath uninitialized
     if ([defaults objectForKey:@"rootKernelPath"] == nil)
         [defaults setObject:@"/unix" forKey:@"rootKernelPath"];
+    
+    // 0.0.1-2 leave pramData uninitialized
+    if ([defaults objectForKey:@"pramData"] == nil)
+        [((shoeApplication*)NSApp) zapPram:defaults ptr:nil];
 }
 
 

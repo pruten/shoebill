@@ -29,20 +29,6 @@
 
 @implementation shoeScreenWindow
 
-- (void)configure:(uint8_t) _slotnum
-{
-    slotnum = _slotnum;
-    
-    shoeApplication *shoeApp = (shoeApplication*) NSApp;
-    shoebill_control_t *control = &shoeApp->control;
-    shoebill_card_video_t *video = &control->slots[slotnum].card.video;
-    NSSize size = {
-        .height=video->height,
-        .width=video->width
-    };
-    
-     [self setContentSize:size];
-}
 
 // Called after all the shoeScreenWindows are created and configured,
 // because one of them was already made key while isRunning==NO,
@@ -50,7 +36,7 @@
 - (void)reevaluateKeyWindowness
 {
     shoeApplication *shoeApp = (shoeApplication*)NSApp;
-    
+
     assert(shoeApp->isRunning);
     
     if ([self isKeyWindow]) {
@@ -60,6 +46,19 @@
         shoeApp->doCaptureKeys = NO;
         [self uncaptureMouse];
     }
+}
+
+- (void)toggleFullScreen:(id)sender
+{
+    [super toggleFullScreen:sender];
+    
+    const uint8_t slotnum = ((shoeScreenWindowController*)[self windowController])->slotnum;
+    shoebill_video_frame_info_t frame = shoebill_get_video_frame(slotnum, 1);
+    NSSize size = {
+        .height=frame.height,
+        .width=frame.width,
+    };
+    [self setContentSize:size];
 }
 
 - (void)becomeKeyWindow

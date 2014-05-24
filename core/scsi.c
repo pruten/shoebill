@@ -102,85 +102,17 @@ const char *scsi_write_reg_str[8] = {
     "start_dma_initiator_receive"
 };
 
-enum scsi_bus_phase {
-    BUS_FREE = 0,
-    ARBITRATION,
-    SELECTION,
-    RESELECTION,
-    COMMAND,
-    DATA_OUT,
-    DATA_IN,
-    STATUS,
-    MESSAGE_IN,
-    MESSAGE_OUT
-};
-
-typedef struct {
-    // Phase
-    enum scsi_bus_phase phase;
-    
-    // Scsi bus signals
-    
-    uint8_t init_bsy:1; // BSY, driven by initiator
-    uint8_t target_bsy:1; // BSY, driven by target
-    
-    uint8_t sel:1; // SEL, driven by both target and initiator
-    
-    uint8_t rst:1; // RST, driven by both target and initiator
-    
-    uint8_t cd:1;  // C/D (control or data), driven by target
-    uint8_t io:1;  // I/O, driven by target
-    uint8_t ack:1; // ACK, driven by initiator
-    uint8_t msg:1; // MSG, driven by target
-    uint8_t atn:1; // ATN, driven by initiator
-    uint8_t req:1; // REQ, driven by target
-    
-    uint8_t data; // DB0-7, data lines, driven by both target and initiator
-    
-    // NCR 5380 registers
-    uint8_t initiator_command;
-    uint8_t mode;
-    uint8_t target_command;
-    uint8_t select_enable; // probably not implementing this...
-    
-    // Arbitration state
-    uint8_t init_id; // initiator ID (as a bit mask) (usually 0x80)
-    
-    // Selection state
-    uint8_t target_id; // target ID (as an int [0, 7])
-    
-    // transfer buffers
-    uint8_t buf[512 * 256];
-    uint32_t bufi;
-    uint32_t in_len, in_i;
-    uint32_t out_len, out_i;
-    uint32_t write_offset;
-    uint8_t status_byte;
-    uint8_t message_byte; // only one-byte messages supported for now
-    
-    // hack
-    uint8_t dma_send_written; // Gets set whenever register 5 (start_dma_send) is written to, and cleared randomly.
-                              // This is because aux 1.1.1 sends an extra byte after sending the write command, and that's not
-                              // part of the write data. start_dma_send will be written when the data is actually starting.
-    uint8_t sent_status_byte_via_reg0; // Gets set when the status byte is red via register 0.
-        // This lets us know it's safe to switch to the MESSAGE_IN phase
-    
-} scsi_bus_state_t;
-
-scsi_bus_state_t scsi;
-
 static void switch_status_phase (uint8_t status_byte)
 {
-    
     printf("scsi_reg_something: switching to STATUS phase\n");
     
-    scsi.phase = STATUS;
-    scsi.status_byte = status_byte;
-    scsi.msg = 0;
-    scsi.cd = 1;
-    scsi.io = 1;
+    shoe.scsi.phase = STATUS;
+    shoe.scsi.status_byte = status_byte;
+    shoe.scsi.msg = 0;
+    shoe.scsi.cd = 1;
+    shoe.scsi.io = 1;
     
-    scsi.bufi = 0;
+    shoe.scsi.bufi = 0;
     
     // Phase mismatch (I think)
     via_raise_interrupt(2, 0);
@@ -189,13 +121,13 @@ static void switch_status_phase (uint8_t status_byte)
 static void switch_command_phase (void)
 {
     printf("scsi_reg_something: switching to COMMAND phase\n");
-    scsi.phase = COMMAND;
+    shoe.scsi.phase = COMMAND;
     
-    scsi.msg = 0;
-    scsi.cd = 1;
-    scsi.io = 0;
+    shoe.scsi.msg = 0;
+    shoe.scsi.cd = 1;
+    shoe.scsi.io = 0;
     
-    scsi.bufi = 0;
+    shoe.scsi.bufi = 0;
     
     // Phase mismatch, probably
     via_raise_interrupt(2, 0);
@@ -205,12 +137,12 @@ static void switch_message_in_phase (uint8_t message_byte)
 {
     printf("scsi_reg_something: switching to MESSAGE_IN phase\n");
     
-    scsi.phase = MESSAGE_IN;
-    scsi.msg = 1;
-    scsi.cd = 1;
-    scsi.io = 1;
+    shoe.scsi.phase = MESSAGE_IN;
+    shoe.scsi.msg = 1;
+    shoe.scsi.cd = 1;
+    shoe.scsi.io = 1;
     
-    scsi.message_byte = message_byte; // only one-byte messages supported for now
+    shoe.scsi.message_byte = message_byte; // only one-byte messages supported for now
     
     // Phase mismatch, probably
     via_raise_interrupt(2, 0);
@@ -220,16 +152,16 @@ static void switch_bus_free_phase (void)
 {
     printf("scsi_reg_something: switching to BUS_FREE phase\n");
     
-    scsi.phase = BUS_FREE;
+    shoe.scsi.phase = BUS_FREE;
     
-    scsi.msg = 0;
-    scsi.cd = 0;
-    scsi.io = 0;
+    shoe.scsi.msg = 0;
+    shoe.scsi.cd = 0;
+    shoe.scsi.io = 0;
     
-    scsi.target_bsy = 0;
-    scsi.req = 0;
+    shoe.scsi.target_bsy = 0;
+    shoe.scsi.req = 0;
     
-    scsi.bufi = 0;
+    shoe.scsi.bufi = 0;
     // Phase mismatch not possible here.
 }
 
@@ -237,11 +169,11 @@ static void switch_data_in_phase (void)
 {
     printf("scsi_reg_something: switching to DATA_IN phase\n");
     
-    scsi.phase = DATA_IN;
+    shoe.scsi.phase = DATA_IN;
     
-    scsi.msg = 0;
-    scsi.cd = 0;
-    scsi.io = 1;
+    shoe.scsi.msg = 0;
+    shoe.scsi.cd = 0;
+    shoe.scsi.io = 1;
     
     // Phase mismatch, probably
     via_raise_interrupt(2, 0);
@@ -251,11 +183,11 @@ static void switch_data_out_phase (void)
 {
     printf("scsi_reg_something: switching to DATA_OUT phase\n");
     
-    scsi.phase = DATA_OUT;
+    shoe.scsi.phase = DATA_OUT;
 
-    scsi.msg = 0;
-    scsi.cd = 0;
-    scsi.io = 0;
+    shoe.scsi.msg = 0;
+    shoe.scsi.cd = 0;
+    shoe.scsi.io = 0;
 
     via_raise_interrupt(2, 0);
 }
@@ -334,34 +266,34 @@ static void scsi_handle_inquiry_command(const uint8_t alloc_len)
     // XXX: added this because A/UX 3.0.1 requsts 6 bytes of the the inquiry response (sometimes?) I think it's polling for all attached scsi devices.
     // Fixme: figure out how to respond "not attached"
     if (alloc_len > sizeof(resp))
-        scsi.in_len = sizeof(resp);
+        shoe.scsi.in_len = sizeof(resp);
     else
-        scsi.in_len = alloc_len;
-    memcpy(scsi.buf, &resp, scsi.in_len);
-    scsi.in_i = 0;
+        shoe.scsi.in_len = alloc_len;
+    memcpy(shoe.scsi.buf, &resp, shoe.scsi.in_len);
+    shoe.scsi.in_i = 0;
     
     switch_data_in_phase();
 }
 
 static void scsi_buf_set (uint8_t byte)
 {
-    assert(scsi.bufi <= sizeof(scsi.buf));
-    scsi.buf[scsi.bufi++] = byte;
+    assert(shoe.scsi.bufi <= sizeof(shoe.scsi.buf));
+    shoe.scsi.buf[shoe.scsi.bufi++] = byte;
     
-    if (scsi.phase == COMMAND) {
-        const uint32_t cmd_len = (scsi.buf[0] >= 0x20) ? 10 : 6; // 10 or 6 byte command?
+    if (shoe.scsi.phase == COMMAND) {
+        const uint32_t cmd_len = (shoe.scsi.buf[0] >= 0x20) ? 10 : 6; // 10 or 6 byte command?
         
-        assert(scsi.target_id < 8);
-        scsi_device_t *dev = &shoe.scsi_devices[scsi.target_id];
+        assert(shoe.scsi.target_id < 8);
+        scsi_device_t *dev = &shoe.scsi_devices[shoe.scsi.target_id];
         
         // If we need more data for this command, keep driving REQ
-        if (scsi.bufi < cmd_len) {
-            // scsi.req = 1;
+        if (shoe.scsi.bufi < cmd_len) {
+            // shoe.scsi.req = 1;
             // FIXME: keep driving DMA_REQUEST too
             return ;
         }
         
-        switch (scsi.buf[0]) {
+        switch (shoe.scsi.buf[0]) {
             case 0: // test unit ready (6)
                 printf("scsi_buf_set: responding to test-unit-ready\n");
                 switch_status_phase(0); // switch to the status phase, with a status byte of 0
@@ -375,27 +307,27 @@ static void scsi_buf_set (uint8_t byte)
             case 0x25: // read capacity (10)
                 printf("scsi_buf_set: responding to read-capacity\n");
                 // bytes [0,3] -> BE number of blocks
-                scsi.buf[0] = (dev->num_blocks >> 24) & 0xff;
-                scsi.buf[1] = (dev->num_blocks >> 16) & 0xff;
-                scsi.buf[2] = (dev->num_blocks >> 8) & 0xff;
-                scsi.buf[3] = (dev->num_blocks) & 0xff;
+                shoe.scsi.buf[0] = (dev->num_blocks >> 24) & 0xff;
+                shoe.scsi.buf[1] = (dev->num_blocks >> 16) & 0xff;
+                shoe.scsi.buf[2] = (dev->num_blocks >> 8) & 0xff;
+                shoe.scsi.buf[3] = (dev->num_blocks) & 0xff;
                 
                 // bytes [4,7] -> BE block size (needs to be 512)
                 
-                scsi.buf[4] = (dev->block_size >> 24) & 0xff;
-                scsi.buf[5] = (dev->block_size >> 16) & 0xff;
-                scsi.buf[6] = (dev->block_size >> 8) & 0xff;
-                scsi.buf[7] = (dev->block_size) & 0xff;
+                shoe.scsi.buf[4] = (dev->block_size >> 24) & 0xff;
+                shoe.scsi.buf[5] = (dev->block_size >> 16) & 0xff;
+                shoe.scsi.buf[6] = (dev->block_size >> 8) & 0xff;
+                shoe.scsi.buf[7] = (dev->block_size) & 0xff;
                 
-                scsi.in_i = 0;
-                scsi.in_len = 8;
+                shoe.scsi.in_i = 0;
+                shoe.scsi.in_len = 8;
                 
                 switch_data_in_phase();
                 break;
                 
             case 0x12: { // inquiry command (6)
                 printf("scsi_buf_set: responding to inquiry\n");
-                const uint8_t alloc_len = scsi.buf[4];
+                const uint8_t alloc_len = shoe.scsi.buf[4];
                 
                 scsi_handle_inquiry_command(alloc_len);
                 break;
@@ -403,10 +335,10 @@ static void scsi_buf_set (uint8_t byte)
                 
             case 0x8: { // read (6)
                 const uint32_t offset =
-                    (scsi.buf[1] << 16) |
-                    (scsi.buf[2] << 8 ) |
-                    (scsi.buf[3]);
-                const uint8_t len = scsi.buf[4];
+                    (shoe.scsi.buf[1] << 16) |
+                    (shoe.scsi.buf[2] << 8 ) |
+                    (shoe.scsi.buf[3]);
+                const uint8_t len = shoe.scsi.buf[4];
                 
                 assert(dev->f);
                 
@@ -422,11 +354,11 @@ static void scsi_buf_set (uint8_t byte)
                 }
                 
                 assert(0 == fseeko(dev->f, 512 * offset, SEEK_SET));
-                assert(fread(scsi.buf, len * 512, 1, dev->f) == 1);
+                assert(fread(shoe.scsi.buf, len * 512, 1, dev->f) == 1);
                 
                 
-                scsi.in_len = len * 512;
-                scsi.in_i = 0;
+                shoe.scsi.in_len = len * 512;
+                shoe.scsi.in_i = 0;
                 
                 switch_data_in_phase();
                 break;
@@ -434,20 +366,20 @@ static void scsi_buf_set (uint8_t byte)
             
             case 0xa: { // write (6)
                 const uint32_t offset =
-                    (scsi.buf[1] << 16) |
-                    (scsi.buf[2] << 8 ) |
-                    (scsi.buf[3]);
-                const uint8_t len = scsi.buf[4];
+                    (shoe.scsi.buf[1] << 16) |
+                    (shoe.scsi.buf[2] << 8 ) |
+                    (shoe.scsi.buf[3]);
+                const uint8_t len = shoe.scsi.buf[4];
                 
                 printf("scsi_buf_set: Responding to write at off=%u len=%u\n", offset, len);
                 
                 //assert(len <= 64);
                 
-                scsi.write_offset = offset;
-                scsi.out_len = len * 512;
-                scsi.out_i = 0;
+                shoe.scsi.write_offset = offset;
+                shoe.scsi.out_len = len * 512;
+                shoe.scsi.out_i = 0;
                 
-                scsi.dma_send_written = 0; // reset here. The real data will come in after start_dma_send is written to.
+                shoe.scsi.dma_send_written = 0; // reset here. The real data will come in after start_dma_send is written to.
                 switch_data_out_phase();
                 break;
             }
@@ -457,15 +389,22 @@ static void scsi_buf_set (uint8_t byte)
                 break;
         }
         
-        scsi.bufi = 0;
+        shoe.scsi.bufi = 0;
     }
 }
 
 void init_scsi_bus_state ()
 {
-    memset(&scsi, 0, sizeof(scsi_bus_state_t));
+    memset(&shoe.scsi, 0, sizeof(scsi_bus_state_t));
     
-    scsi.phase = BUS_FREE;
+    shoe.scsi.phase = BUS_FREE;
+}
+
+void reset_scsi_bus_state ()
+{
+    memset(&shoe.scsi, 0, sizeof(scsi_bus_state_t));
+    
+    shoe.scsi.phase = BUS_FREE;
 }
 
 void scsi_reg_read ()
@@ -476,14 +415,14 @@ void scsi_reg_read ()
     
     switch (reg) {
         case 0: // Current scsi data bus register
-            if (scsi.phase == ARBITRATION)
+            if (shoe.scsi.phase == ARBITRATION)
                 shoe.physical_dat = 0; // I don't know why A/UX expects 0 here. It should be the initiator's ID, I think
-            else if (scsi.phase == MESSAGE_IN) {
-                shoe.physical_dat = scsi.message_byte; // one-byte messages supported for now
+            else if (shoe.scsi.phase == MESSAGE_IN) {
+                shoe.physical_dat = shoe.scsi.message_byte; // one-byte messages supported for now
             }
-            else if (scsi.phase == STATUS) {
-                shoe.physical_dat = scsi.status_byte;
-                scsi.sent_status_byte_via_reg0 = 1;
+            else if (shoe.scsi.phase == STATUS) {
+                shoe.physical_dat = shoe.scsi.status_byte;
+                shoe.scsi.sent_status_byte_via_reg0 = 1;
             }
             else
                 assert(!"scsi_reg_read: reading data reg (0) from unknown phase\n");
@@ -492,38 +431,38 @@ void scsi_reg_read ()
             
         case 1: // Initiator command register
             
-            if (scsi.phase == ARBITRATION &&
-                (scsi.initiator_command & INIT_COMM_ARBITRATION_IN_PROGRESS)) {
+            if (shoe.scsi.phase == ARBITRATION &&
+                (shoe.scsi.initiator_command & INIT_COMM_ARBITRATION_IN_PROGRESS)) {
                 
-                shoe.physical_dat = scsi.initiator_command;
+                shoe.physical_dat = shoe.scsi.initiator_command;
                 
                 // the INIT_COMM_ARBITRATION_IN_PROGRESS bit is transient. Just clear
                 // it after the first access (it needs to go hi, then later low)
-                scsi.initiator_command &= ~INIT_COMM_ARBITRATION_IN_PROGRESS;
+                shoe.scsi.initiator_command &= ~INIT_COMM_ARBITRATION_IN_PROGRESS;
                 
             }
             else
-                shoe.physical_dat = scsi.initiator_command;
+                shoe.physical_dat = shoe.scsi.initiator_command;
             
             break;
             
         case 2: // Mode register
-            shoe.physical_dat = scsi.mode;
+            shoe.physical_dat = shoe.scsi.mode;
             break;
             
         case 3: // Target command register
-            shoe.physical_dat = scsi.target_command & 0xf; // only the low 4 bits are significant
+            shoe.physical_dat = shoe.scsi.target_command & 0xf; // only the low 4 bits are significant
             break;
             
         case 4: { // Current SCSI control register
             uint8_t tmp = 0;
-            tmp |= (scsi.sel * CURR_SCSI_CONTROL_SEL);
-            tmp |= (scsi.io  * CURR_SCSI_CONTROL_IO);
-            tmp |= (scsi.cd  * CURR_SCSI_CONTROL_CD);
-            tmp |= (scsi.msg * CURR_SCSI_CONTROL_MSG);
-            tmp |= (scsi.req * CURR_SCSI_CONTROL_REQ);
-            tmp |= ((scsi.target_bsy || scsi.init_bsy) ? CURR_SCSI_CONTROL_BSY : 0);
-            tmp |= (scsi.rst * CURR_SCSI_CONTROL_RST);
+            tmp |= (shoe.scsi.sel * CURR_SCSI_CONTROL_SEL);
+            tmp |= (shoe.scsi.io  * CURR_SCSI_CONTROL_IO);
+            tmp |= (shoe.scsi.cd  * CURR_SCSI_CONTROL_CD);
+            tmp |= (shoe.scsi.msg * CURR_SCSI_CONTROL_MSG);
+            tmp |= (shoe.scsi.req * CURR_SCSI_CONTROL_REQ);
+            tmp |= ((shoe.scsi.target_bsy || shoe.scsi.init_bsy) ? CURR_SCSI_CONTROL_BSY : 0);
+            tmp |= (shoe.scsi.rst * CURR_SCSI_CONTROL_RST);
             shoe.physical_dat = tmp;
             break;
         }
@@ -534,14 +473,14 @@ void scsi_reg_read ()
             // Compute phase match (IO, CD, MSG match the assertions in target_command register)
             uint8_t phase_tmp = 0;
             {
-                phase_tmp = (phase_tmp << 1) | scsi.msg;
-                phase_tmp = (phase_tmp << 1) | scsi.cd;
-                phase_tmp = (phase_tmp << 1) | scsi.io;
-                phase_tmp = (phase_tmp == (scsi.target_command & 7));
+                phase_tmp = (phase_tmp << 1) | shoe.scsi.msg;
+                phase_tmp = (phase_tmp << 1) | shoe.scsi.cd;
+                phase_tmp = (phase_tmp << 1) | shoe.scsi.io;
+                phase_tmp = (phase_tmp == (shoe.scsi.target_command & 7));
             }
             
-            tmp |= (scsi.ack * BUS_STATUS_ACK);
-            tmp |= (scsi.atn * BUS_STATUS_ATN);
+            tmp |= (shoe.scsi.ack * BUS_STATUS_ACK);
+            tmp |= (shoe.scsi.atn * BUS_STATUS_ATN);
             tmp |= (phase_tmp * BUS_STATUS_PHASE_MATCH);
             
             // let's just say BUS_ERROR is always false (fixme: wrong)
@@ -571,67 +510,67 @@ void scsi_reg_write ()
     
     switch (reg) {
         case 0: // Output data register
-            scsi.data = dat;
+            shoe.scsi.data = dat;
             break;
             
         case 1: { // Initiator command register
-            scsi.initiator_command = dat;
+            shoe.scsi.initiator_command = dat;
             
-            scsi.ack = ((scsi.initiator_command & INIT_COMM_ASSERT_ACK) != 0);
-            scsi.rst = ((scsi.initiator_command & INIT_COMM_ASSERT_RST) != 0);
-            scsi.init_bsy = ((scsi.initiator_command & INIT_COMM_ASSERT_BSY) != 0);
-            scsi.sel = ((scsi.initiator_command & INIT_COMM_ASSERT_SEL) != 0);
-            scsi.atn = ((scsi.initiator_command & INIT_COMM_ASSERT_ATN) != 0);
+            shoe.scsi.ack = ((shoe.scsi.initiator_command & INIT_COMM_ASSERT_ACK) != 0);
+            shoe.scsi.rst = ((shoe.scsi.initiator_command & INIT_COMM_ASSERT_RST) != 0);
+            shoe.scsi.init_bsy = ((shoe.scsi.initiator_command & INIT_COMM_ASSERT_BSY) != 0);
+            shoe.scsi.sel = ((shoe.scsi.initiator_command & INIT_COMM_ASSERT_SEL) != 0);
+            shoe.scsi.atn = ((shoe.scsi.initiator_command & INIT_COMM_ASSERT_ATN) != 0);
  
 /*
 // --- Arbitration ---
             // Check whether to switch from ARBITRATION to SELECTION
-            if (scsi.sel && scsi.phase == ARBITRATION) {
+            if (shoe.scsi.sel && shoe.scsi.phase == ARBITRATION) {
                 // Asserting SEL in arbitration phase means we switch to selection phase :)
-                scsi.phase = SELECTION;
-                scsi.target_id = INVALID_ID; // invalid ID
+                shoe.scsi.phase = SELECTION;
+                shoe.scsi.target_id = INVALID_ID; // invalid ID
                 printf("scsi_reg_write: selection phase\n");
                 break;
             }
 */
 // --- Selection ---
-            // If we're in SELECTION, receive the target_id from scsi.data
-            if (scsi.sel && (scsi.initiator_command & INIT_COMM_ASSERT_DATA_BUS) &&
-                ((scsi.phase == ARBITRATION) || (scsi.phase == BUS_FREE)))
+            // If we're in SELECTION, receive the target_id from shoe.scsi.data
+            if (shoe.scsi.sel && (shoe.scsi.initiator_command & INIT_COMM_ASSERT_DATA_BUS) &&
+                ((shoe.scsi.phase == ARBITRATION) || (shoe.scsi.phase == BUS_FREE)))
             {
                 uint8_t id;
-                for (id=0; (id < 8) && !(scsi.data & (1 << id)); id++) ;
+                for (id=0; (id < 8) && !(shoe.scsi.data & (1 << id)); id++) ;
                 assert(id != 8);
-                scsi.target_id = id;
+                shoe.scsi.target_id = id;
                 printf("scsi_reg_write: selected target id %u\n", id);
-                scsi.target_bsy = 1; // target asserts BSY to acknowledge being selected
-                scsi.phase = SELECTION;
+                shoe.scsi.target_bsy = 1; // target asserts BSY to acknowledge being selected
+                shoe.scsi.phase = SELECTION;
                 break;
             }
             
             // SELECTION ends when SEL gets unset
-            if (!scsi.sel && scsi.phase == SELECTION) {
+            if (!shoe.scsi.sel && shoe.scsi.phase == SELECTION) {
                 printf("scsi_reg_write: switch to COMMAND phase\n"); // what's next?
                 
-                scsi.req = 1; // target asserts REQ after initiator deasserts SEL
+                shoe.scsi.req = 1; // target asserts REQ after initiator deasserts SEL
                 
                 // Switch to COMMAND phase
-                scsi.cd = 1;
-                scsi.io = 0;
-                scsi.msg = 0;
-                scsi.phase = COMMAND;
+                shoe.scsi.cd = 1;
+                shoe.scsi.io = 0;
+                shoe.scsi.msg = 0;
+                shoe.scsi.phase = COMMAND;
                 break;
             }
             
 // --- Information transfer ---
             // If initiator asserts ACK, then target needs to deassert REQ
             // (I think this only makes sense for non-arbitration/selection/busfree situations
-            if ((scsi.phase != BUS_FREE) && (scsi.phase != ARBITRATION) && (scsi.phase != SELECTION)) {
+            if ((shoe.scsi.phase != BUS_FREE) && (shoe.scsi.phase != ARBITRATION) && (shoe.scsi.phase != SELECTION)) {
                 
                 // If this is the message_in phase, use the unsetting-ACK portion of the REQ/ACK handshake
                 // to go to BUS_FREE.
                 // Don't bother asserting REQ here. Also, switch_bus_free_phase() will deassert target_BSY.
-                if (scsi.phase == MESSAGE_IN && !scsi.ack && !scsi.req) {
+                if (shoe.scsi.phase == MESSAGE_IN && !shoe.scsi.ack && !shoe.scsi.req) {
                     switch_bus_free_phase();
                     break ;
                 }
@@ -640,12 +579,12 @@ void scsi_reg_write ()
                 // Do this when the OS deasserts ACK. We know that ACK was previously asserted if !REQ.
                 // (This is kinda hacky - maybe I can detect if ACK is deasserted by looking at the
                 // previous value of reg1)
-                else if (scsi.phase == STATUS && !scsi.ack && !scsi.req && scsi.sent_status_byte_via_reg0) {
-                    scsi.req = 1;
+                else if (shoe.scsi.phase == STATUS && !shoe.scsi.ack && !shoe.scsi.req && shoe.scsi.sent_status_byte_via_reg0) {
+                    shoe.scsi.req = 1;
                     switch_message_in_phase(0);
                 }
                 else {
-                    scsi.req = !scsi.ack;
+                    shoe.scsi.req = !shoe.scsi.ack;
                 }
             }
             
@@ -653,12 +592,12 @@ void scsi_reg_write ()
         }
             
         case 2: { // Mode register
-            scsi.mode = dat;
+            shoe.scsi.mode = dat;
             
-            if (scsi.mode & MODE_ARBITRATE) {
+            if (shoe.scsi.mode & MODE_ARBITRATE) {
                 printf("scsi_reg_write: arbitration phase\n");
-                scsi.phase = ARBITRATION;
-                scsi.initiator_command |= INIT_COMM_ARBITRATION_IN_PROGRESS;
+                shoe.scsi.phase = ARBITRATION;
+                shoe.scsi.initiator_command |= INIT_COMM_ARBITRATION_IN_PROGRESS;
             }
             else {
                 
@@ -667,15 +606,15 @@ void scsi_reg_write ()
             break;
         }
         case 3: // Target command register
-            scsi.target_command = dat & 0xf; // only the bottom 4 bits are writable
+            shoe.scsi.target_command = dat & 0xf; // only the bottom 4 bits are writable
             break;
             
         case 4: // ID select register
-            scsi.select_enable = dat;
+            shoe.scsi.select_enable = dat;
             break;
             
         case 5: // Start DMA send
-            scsi.dma_send_written = 1;
+            shoe.scsi.dma_send_written = 1;
             via_raise_interrupt(2, 0);
             break;
             
@@ -700,31 +639,31 @@ void scsi_dma_write_long(const uint32_t dat)
 
 void scsi_dma_write (const uint8_t byte)
 {
-    if (scsi.phase == COMMAND) {
+    if (shoe.scsi.phase == COMMAND) {
         printf("scsi_reg_dma_write: writing COMMAND byte 0x%02x\n", byte);
         scsi_buf_set(byte);
     }
-    else if (scsi.phase == DATA_OUT && scsi.dma_send_written) {
-        scsi.buf[scsi.out_i++] = byte;
+    else if (shoe.scsi.phase == DATA_OUT && shoe.scsi.dma_send_written) {
+        shoe.scsi.buf[shoe.scsi.out_i++] = byte;
         
         //printf("scsi_reg_dma_write: writing DATA_OUT byte 0x%02x (%c)\n", byte, isprint(byte)?byte:'.');
         
-        if (scsi.out_i >= scsi.out_len) {
-            assert(scsi.target_id < 8);
-            scsi_device_t *dev = &shoe.scsi_devices[scsi.target_id];
+        if (shoe.scsi.out_i >= shoe.scsi.out_len) {
+            assert(shoe.scsi.target_id < 8);
+            scsi_device_t *dev = &shoe.scsi_devices[shoe.scsi.target_id];
             assert(dev->f);
             
-            assert(0 == fseeko(dev->f, 512 * scsi.write_offset, SEEK_SET));
-            assert(fwrite(scsi.buf, scsi.out_len, 1, dev->f) == 1);
+            assert(0 == fseeko(dev->f, 512 * shoe.scsi.write_offset, SEEK_SET));
+            assert(fwrite(shoe.scsi.buf, shoe.scsi.out_len, 1, dev->f) == 1);
             fflush(dev->f);
             
-            scsi.out_i = 0;
-            scsi.out_len = 0;
+            shoe.scsi.out_i = 0;
+            shoe.scsi.out_len = 0;
             switch_status_phase(0);
         }
     }
-    else if (scsi.phase == DATA_OUT) {
-        printf("scsi_reg_dma_write: writing DATA_OUT byte (without scsi.dma_send_written) 0x%02x\n", byte);
+    else if (shoe.scsi.phase == DATA_OUT) {
+        printf("scsi_reg_dma_write: writing DATA_OUT byte (without shoe.scsi.dma_send_written) 0x%02x\n", byte);
     }
     else {
         printf("scsi_reg_dma_write: writing 0x%02x in UNKNOWN PHASE!\n", byte);
@@ -747,17 +686,17 @@ uint8_t scsi_dma_read ()
 {
     uint8_t result = 0;
     
-    if (scsi.phase == STATUS) {
+    if (shoe.scsi.phase == STATUS) {
         // If in the STATUS phase, return the status byte and switch back to COMMAND phase
-        result = scsi.status_byte;
+        result = shoe.scsi.status_byte;
         switch_message_in_phase(0); 
     }
-    else if (scsi.phase == DATA_IN) {
-        assert(scsi.in_len > 0);
-        result = scsi.buf[scsi.in_i++];
-        if (scsi.in_i >= scsi.in_len) {
-            scsi.in_i = 0;
-            scsi.in_len = 0;
+    else if (shoe.scsi.phase == DATA_IN) {
+        assert(shoe.scsi.in_len > 0);
+        result = shoe.scsi.buf[shoe.scsi.in_i++];
+        if (shoe.scsi.in_i >= shoe.scsi.in_len) {
+            shoe.scsi.in_i = 0;
+            shoe.scsi.in_len = 0;
             
             switch_status_phase(0);
         }

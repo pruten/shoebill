@@ -28,7 +28,6 @@ use strict;
 use Carp;
 use Storable qw(dclone);
 
-my $glob_printLineNumbers = 1; # Whether to prepend generated lines with their corresponding input file's line numbers
 my $tab = "    "; # one tab => four spaces
 
 main();
@@ -140,9 +139,6 @@ sub parse {
 		if ($newline) { # a newline just began
 			$newline = 0;
 			$ctx->{indent} = $text->{indents}->[$line_no]; # keep track of how many indents are on this line
-			if ($glob_printLineNumbers and ($ctx->{depth}==0)) {
-				# $out .= sprintf('/*%04u*/ ', $line_no+1);
-			}
 			$out .= spaces($ctx->{indent}); # and begin the line with the appropriate indentation
 		}
 
@@ -155,9 +151,6 @@ sub parse {
 			my $macro = resolve_macro($ctx);
 			
 			$i = $ctx->{cur_pos};
-			if ($glob_printLineNumbers and ($ctx->{depth}==0)) {
-				# $line_str = sprintf('/*%04u*/ ', $line_no+1);
-			}
 			$out .= join("\n$line_str".spaces($ctx->{indent}), split(/\n/, $macro->{str})); 
 		}
 
@@ -328,19 +321,6 @@ sub count_args {
 # Macros go here:
 # ------------------------------------------------------------------
 
-sub macro_repeat {
-	my $args = shift;
-	my $num = $args->[0];
-	my $text = $args->[1];
-	
-	my $str = "";
-	for (my $i=0; $i < $num; $i++) {
-		$str .= $text;
-	}
-	
-	return "{$str}";
-}
-
 # ~decompose(op, "0101 ab0cd mmmrrr")
 sub macro_decompose {
 	my ($args, $ctx) = @_;
@@ -416,23 +396,6 @@ sub macro_b {
 	return sprintf("0x%x", $val);
 }
 
-# ~perl({my $str="hello"; print $str; return $str;}) // causes macrophile.pl to print hello and insert "hello" into the generated file
-sub macro_perl {
-	my ($args, $ctx) = @_;
-	if (scalar(@$args) != 1) {
-		croak(sprintf("line %u: ~perl: ~perl() expects 1 argument (preferably a block), got %u", $ctx->{current_line}, scalar(@$args)));
-	}
-	my $code = $args->[0];
-	
-	my $_perl_return_val;
-	eval 'sub ___macro_perl_sub {'.$code.'} $_perl_return_val=___macro_perl_sub($args,$ctx);';
-	if ($@) {
-		croak(sprintf("line %u: ~perl: code fragment croaked, err={%s}", $ctx->{current_line}, $@));
-	}
-	
-	return $_perl_return_val;
-}
-
 # if (~bmatch(op, 1000 xxxx 01 xxx xxx)) {...}
 sub macro_bmatch {
 	my ($args, $ctx) = @_;
@@ -495,29 +458,6 @@ sub macro_newmacro {
 	$ctx->{adhoc}->{$name} = $sub_ref;
 	
 	return "";
-}
-
-# ~ignore( This is a comment, the only character you can't use is the closing paren. )
-sub macro_ignore {
-	# ignore arguments, return empty string
-	return "";
-}
-
-# qw(word, foobar) -> {"word", "foobar"}
-sub macro_qw {
-    my ($args, $ctx) = @_;
-    my $str = "{";
-    
-    if (scalar(@$args)==0) {
-        return "{}";
-    }
-    foreach my $word (@$args) {
-        $str .= '"'.$word.'", ';
-    }
-    
-    $str = substr($str, 0, -2);
-    $str .= "}";
-    return $str;
 }
 
 sub macro_bytes {

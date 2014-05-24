@@ -30,8 +30,12 @@
 #define SSW_IS_READ (1<<6)
 #define SSW_DF (1<<8)
 
-// throw the long-format (format 0xb) buss error. Mac II ROM expects to see this format for nubus bus errors.
-// FIXME: nearly all the fields here are bogus
+/*
+ * Throw the long-format (format 0xb) bus error. Mac II ROM expects to see
+ * this format for nubus bus errors.
+ *
+ * FIXME: nearly all the fields here are bogus
+ */
 void throw_long_bus_error(uint32_t addr, uint8_t is_write)
 {
     if (shoe.suppress_exceptions) {
@@ -61,7 +65,7 @@ void throw_long_bus_error(uint32_t addr, uint8_t is_write)
     
     const uint16_t ssw = SSW_DF | (is_write ? 0 : SSW_IS_READ) | fc;
     
-    // Note: We're pushing frame format 0xA
+    // Note: We're pushing frame format 0xB
 
     push_a7(0, 4); // internal registers, 18 words
     push_a7(0, 4);
@@ -93,7 +97,7 @@ void throw_long_bus_error(uint32_t addr, uint8_t is_write)
     push_a7(0, 4); // instruction pipe stage B and C
     push_a7(ssw, 2); // special status word
     push_a7(0, 2); // internal register 1
-    push_a7(0xB000 | vector_offset, 2); // format word
+    push_a7(0xB000 | vector_offset, 2); // format word (frame format B)
     push_a7(shoe.orig_pc, 4); // PC for the current instruction
     push_a7(shoe.orig_sr, 2); // original status register
  

@@ -30,11 +30,12 @@
 #include <math.h>
 #include <unistd.h>
 #include <string.h>
+#include <signal.h>
 #include "../core/shoebill.h"
 
 char *via_reg_str[16] = {
-    "orb",
-    "ora",
+    "regb",
+    "rega",
     "ddrb",
     "ddra",
     "t1c-l",
@@ -67,8 +68,12 @@ void via_raise_interrupt(uint8_t vianum, uint8_t ifr_bit)
     // Only if the bit is enabled in IER do we raise a cpu interrupt
     if (via->ier & (1 << ifr_bit)) 
         set_pending_interrupt(vianum);
-    //else
-        // printf("didn't set pending interrupt\n");
+    
+    // if the CPU was stopped, wake it up
+    if (shoe.cpu_thread_notifications & SHOEBILL_STATE_STOPPED) {
+        if (!shoe.config_copy.debug_mode)
+            pthread_kill(shoe.cpu_thread_pid, SIGUSR2);
+    }
 }
 
 
@@ -97,7 +102,6 @@ void process_pending_interrupt ()
             return ;
     }
     
-    // If the CPU was stopped, unstop it
     shoe.cpu_thread_notifications &= ~~SHOEBILL_STATE_STOPPED;
     
     const uint16_t vector_offset = (priority + 24) * 4;
@@ -156,34 +160,6 @@ void process_pending_interrupt ()
     // Clear this pending interrupt bit
     shoe.cpu_thread_notifications &= ~~(1 << priority);
 }
-
-/*
- Reset: 
- Host sends command, switch to state 0
-    Device sends byte 1
- Host switches to state 2
-    Device sends byte 2
- Host switches to state 3
- 
- Talk:
- Host sends command, switch to state 0
-    Device sends byte 0 (even)
- Hosts switches to state 1 (even = "just got even byte")
-    Device sends byte 1 (odd)
- Host switches to state 2 (odd = "just got odd byte")
-    Device sends byte 2 (even)
- 
- 
- */
-
-
-
-// via1 ORB bits abcd efgh
-// cd -> adb FSM state
-// e -> adb timeout occurred / service request (?)
-// f/g/h nvram stuff
-
-#define VIA_REGB_DONE 8
 
 
 // VIA registers
@@ -253,11 +229,8 @@ static void handle_pram_read_byte (void)
             pram->mode = PRAM_READ; // stay in read-mode
             pram->data[addr] = pram->command[2];
             
-            FILE *f = fopen("pram.dump", "w");
-            if (f) {
-                fwrite(pram->data, 256, 1, f);
-                fclose(f);
-            }
+            if (pram->callback)
+                pram->callback(pram->callback_param, addr, pram->command[2]);
             
             printf("PRAMPRAM: setting pram addr 0x%02x = 0x%02x\n", addr, pram->command[2]);
             
@@ -435,7 +408,18 @@ done:
     pram->last_bits = (shoe.via[0].regb_output & shoe.via[0].ddrb & 6);
 }
 
-void init_via_state (void)
+void reset_via_state (void)
+{
+    uint8_t pram_data[256];
+    shoebill_pram_callback_t callback = shoe.pram.callback;
+    void *callback_param = shoe.pram.callback_param;
+    
+    memcpy(pram_data, shoe.pram.data, 256);
+    
+    init_via_state(pram_data, callback, callback_param);
+}
+
+void init_via_state (uint8_t pram_data[256], shoebill_pram_callback_t callback, void *callback_param)
 {
     /* -- Zero everything -- */
     
@@ -456,7 +440,7 @@ void init_via_state (void)
      * Bit 3 - output - vSync
      * Bit 2-0 unused
     */
-    shoe.via[0].ddra = 0b00111000;
+    shoe.via[0].ddra = ~b(00111000);
     
     /* VIA 1 reg B 
      * Bit 7 - output - vSndEnb
@@ -468,7 +452,7 @@ void init_via_state (void)
      * Bit 1 - output - rtcClk
      * Bit 0 - in/out - rtcData (initialize to output)
      */
-    shoe.via[0].ddrb = 0b10110111; // A/UX apparently neglects to initialize ddra/b
+    shoe.via[0].ddrb = ~b(10110111); // A/UX apparently neglects to initialize ddra/b
     
     /* -- Initialize VIA2 -- */
     
@@ -480,7 +464,7 @@ void init_via_state (void)
      * Bit 0 - Interrupt for slot 9
      */
     shoe.via[1].ddra = 0x00; // via2/rega consists of input pins for nubus interrupts
-    shoe.via[1].rega_input = 0b00111111; // no nubus interrupts currently asserted
+    shoe.via[1].rega_input = ~b(00111111); // no nubus interrupts currently asserted
     
     /* VIA 2 reg B
      * Bit 7 - output - v2VBL
@@ -492,9 +476,9 @@ void init_via_state (void)
      * Bit 1 - output - v2BusLk
      * Bit 0 - output - v2cdis
      */
-    shoe.via[1].ddrb = 0b10001111;
+    shoe.via[1].ddrb = ~b(10001111);
     // FIXME: apparently via2/regb bit 7 is tied to VIA1, and driven by timer T1, to
-    //        generate 60.15hz interrupts on VIA1
+    //        generate 60.15hz (really 60.0hz) interrupts on VIA1
     //        emulate this more accurately!
     
     /* -- Initialize PRAM -- */
@@ -502,11 +486,9 @@ void init_via_state (void)
     pram_state_t *pram = &shoe.pram;
     pram->mode = PRAM_READ;
     
-    FILE *f = fopen("pram.dump", "r");
-    if (f) {
-        fread(pram->data, 256, 1, f);
-        fclose(f);
-    }
+    memcpy(pram->data, pram_data, 256);
+    pram->callback = callback;
+    pram->callback_param = callback_param;
 }
 
 #define E_CLOCK 783360
@@ -641,15 +623,6 @@ static void via_write_reg(const uint8_t vianum, const uint8_t reg, const uint8_t
             
         case VIA_ORB: {
             
-            // The OS should only be able to "set" the bits that are marked as "output" in ddra/b
-            
-            // FIXME: we need separate ORA/ORB and IRA/IRB registers
-            
-            /*const uint8_t ddr_mask = via->ddrb;
-            const uint8_t data_sans_input = data & ddr_mask;
-            const uint8_t reg_sans_output = via->regb & (~~ddr_mask);
-            via->regb = data_sans_input | reg_sans_output;
-            // via->regb = data;*/
             via->regb_output = data;
             
             if (vianum == 1) {
@@ -669,15 +642,6 @@ static void via_write_reg(const uint8_t vianum, const uint8_t reg, const uint8_t
             
         case VIA_ORA_AUX:
         case VIA_ORA: {
-            // The OS should only be able to "set" the bits that are marked as "output" in ddra/b
-            
-            // FIXME: we need separate ORA/ORB and IRA/IRB registers
-            
-            /*const uint8_t ddr_mask = via->ddra;
-            const uint8_t data_sans_input = data & ddr_mask;
-            const uint8_t reg_sans_output = via->rega & (~~ddr_mask);
-            via->rega = data_sans_input | reg_sans_output;
-            // via->rega = data;*/
             
             via->rega_output = data;
             
@@ -705,6 +669,7 @@ static void via_write_reg(const uint8_t vianum, const uint8_t reg, const uint8_t
             
         case VIA_T2C_HI:
             via->ifr &= ~~VIA_IFR_T2; // Write to T2C_HI clears TIMER 2 interrupt
+            via->t2_last_set = now;
             break;
             
         case VIA_T1C_LO:
@@ -792,11 +757,17 @@ void *via_clock_thread(void *arg)
         
         long double earliest_next_timer = 1.0;
         
-        // Check whether the 60.15hz timer should fire (via1 CA1)
-        const uint64_t expected_ca1_ticks = ((now - start_time) * 60.15L);
+        /*
+         * Check whether the 60hz timer should fire (via1 CA1)
+         *
+         * Note! Inside Macintosh claims this should be 60.15hz,
+         * but every version of A/UX configures the timer to be
+         * exactly 60.0hz
+         */
+        const uint64_t expected_ca1_ticks = ((now - start_time) * 60.0L);
         if (expected_ca1_ticks > ca1_ticks) {
             // Figure out when the timer should fire next
-            const long double next_firing = (1.0L/60.15L) - fmodl(now - start_time, 1.0L/60.15L);
+            const long double next_firing = (1.0L/60.0L) - fmodl(now - start_time, 1.0L/60.0L);
             fire(next_firing);
             
             ca1_ticks = expected_ca1_ticks;
@@ -815,12 +786,13 @@ void *via_clock_thread(void *arg)
             
             via_raise_interrupt(1, IFR_CA2);
             
-            via_raise_interrupt(1, IFR_TIMER1);
+            /*via_raise_interrupt(1, IFR_TIMER1);
             via_raise_interrupt(1, IFR_TIMER2);
             via_raise_interrupt(2, IFR_TIMER1);
-            via_raise_interrupt(2, IFR_TIMER2);
+            via_raise_interrupt(2, IFR_TIMER2);*/
         }
         
+        /*
         // Check if any nubus cards have interrupt timers
         shoe.via[1].rega_input = 0b00111111;
         for (i=9; i<15; i++) {
@@ -841,10 +813,15 @@ void *via_clock_thread(void *arg)
             }
         }
         
-        
+        */
         
         
         usleep((useconds_t)(earliest_next_timer * 1000000.0L));
+        
+        if (shoe.via_thread_notifications & SHOEBILL_STATE_RETURN) {
+            pthread_mutex_unlock(&shoe.via_clock_thread_lock);
+            return NULL;
+        }
     }
 }
 

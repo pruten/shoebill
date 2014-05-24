@@ -31,12 +31,100 @@
 #include <stdint.h> 
 #include <sys/time.h>
 #include <pthread.h>
-//#include <histedit.h>
 
-// void ring_print(const char *str);
-// extern char *ring_tmp;
 
-#include "coff.h"
+
+/*
+ * core_api.c stuff
+ */
+
+
+
+typedef void (*shoebill_pram_callback_t) (void *param, const uint8_t addr, const uint8_t byte);
+
+typedef struct {
+    uint32_t ram_size;
+    const char *rom_path;
+    const char *aux_kernel_path; // almost always "/unix"
+    
+    _Bool aux_verbose : 1; // Whether to boot A/UX in verbose mode
+    _Bool aux_autoconfig : 1; // Whether to run A/UX autoconfig
+    _Bool debug_mode : 1; // Whether to enable hacks that debugger depends on
+    
+    uint16_t root_ctrl, swap_ctrl;
+    uint8_t root_drive, swap_drive;
+    uint8_t root_partition, swap_partition;
+    uint8_t root_cluster;
+    
+    /* Devices at the 7 possible target SCSI ids */
+    struct {
+        const char *path;
+    } scsi_devices[7]; // scsi id #7 is the initiator (can't be a target)
+    
+    /* Initialize pram[] with initial PRAM data */
+    uint8_t pram[256];
+    
+    /*
+     * This callback is called whenever a PRAM byte is changed.
+     * It blocks the CPU, so try to return immediately.
+     */
+    shoebill_pram_callback_t pram_callback;
+    void *pram_callback_param;
+    
+    char error_msg[8192];
+} shoebill_config_t;
+
+typedef struct {
+    const uint8_t *buf;
+    uint16_t width, height, scan_width, depth;
+} shoebill_video_frame_info_t;
+
+/* Take a shoebill_config_t structure and configure the global emulator context */
+uint32_t shoebill_initialize(shoebill_config_t *params);
+
+void shoebill_restart (void);
+
+/* Call this after shoebill_initialize() to configure a video card */
+uint32_t shoebill_install_video_card(shoebill_config_t *config, uint8_t slotnum,
+                                     uint16_t width, uint16_t height,
+                                     double refresh_rate);
+
+/* Get a video frame from a particular video card */
+shoebill_video_frame_info_t shoebill_get_video_frame(uint8_t slotnum, _Bool just_params);
+
+/* Call this after rendering a video frame to send a VBL interrupt */
+void shoebill_send_vbl_interrupt(uint8_t slotnum);
+
+/*
+ * These keyboard modifier constants match the ones used
+ * in NSEvent shifted right by 16 bits.
+ */
+enum {
+    modCapsLock = 1 << 0,
+    modShift    = 1 << 1,
+    modControl  = 1 << 2,
+    modOption   = 1 << 3,
+    modCommand  = 1 << 4
+};
+
+void shoebill_key(uint8_t down, uint8_t key);
+void shoebill_key_modifier(uint8_t modifier_mask);
+void shoebill_mouse_move(int32_t x, int32_t y);
+void shoebill_mouse_move_delta (int32_t x, int32_t y);
+void shoebill_mouse_click(uint8_t down);
+
+void shoebill_start();
+void shoebill_stop();
+
+uint8_t* shoebill_extract_kernel(const char *disk_path, const char *kernel_path, char *error_str, uint32_t *len);
+
+
+
+/*
+ * Internal shoebill stuff
+ */
+
+
 
 // -- Global constants --
 
@@ -138,18 +226,123 @@
         #define ea_n(s) ((shoe.dat>>((s)*8-1))&1)
         #define ea_z(s) (chop(shoe.dat, (s))==0)
 
-// alloc_pool.c
+/*
+ * alloc_pool.c
+ */
+
+#define POOL_ALLOC_TYPE 0
+#define POOL_CHILD_LINK 1
+#define POOL_HEAD 2
 typedef struct _alloc_pool_t {
     struct _alloc_pool_t *prev, *next;
-    uint32_t size, magic;
+
+    union {
+        struct {
+            uint64_t size;
+        } alloc;
+        struct {
+            struct _alloc_pool_t *child; // pointer to the child's HEAD
+        } child_link;
+        struct {
+            struct _alloc_pool_t *parent_link; // pointer to the parent's CHILD_LINK
+        } head;
+    } t;
+    
+    uint32_t type;
+    uint32_t magic;
 } alloc_pool_t;
 
 void* p_alloc(alloc_pool_t *pool, uint64_t size);
 void* p_realloc(void *ptr, uint64_t size);
 void p_free(void *ptr);
 void p_free_pool(alloc_pool_t *pool);
-alloc_pool_t* p_new_pool(void);
+alloc_pool_t* p_new_pool(alloc_pool_t *parent_pool);
 
+/*
+ * redblack.c
+ */
+
+typedef uint32_t rb_key_t;
+typedef void* rb_value_t;
+
+typedef struct _rb_node {
+    struct _rb_node *left, *right, *parent;
+    rb_key_t key;
+    rb_value_t value;
+    uint8_t is_red : 1;
+} rb_node;
+
+typedef struct {
+    rb_node *root;
+    alloc_pool_t *pool;
+} rb_tree;
+
+
+rb_tree* rb_new(alloc_pool_t *pool);
+void rb_free (rb_tree *tree);
+
+uint8_t rb_insert (rb_tree *root, rb_key_t key, rb_value_t value, rb_value_t *old_value);
+uint8_t rb_find (rb_tree *tree, rb_key_t key, rb_value_t *value);
+uint8_t rb_index (rb_tree *tree, uint32_t index, rb_key_t *key, rb_value_t *value);
+uint32_t rb_count (rb_tree *tree);
+
+
+/*
+ * coff.c
+ */
+
+typedef struct {
+    char *name;
+    uint32_t value;
+    uint16_t scnum, type;
+    uint8_t sclass, numaux;
+} coff_symbol;
+
+// informed by http://www.delorie.com/djgpp/doc/coff/scnhdr.html
+typedef struct {
+    char name[8];
+    uint32_t p_addr;
+    uint32_t v_addr;
+    uint32_t sz;
+    uint32_t data_ptr;
+    uint32_t reloc_ptr;
+    uint32_t line_ptr;
+    uint16_t num_relocs;
+    uint16_t num_lines;
+    uint32_t flags;
+    
+    uint8_t *data;
+} coff_section;
+
+// data for this segment appears in the file, but shouldn't be copied into memory
+#define coff_copy 0x0010
+#define coff_text 0x0020
+#define coff_data 0x0040
+#define coff_bss  0x0080
+
+typedef struct {
+    uint16_t magic;
+    uint16_t num_sections;
+    uint32_t timestamp;
+    uint32_t symtab_offset;
+    uint32_t num_symbols;
+    uint16_t opt_header_len;
+    uint16_t flags;
+    uint8_t *opt_header;
+    coff_section *sections;
+    rb_tree *func_tree;
+    coff_symbol *symbols;
+    alloc_pool_t *pool;
+} coff_file;
+
+coff_symbol* coff_find_func(coff_file *coff, uint32_t addr);
+coff_symbol* coff_find_symbol(coff_file *coff, const char *name);
+
+coff_file* coff_parse(uint8_t *buf, uint32_t buflen, alloc_pool_t *parent_pool);
+coff_file* coff_parse_from_path(const char *path, alloc_pool_t *parent_pool);
+void coff_free(coff_file *coff);
+uint32_t be2native (uint8_t **dat, uint32_t bytes);
+void print_coff_info(coff_file *coff);
 
 
 typedef struct dbg_breakpoint_t {
@@ -213,9 +406,20 @@ typedef struct {
     // FSM
     uint8_t command[8];
     uint8_t byte, mode, command_i, bit_i;
+    
+    shoebill_pram_callback_t callback;
+    void *callback_param;
 } pram_state_t;
 
-void init_via_state();
+void init_via_state (uint8_t pram_data[256], shoebill_pram_callback_t callback, void *callback_param);
+void init_adb_state();
+void init_scsi_bus_state();
+void init_iwm_state();
+
+void reset_via_state();
+void reset_adb_state();
+void reset_scsi_bus_state();
+void reset_iwm_state();
 
 typedef struct {
     uint8_t scsi_id;
@@ -242,7 +446,7 @@ typedef struct {
     uint8_t changed;
 } mouse_state_t;
 
-typedef struct {
+/*typedef struct {
     uint8_t *buf_base;
     uint32_t buf_size;
     
@@ -256,7 +460,7 @@ typedef struct {
     uint8_t clut[256 * 3];
     uint32_t clut_idx;
     
-} video_state_t;
+} video_state_t;*/
 
 typedef struct {
     // lsb==phase0, msb==L7
@@ -266,13 +470,116 @@ typedef struct {
     uint8_t data, status, mode, handshake;
 } iwm_state_t;
 
+enum scsi_bus_phase {
+    BUS_FREE = 0,
+    ARBITRATION,
+    SELECTION,
+    RESELECTION,
+    COMMAND,
+    DATA_OUT,
+    DATA_IN,
+    STATUS,
+    MESSAGE_IN,
+    MESSAGE_OUT
+};
+
+typedef struct {
+    // Phase
+    enum scsi_bus_phase phase;
+    
+    // Scsi bus signals
+    
+    uint8_t init_bsy:1; // BSY, driven by initiator
+    uint8_t target_bsy:1; // BSY, driven by target
+    
+    uint8_t sel:1; // SEL, driven by both target and initiator
+    
+    uint8_t rst:1; // RST, driven by both target and initiator
+    
+    uint8_t cd:1;  // C/D (control or data), driven by target
+    uint8_t io:1;  // I/O, driven by target
+    uint8_t ack:1; // ACK, driven by initiator
+    uint8_t msg:1; // MSG, driven by target
+    uint8_t atn:1; // ATN, driven by initiator
+    uint8_t req:1; // REQ, driven by target
+    
+    uint8_t data; // DB0-7, data lines, driven by both target and initiator
+    
+    // NCR 5380 registers
+    uint8_t initiator_command;
+    uint8_t mode;
+    uint8_t target_command;
+    uint8_t select_enable; // probably not implementing this...
+    
+    // Arbitration state
+    uint8_t init_id; // initiator ID (as a bit mask) (usually 0x80)
+    
+    // Selection state
+    uint8_t target_id; // target ID (as an int [0, 7])
+    
+    // transfer buffers
+    uint8_t buf[512 * 256];
+    uint32_t bufi;
+    uint32_t in_len, in_i;
+    uint32_t out_len, out_i;
+    uint32_t write_offset;
+    uint8_t status_byte;
+    uint8_t message_byte; // only one-byte messages supported for now
+    
+    // hack
+    uint8_t dma_send_written; // Gets set whenever register 5 (start_dma_send) is written to, and cleared randomly.
+    // This is because aux 1.1.1 sends an extra byte after sending the write command, and that's not
+    // part of the write data. start_dma_send will be written when the data is actually starting.
+    uint8_t sent_status_byte_via_reg0; // Gets set when the status byte is red via register 0.
+    // This lets us know it's safe to switch to the MESSAGE_IN phase
+    
+} scsi_bus_state_t;
+
+typedef struct {
+    uint8_t r, g, b, a;
+} video_ctx_color_t;
+
+typedef struct {
+    video_ctx_color_t *direct_buf, *clut;
+    uint8_t *indexed_buf, *rom;
+    uint8_t *cur_buf;
+    
+    uint32_t pixels;
+    
+    uint16_t width, height, scanline_width;
+    
+    uint16_t depth, clut_idx;
+    
+    double refresh_rate;
+} shoebill_card_video_t;
+
+typedef struct {
+    uint8_t *frame_buffer;
+} shoebill_card_tfb_t;
+
+typedef struct {
+    // Doesn't exist yet
+} shoebill_card_ethernet_t;
+
+typedef enum {
+    card_none = 0, // Empty slot
+    card_toby_frame_buffer, // Original Macintosh II video card
+    card_shoebill_video, // Fancy 21st-century Shoebill video card
+    card_shoebill_ethernet // FIXME: doesn't exist yet
+} card_names_t;
 
 typedef struct {
     uint32_t (*read_func)(uint32_t, uint32_t, uint8_t);
     void (*write_func)(uint32_t, uint32_t, uint32_t, uint8_t);
+
+    uint8_t slotnum;
+    _Bool connected;
+    _Bool interrupts_enabled;
+    
+    long double interrupt_rate, last_fired; // FIXME: probably don't need these?
+    
     void *ctx;
-    uint8_t slotnum, connected, interrupts_enabled;
-    long double interrupt_rate, last_fired;
+    card_names_t card_type;
 } nubus_card_t;
 
 typedef struct {
@@ -293,11 +600,15 @@ typedef struct {
 
 typedef struct {
     
-#define SHOEBILL_STATE_STOPPED (1<<8)
+    _Bool running;
+    
+#define SHOEBILL_STATE_STOPPED (1 << 8)
+#define SHOEBILL_STATE_RETURN (1 << 9)
     
     // bits 0-6 are CPU interrupt priorities
     // bit 8 indicates that STOP was called
     volatile uint32_t cpu_thread_notifications;
+    volatile uint32_t via_thread_notifications;
     
     pthread_mutex_t cpu_thread_lock;
     pthread_mutex_t via_clock_thread_lock;
@@ -445,26 +756,27 @@ typedef struct {
     // -- Interrupts/VIA chips --
     
     via_state_t via[2];
+    via_clock_t via_clocks;
     adb_state_t adb;
+    pram_state_t pram;
     keyboard_state_t key;
     mouse_state_t mouse;
+    
     iwm_state_t iwm;
+    
+    scsi_bus_state_t scsi;
+    scsi_device_t scsi_devices[8]; // SCSI devices
     
     nubus_card_t slots[16];
     
-    via_clock_t via_clocks;
-    
-    struct timeval start_time; // when the emulator started (for computing timer interrupts)
-    uint64_t total_ticks; // how many 60hz ticks have been generated
-    
     coff_file *coff; // Data/symbols from the unix kernel
     
-    scsi_device_t scsi_devices[8]; // SCSI devices
-    
-    pram_state_t pram;
+    pthread_t cpu_thread_pid, via_thread_pid;
     
     debugger_state_t dbg;
     alloc_pool_t *pool;
+    
+    shoebill_config_t config_copy; // copy of the config structure passed to shoebill_initialize()
 } global_shoebill_context_t;
 
 extern global_shoebill_context_t shoe; // declared in cpu.c
@@ -665,9 +977,6 @@ uint32_t nubus_video_read_func(const uint32_t rawaddr, const uint32_t size,
                                const uint8_t slotnum);
 void nubus_video_write_func(const uint32_t rawaddr, const uint32_t size,
                             const uint32_t data, const uint8_t slotnum);
-
-// debug_server.c
-void *debug_cpu_thread (void *arg);
 
 
 

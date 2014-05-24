@@ -79,6 +79,32 @@
  
 */
 
+void reset_adb_state()
+{
+    pthread_mutex_t lock = shoe.adb.lock;
+    
+    memset(&shoe.adb, 0, sizeof(adb_state_t));
+    memset(&shoe.key, 0, sizeof(keyboard_state_t));
+    memset(&shoe.mouse, 0, sizeof(mouse_state_t));
+    
+    // Put the adb chip in state 3 (idle)
+    shoe.adb.state = 3;
+    
+    shoe.adb.lock = lock;
+}
+
+void init_adb_state()
+{
+    memset(&shoe.adb, 0, sizeof(adb_state_t));
+    memset(&shoe.key, 0, sizeof(keyboard_state_t));
+    memset(&shoe.mouse, 0, sizeof(mouse_state_t));
+    
+    // Put the adb chip in state 3 (idle)
+    shoe.adb.state = 3;
+    
+    pthread_mutex_init(&shoe.adb.lock, NULL);
+}
+
 void adb_start_service_request()
 {
     //printf("adb_start_service_request: pending_requests = 0x%02x\n", shoe.adb.pending_service_requests);
@@ -122,8 +148,8 @@ static void keyboard_talk(uint8_t reg)
             
         case 2:
             // All the modifier keys are up
-            shoe.adb.data[0] = 0b01111111;
-            shoe.adb.data[1] = 0b11100111;
+            shoe.adb.data[0] = ~b(01111111);
+            shoe.adb.data[1] = ~b(11100111);
             shoe.adb.data_len = 2;
             return ;
             

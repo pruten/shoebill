@@ -32,9 +32,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <histedit.h>
-#include "../core/core_api.h"
 #include "../core/shoebill.h"
-#include "../core/coff.h"
 
 rb_tree *keymap;
 
@@ -44,9 +42,11 @@ struct dbg_state_t {
     uint64_t breakpoint_counter;
     dbg_breakpoint_t *breakpoints;
     _Bool trace;
+
 };
 
 struct dbg_state_t dbg_state;
+
 
 void print_mmu_rp(uint64_t rp)
 {
@@ -675,6 +675,8 @@ void _display_func (void)
     
     _do_clut_translation(video);
     
+    shoebill_send_vbl_interrupt(9);
+    
     glDrawBuffer(GL_BACK);
     glClear(GL_COLOR_BUFFER_BIT);
     
@@ -706,7 +708,7 @@ static void _init_keyboard_map (void)
     
     #define mapkey(_u, a) mapkeymod(_u, a, 0)
 
-    keymap = rb_new();
+    keymap = rb_new(p_new_pool(NULL));
     
     // Letters
     mapkey('a', 0x00);
@@ -863,11 +865,11 @@ static void _init_glut_video (void)
 
 int main (int argc, char **argv)
 {
-    shoebill_control_t control;
+    shoebill_config_t config;
     pthread_t pid;
     
     
-    bzero(&control, sizeof(shoebill_control_t));
+    bzero(&config, sizeof(shoebill_config_t));
     
     /*
      * A variety of hacky things happen in debug mode.
@@ -878,23 +880,23 @@ int main (int argc, char **argv)
      * This is not a great example of how to write a GUI 
      * for shoebill...
      */
-    control.debug_mode = 1;
+    config.debug_mode = 1;
      
-    control.aux_verbose = 1;
-    control.ram_size = 16 * 1024 * 1024;
-    control.aux_kernel_path = "/unix";
-    control.rom_path = "/Users/pruten/checkouts/shoebill/priv/macii.rom";
+    config.aux_verbose = 1;
+    config.ram_size = 16 * 1024 * 1024;
+    config.aux_kernel_path = "/unix";
+    config.rom_path = "../priv/macii.rom";
     
-    control.scsi_devices[0].path = "/Users/pruten/checkouts/shoebill/priv/Apple_UNIX_3.iso";
+    config.scsi_devices[0].path = "../priv/Apple_UNIX_3.iso";
     
-    if (!shoebill_initialize(&control)) {
-        printf("%s\n", control.error_msg);
+    if (!shoebill_initialize(&config)) {
+        printf("%s\n", config.error_msg);
         return 0;
     }
     
     _init_keyboard_map();
     
-    shoebill_install_video_card(&control,
+    shoebill_install_video_card(&config,
                                 9, // slotnum
                                 1024,
                                 768,
