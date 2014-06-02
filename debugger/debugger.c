@@ -42,6 +42,9 @@ struct dbg_state_t {
     uint64_t breakpoint_counter;
     dbg_breakpoint_t *breakpoints;
     _Bool trace;
+    
+    char *ring;
+    uint32_t ring_i, ring_len;
 
 };
 
@@ -369,6 +372,8 @@ void stepper()
     
     cpu_step();
     
+    
+    
     if (dbg_state.trace) {
         print_pc();
         printregs();
@@ -622,58 +627,10 @@ void timer_func (int arg)
     glutPostRedisplay();
 }
 
-static void _do_clut_translation(shoebill_card_video_t *ctx)
-{
-    uint32_t i;
-    
-    switch (ctx->depth) {
-        case 1: {
-            for (i=0; i < ctx->pixels/8; i++) {
-                const uint8_t byte = ctx->indexed_buf[i];
-                ctx->direct_buf[i * 8 + 0] = ctx->clut[(byte >> 7) & 1];
-                ctx->direct_buf[i * 8 + 1] = ctx->clut[(byte >> 6) & 1];
-                ctx->direct_buf[i * 8 + 2] = ctx->clut[(byte >> 5) & 1];
-                ctx->direct_buf[i * 8 + 3] = ctx->clut[(byte >> 4) & 1];
-                ctx->direct_buf[i * 8 + 4] = ctx->clut[(byte >> 3) & 1];
-                ctx->direct_buf[i * 8 + 5] = ctx->clut[(byte >> 2) & 1];
-                ctx->direct_buf[i * 8 + 6] = ctx->clut[(byte >> 1) & 1];
-                ctx->direct_buf[i * 8 + 7] = ctx->clut[(byte >> 0) & 1];
-            }
-            break;
-        }
-        case 2: {
-            for (i=0; i < ctx->pixels/4; i++) {
-                const uint8_t byte = ctx->indexed_buf[i];
-                ctx->direct_buf[i * 4 + 0] = ctx->clut[(byte >> 6) & 3];
-                ctx->direct_buf[i * 4 + 1] = ctx->clut[(byte >> 4) & 3];
-                ctx->direct_buf[i * 4 + 2] = ctx->clut[(byte >> 2) & 3];
-                ctx->direct_buf[i * 4 + 3] = ctx->clut[(byte >> 0) & 3];
-            }
-            break;
-        }
-        case 4: {
-            for (i=0; i < ctx->pixels/2; i++) {
-                const uint8_t byte = ctx->indexed_buf[i];
-                ctx->direct_buf[i * 2 + 0] = ctx->clut[(byte >> 4) & 0xf];
-                ctx->direct_buf[i * 2 + 1] = ctx->clut[(byte >> 0) & 0xf];
-            }
-            break;
-        }
-        case 8:
-            for (i=0; i < ctx->pixels; i++)
-                ctx->direct_buf[i] = ctx->clut[ctx->indexed_buf[i]];
-            break;
-            
-        default:
-            assert(!"unknown depth");
-    }
-}
 
 void _display_func (void)
 {
-    shoebill_card_video_t *video = (shoebill_card_video_t*)shoe.slots[9].ctx;
-    
-    _do_clut_translation(video);
+    shoebill_video_frame_info_t frame = shoebill_get_video_frame(9, 0);
     
     shoebill_send_vbl_interrupt(9);
     
@@ -682,18 +639,18 @@ void _display_func (void)
     
     glClearColor(0.0, 0.0, 0.0, 0.0);
     
-    glViewport(0, 0, video->width, video->height);
-    glRasterPos2i(0, video->height);
+    glViewport(0, 0, frame.width, frame.height);
+    glRasterPos2i(0, frame.height);
     glPixelStorei(GL_UNPACK_LSB_FIRST, GL_TRUE);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     
     glPixelZoom(1.0, -1.0);
     
-    glDrawPixels(video->width,
-                 video->height,
+    glDrawPixels(frame.width,
+                 frame.height,
                  GL_RGBA,
                  GL_UNSIGNED_BYTE,
-                 video->direct_buf);
+                 frame.buf);
     
     glutSwapBuffers();
 }
@@ -883,11 +840,16 @@ int main (int argc, char **argv)
     config.debug_mode = 1;
      
     config.aux_verbose = 1;
-    config.ram_size = 16 * 1024 * 1024;
+    config.ram_size = 8 * 1024 * 1024;
     config.aux_kernel_path = "/unix";
     config.rom_path = "../priv/macii.rom";
     
-    config.scsi_devices[0].path = "../priv/Apple_UNIX_3.iso";
+    config.scsi_devices[0].path = "../priv/aux_3.0.1.img";
+    config.scsi_devices[1].path = "../priv/marathon.img";
+    
+    /*dbg_state.ring_len = 256 * 1024 * 1024;
+    dbg_state.ring = malloc(dbg_state.ring_len);
+    dbg_state.ring_i = 0;*/
     
     if (!shoebill_initialize(&config)) {
         printf("%s\n", config.error_msg);
@@ -898,8 +860,8 @@ int main (int argc, char **argv)
     
     shoebill_install_video_card(&config,
                                 9, // slotnum
-                                1024,
-                                768,
+                                640, // 1024,
+                                480, // 768,
                                 60.0);
     
     // Start the VIA timer thread

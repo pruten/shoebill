@@ -78,10 +78,6 @@ uint32_t compute_nubus_crc(uint8_t *rom, uint32_t len)
 static void _switch_depth(shoebill_card_video_t *ctx, uint32_t depth)
 {
     ctx->depth = depth;
-    if (depth > 8)
-        ctx->cur_buf = (uint8_t*)ctx->direct_buf;
-    else
-        ctx->cur_buf = ctx->indexed_buf;
 }
 
 void nubus_video_init(void *_ctx, uint8_t slotnum,
@@ -94,8 +90,8 @@ void nubus_video_init(void *_ctx, uint8_t slotnum,
     ctx->scanline_width = scanline_width;
     ctx->pixels = scanline_width * height;
     
-    ctx->direct_buf = p_alloc(shoe.pool, ctx->pixels * sizeof(video_ctx_color_t));
-    ctx->indexed_buf = p_alloc(shoe.pool, ctx->pixels);
+    ctx->direct_buf = p_alloc(shoe.pool, (ctx->pixels+4) * sizeof(video_ctx_color_t));
+    ctx->temp_buf = p_alloc(shoe.pool, (ctx->pixels+4) * sizeof(video_ctx_color_t));
     
     ctx->clut = p_alloc(shoe.pool, 256 * sizeof(video_ctx_color_t));
     ctx->rom = p_alloc(shoe.pool, 4096);
@@ -128,13 +124,13 @@ void nubus_video_init(void *_ctx, uint8_t slotnum,
     params[3].right = htons(width);
     params[3].bottom = htons(height);
     
-    /*params[4].line_width = htons(scanline_width * 2);
+    params[4].line_width = htons(scanline_width * 2);
     params[4].right = htons(width);
     params[4].bottom = htons(height);
     
     params[5].line_width = htons(scanline_width * 4);
     params[5].right = htons(width);
-    params[5].bottom = htons(height);*/
+    params[5].bottom = htons(height);
     
     // Recompute the rom crc
     compute_nubus_crc(ctx->rom, 4096);
@@ -175,10 +171,10 @@ uint32_t nubus_video_read_func(const uint32_t rawaddr, const uint32_t size,
     
     // Else, this is video ram
     
-    uint32_t i, myaddr = addr % ctx->pixels, result = 0;
-    for (i=0; i<size; i++) {
-        result <<= 8;
-        result |= ctx->indexed_buf[(myaddr + i) % ctx->pixels];
+    uint32_t i, result = 0;
+    if (addr < (ctx->pixels * 4)) {
+        for (i=0; i<size; i++)
+            result = (result << 8) | ((uint8_t*)ctx->direct_buf)[addr + i];
     }
     
     return result;
@@ -272,13 +268,13 @@ void nubus_video_write_func(const uint32_t rawaddr, const uint32_t size,
     
     // Else, this is video ram
     
-    uint32_t myaddr, mydata;
-    for (myaddr = addr + size, mydata = data; addr < myaddr; ) {
-        // assert(myaddr < ctx->pixels)
-        ctx->indexed_buf[(--myaddr) % ctx->pixels] = mydata & 0xff;
-        mydata >>= 8;
+    if (addr < (ctx->pixels * 4)) {
+        uint32_t mydata, myaddr;
+        for (myaddr = addr + size, mydata = data; addr < myaddr; ) {
+            ((uint8_t*)ctx->direct_buf)[--myaddr] = mydata & 0xff;
+            mydata >>= 8;
+        }
     }
-
 }
 
 

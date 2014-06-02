@@ -195,10 +195,10 @@ static long double _now (void)
     struct timeval tv;
     gettimeofday(&tv, NULL);
     
-    long double secs = tv.tv_sec;
-    long double usecs = tv.tv_usec;
-    
-    return secs + (usecs / 1000000.0);
+    const long double secs = tv.tv_sec;
+    const long double usecs = tv.tv_usec;
+    const long double result = secs + (usecs / 1000000.0);
+    return result;
 }
 
 static void handle_pram_write_byte (void)
@@ -489,17 +489,22 @@ void init_via_state (uint8_t pram_data[256], shoebill_pram_callback_t callback, 
     memcpy(pram->data, pram_data, 256);
     pram->callback = callback;
     pram->callback_param = callback_param;
+    
+    /* -- Init clock stuff -- */
+    const long double now = _now();
+    shoe.via[0].t1_last_set = now;
+    shoe.via[0].t2_last_set = now;
+    shoe.via[1].t1_last_set = now;
+    shoe.via[1].t2_last_set = now;
 }
 
 #define E_CLOCK 783360
-#define HALF_E_CLOCK (E_CLOCK / 2)
 
 #define _via_get_delta_counter(last_set) ({ \
     const long double delta_t = now - (last_set); \
-    const long double delta_ticks = fmodl((delta_t * (long double)E_CLOCK), 0x10000); \
+    const long double delta_ticks = fmodl((delta_t * (long double)E_CLOCK), 0x80000000); \
     /* The VIA timers decrement by 2 for every E_CLOCK tick */ \
-    const uint16_t delta_counter = ((uint16_t)delta_ticks) << 1; \
-    printf("_via_get_delta_counter: now = %Lf delta_t = %Lf delta_ticks = %Lf delta_counter = %u\n", now, delta_t, delta_ticks, delta_counter); \
+    const uint32_t delta_counter = ((uint32_t)delta_ticks) << 1; \
     delta_counter; \
 })
 
@@ -514,7 +519,7 @@ static uint8_t via_read_reg(const uint8_t vianum, const uint8_t reg, const long 
 {
     via_state_t *via = &shoe.via[vianum - 1];
     
-    printf("via_reg_read: reading from via%u reg %s (%u)\n", vianum, via_reg_str[reg], reg);
+    printf("via_reg_read: reading from via%u reg %s (%u) (shoe.pc = 0x%08x)\n", vianum, via_reg_str[reg], reg, shoe.pc);
     
     switch (reg) {
         case VIA_ACR:
@@ -566,11 +571,11 @@ static uint8_t via_read_reg(const uint8_t vianum, const uint8_t reg, const long 
             return via->ddra;
 
         case VIA_T2C_HI: {
-            const uint16_t counter = via->t2c - _via_get_delta_counter(via->t2_last_set);
+            const uint16_t counter = via->t2c - (uint16_t)_via_get_delta_counter(via->t2_last_set);
             return counter >> 8;
         }
         case VIA_T2C_LO: {
-            const uint16_t counter = via->t2c - _via_get_delta_counter(via->t2_last_set);
+            const uint16_t counter = via->t2c - (uint16_t)_via_get_delta_counter(via->t2_last_set);
             via->ifr &= ~~VIA_IFR_T2; // Read from T2C_LOW clears TIMER 2 interrupt
             return (uint8_t)counter;
         }
@@ -595,7 +600,7 @@ static void via_write_reg(const uint8_t vianum, const uint8_t reg, const uint8_t
 {
     via_state_t *via = &shoe.via[vianum - 1];
     
-    printf("via_reg_write: writing 0x%02x to via%u reg %s (%u)\n", (uint8_t)shoe.physical_dat, vianum, via_reg_str[reg], reg);
+    printf("via_reg_write: writing 0x%02x to via%u reg %s (%u) (pc=0x%08x)\n", data, vianum, via_reg_str[reg], reg, shoe.pc);
     
     switch (reg) {
         case VIA_IER: {
@@ -670,6 +675,7 @@ static void via_write_reg(const uint8_t vianum, const uint8_t reg, const uint8_t
         case VIA_T2C_HI:
             via->ifr &= ~~VIA_IFR_T2; // Write to T2C_HI clears TIMER 2 interrupt
             via->t2_last_set = now;
+            via->t2_interrupt_enabled = 1;
             break;
             
         case VIA_T1C_LO:
@@ -692,6 +698,8 @@ void via_write_raw (void)
     const uint8_t vianum = ((shoe.physical_addr >> 13) & 1) + 1;
     const uint8_t reg = (shoe.physical_addr >> 9) & 15;
     
+    pthread_mutex_lock(&shoe.via_cpu_lock);
+    
     if (shoe.physical_size == 1) {
         const long double now = ((reg >= VIA_T1C_LO) && (reg <= VIA_T2C_HI)) ? _now() : 0.0;
         // Common case: writing to only one register
@@ -702,7 +710,7 @@ void via_write_raw (void)
         const long double now = ((reg >= VIA_T1C_LO) && ((reg+1) <= VIA_T2C_HI)) ? _now() : 0.0;
         // Uncommon case: writing to two registers simultaneously
         
-        printf("via_write_raw: writing to two registers simultaneously %u and %u\n", reg, reg+1);
+        printf("via_write_raw: writing to two registers simultaneously %u and %u (0x%x)\n", reg, reg+1 , (uint32_t)shoe.physical_dat);
         
         assert(reg != 15); // If A/UX is trying to write to two VIA chips simultanously, that's not cool
         
@@ -712,12 +720,15 @@ void via_write_raw (void)
     else
         assert("Writing multiple bytes to the same VIA register!");
 
+    pthread_mutex_unlock(&shoe.via_cpu_lock);
 }
 
 void via_read_raw (void)
 {
     const uint8_t vianum = ((shoe.physical_addr >> 13) & 1) + 1;
     const uint8_t reg = (shoe.physical_addr >> 9) & 15;
+    
+    pthread_mutex_lock(&shoe.via_cpu_lock);
     
     if (shoe.physical_size == 1) {
         const long double now = ((reg >= VIA_T1C_LO) && (reg <= VIA_T2C_HI)) ? _now() : 0.0;
@@ -741,21 +752,28 @@ void via_read_raw (void)
     }
     else
         assert(!"Reading multiple bytes from the same VIA register!");
+    
+    pthread_mutex_unlock(&shoe.via_cpu_lock);
 }
 
 #define fire(s) ({assert((s) >= 0); if (earliest_next_timer > (s)) earliest_next_timer = (s);})
 void *via_clock_thread(void *arg)
 {
     pthread_mutex_lock(&shoe.via_clock_thread_lock);
-    
-    const long double start_time = _now();
+    // const long double multiplier = 1.0 / 60.0;
+    const long double multiplier = 1.0;
+    const long double start_time = multiplier * _now();
     uint64_t ca1_ticks = 0, ca2_ticks = 0;
     uint32_t i;
     
     while (1) {
-        const long double now = _now();
+        pthread_mutex_lock(&shoe.via_cpu_lock);
+        
+        const long double now = multiplier * _now();
         
         long double earliest_next_timer = 1.0;
+        const uint32_t via1_t2_delta = _via_get_delta_counter(shoe.via[0].t2_last_set);
+        
         
         /*
          * Check whether the 60hz timer should fire (via1 CA1)
@@ -792,29 +810,18 @@ void *via_clock_thread(void *arg)
             via_raise_interrupt(2, IFR_TIMER2);*/
         }
         
-        /*
-        // Check if any nubus cards have interrupt timers
-        shoe.via[1].rega_input = 0b00111111;
-        for (i=9; i<15; i++) {
-            if (!shoe.slots[i].connected)
-                continue;
-            
-            if (now >= (shoe.slots[i].last_fired + (1.0L/shoe.slots[i].interrupt_rate))) {
-                shoe.slots[i].last_fired = now;
-                
-                fire(1.0L/shoe.slots[i].interrupt_rate);
-                
-                if (shoe.slots[i].interrupts_enabled) {
-                    // shoe.via[1].rega = 0b00111111 & ~~(1<<(i-9));
-                    shoe.via[1].rega_input &= 0b00111111 & ~~(1<<(i-9));
-                    via_raise_interrupt(2, IFR_CA1);
-                    // printf("Fired nubus interrupt %u\n", i);
-                }
+        // I'm only checking VIA1 T2, since the time manager only seems to use/care about that timer
+        if (shoe.via[0].t2_interrupt_enabled) {
+            if (via1_t2_delta >= shoe.via[0].t2c) {
+                shoe.via[0].t2_interrupt_enabled = 0;
+                via_raise_interrupt(1, IFR_TIMER2);
+            }
+            else {
+                fire((long double)(shoe.via[0].t2c - via1_t2_delta) / (E_CLOCK / 2.0));
             }
         }
-        
-        */
-        
+                                                              
+        pthread_mutex_unlock(&shoe.via_cpu_lock);
         
         usleep((useconds_t)(earliest_next_timer * 1000000.0L));
         

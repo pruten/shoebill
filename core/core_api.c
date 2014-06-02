@@ -60,6 +60,8 @@ void shoebill_stop()
     pthread_join(shoe.cpu_thread_pid, NULL);
     pthread_mutex_destroy(&shoe.cpu_thread_lock);
     
+    pthread_mutex_destroy(&shoe.via_cpu_lock);
+    
     shoe.running = 0;
     
     // Close all the SCSI disk images
@@ -542,43 +544,72 @@ static void _do_clut_translation(shoebill_card_video_t *ctx)
     switch (ctx->depth) {
         case 1: {
             for (i=0; i < ctx->pixels/8; i++) {
-                const uint8_t byte = ctx->indexed_buf[i];
-                ctx->direct_buf[i * 8 + 0] = ctx->clut[(byte >> 7) & 1];
-                ctx->direct_buf[i * 8 + 1] = ctx->clut[(byte >> 6) & 1];
-                ctx->direct_buf[i * 8 + 2] = ctx->clut[(byte >> 5) & 1];
-                ctx->direct_buf[i * 8 + 3] = ctx->clut[(byte >> 4) & 1];
-                ctx->direct_buf[i * 8 + 4] = ctx->clut[(byte >> 3) & 1];
-                ctx->direct_buf[i * 8 + 5] = ctx->clut[(byte >> 2) & 1];
-                ctx->direct_buf[i * 8 + 6] = ctx->clut[(byte >> 1) & 1];
-                ctx->direct_buf[i * 8 + 7] = ctx->clut[(byte >> 0) & 1];
+                const uint8_t byte = ctx->direct_buf[i];
+                ctx->temp_buf[i * 8 + 0] = ctx->clut[(byte >> 7) & 1];
+                ctx->temp_buf[i * 8 + 1] = ctx->clut[(byte >> 6) & 1];
+                ctx->temp_buf[i * 8 + 2] = ctx->clut[(byte >> 5) & 1];
+                ctx->temp_buf[i * 8 + 3] = ctx->clut[(byte >> 4) & 1];
+                ctx->temp_buf[i * 8 + 4] = ctx->clut[(byte >> 3) & 1];
+                ctx->temp_buf[i * 8 + 5] = ctx->clut[(byte >> 2) & 1];
+                ctx->temp_buf[i * 8 + 6] = ctx->clut[(byte >> 1) & 1];
+                ctx->temp_buf[i * 8 + 7] = ctx->clut[(byte >> 0) & 1];
             }
             break;
         }
         case 2: {
             for (i=0; i < ctx->pixels/4; i++) {
-                const uint8_t byte = ctx->indexed_buf[i];
-                ctx->direct_buf[i * 4 + 0] = ctx->clut[(byte >> 6) & 3];
-                ctx->direct_buf[i * 4 + 1] = ctx->clut[(byte >> 4) & 3];
-                ctx->direct_buf[i * 4 + 2] = ctx->clut[(byte >> 2) & 3];
-                ctx->direct_buf[i * 4 + 3] = ctx->clut[(byte >> 0) & 3];
+                const uint8_t byte = ctx->direct_buf[i];
+                ctx->temp_buf[i * 4 + 0] = ctx->clut[(byte >> 6) & 3];
+                ctx->temp_buf[i * 4 + 1] = ctx->clut[(byte >> 4) & 3];
+                ctx->temp_buf[i * 4 + 2] = ctx->clut[(byte >> 2) & 3];
+                ctx->temp_buf[i * 4 + 3] = ctx->clut[(byte >> 0) & 3];
             }
             break;
         }
         case 4: {
             for (i=0; i < ctx->pixels/2; i++) {
-                const uint8_t byte = ctx->indexed_buf[i];
-                ctx->direct_buf[i * 2 + 0] = ctx->clut[(byte >> 4) & 0xf];
-                ctx->direct_buf[i * 2 + 1] = ctx->clut[(byte >> 0) & 0xf];
+                const uint8_t byte = ctx->direct_buf[i];
+                ctx->temp_buf[i * 2 + 0] = ctx->clut[(byte >> 4) & 0xf];
+                ctx->temp_buf[i * 2 + 1] = ctx->clut[(byte >> 0) & 0xf];
             }
             break;
         }
-        case 8:
+        case 8: {
             for (i=0; i < ctx->pixels; i++)
-                ctx->direct_buf[i] = ctx->clut[ctx->indexed_buf[i]];
+                ctx->temp_buf[i] = ctx->clut[ctx->direct_buf[i]];
             break;
+        }
+        case 16: {
+            uint16_t *direct = (uint16_t*)ctx->direct_buf;
+            for (i=0; i < ctx->pixels; i++) {
+                const uint16_t p = ntohs(direct[i]);
+                video_ctx_color_t tmp;
+                tmp.r = ((p >> 10) & 31);
+                tmp.g = (p >> 5) & 31;
+                tmp.b = (p >> 0) & 31;
+                
+                ctx->temp_buf[i].r = (tmp.r << 3) | (tmp.r >> 2);
+                ctx->temp_buf[i].g = (tmp.g << 3) | (tmp.g >> 2);
+                ctx->temp_buf[i].b = (tmp.b << 3) | (tmp.b >> 2);
+                
+            }
+            break;
+        }
+            
+        case 32: {
+            uint32_t *direct = (uint32_t*)ctx->direct_buf, *tmp = (uint32_t*)ctx->temp_buf;
+            for (i=0; i < ctx->pixels; i++)
+                tmp[i] = direct[i] >> 8;
+            
+            
+            // OpenGL wants RGBA
+            // Apple must be ARGB (which is BGRA, when dereferenced)
+            break;
+        }
             
         default:
-            assert(!"unknown depth");
+            assert(!"unsupported depth");
+            
     }
 }
 
@@ -604,14 +635,12 @@ shoebill_video_frame_info_t shoebill_get_video_frame(uint8_t slotnum,
     if (just_params)
         return result;
     
-    if (ctx->depth <= 8) {
-        _do_clut_translation(ctx);
-        result.buf = (uint8_t*)ctx->direct_buf;
-        
-        return result;
-    }
+    _do_clut_translation(ctx);
+    result.buf = (uint8_t*)ctx->temp_buf;
     
-    assert(!"depth not supported");
+    return result;
+    
+    
 }
 
 /*
@@ -728,6 +757,8 @@ uint32_t shoebill_initialize(shoebill_config_t *config)
     set_sr(0x2000);
     shoe.pc = pc;
     memcpy(shoe.scsi_devices, disks, 8 * sizeof(scsi_device_t));
+    
+    pthread_mutex_init(&shoe.via_cpu_lock, NULL);
     
     pthread_mutex_init(&shoe.via_clock_thread_lock, NULL);
     pthread_mutex_lock(&shoe.via_clock_thread_lock);

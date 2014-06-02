@@ -102,6 +102,17 @@ const char *scsi_write_reg_str[8] = {
     "start_dma_initiator_receive"
 };
 
+static void scsi_raise_irq() {via_raise_interrupt(2, IFR_CB2);}
+static void scsi_raise_drq() {via_raise_interrupt(2, IFR_CA2);}
+
+static _Bool phase_match (void)
+{
+    uint8_t phase_tmp = shoe.scsi.msg;
+    phase_tmp = (phase_tmp << 1) | shoe.scsi.cd;
+    phase_tmp = (phase_tmp << 1) | shoe.scsi.io;
+    return (phase_tmp == (shoe.scsi.target_command & 7));
+}
+
 static void switch_status_phase (uint8_t status_byte)
 {
     printf("scsi_reg_something: switching to STATUS phase\n");
@@ -115,7 +126,7 @@ static void switch_status_phase (uint8_t status_byte)
     shoe.scsi.bufi = 0;
     
     // Phase mismatch (I think)
-    via_raise_interrupt(2, 0);
+    scsi_raise_drq();
 }
 
 static void switch_command_phase (void)
@@ -130,7 +141,7 @@ static void switch_command_phase (void)
     shoe.scsi.bufi = 0;
     
     // Phase mismatch, probably
-    via_raise_interrupt(2, 0);
+    scsi_raise_drq();
 }
 
 static void switch_message_in_phase (uint8_t message_byte)
@@ -145,7 +156,7 @@ static void switch_message_in_phase (uint8_t message_byte)
     shoe.scsi.message_byte = message_byte; // only one-byte messages supported for now
     
     // Phase mismatch, probably
-    via_raise_interrupt(2, 0);
+    scsi_raise_drq();
 }
 
 static void switch_bus_free_phase (void)
@@ -176,7 +187,7 @@ static void switch_data_in_phase (void)
     shoe.scsi.io = 1;
     
     // Phase mismatch, probably
-    via_raise_interrupt(2, 0);
+    scsi_raise_drq();
 }
 
 static void switch_data_out_phase (void)
@@ -189,7 +200,7 @@ static void switch_data_out_phase (void)
     shoe.scsi.cd = 0;
     shoe.scsi.io = 0;
 
-    via_raise_interrupt(2, 0);
+    scsi_raise_drq();
 }
 
 struct inquiry_response_t {
@@ -471,13 +482,7 @@ void scsi_reg_read ()
             uint8_t tmp = 0;
             
             // Compute phase match (IO, CD, MSG match the assertions in target_command register)
-            uint8_t phase_tmp = 0;
-            {
-                phase_tmp = (phase_tmp << 1) | shoe.scsi.msg;
-                phase_tmp = (phase_tmp << 1) | shoe.scsi.cd;
-                phase_tmp = (phase_tmp << 1) | shoe.scsi.io;
-                phase_tmp = (phase_tmp == (shoe.scsi.target_command & 7));
-            }
+            uint8_t phase_tmp = phase_match();
             
             tmp |= (shoe.scsi.ack * BUS_STATUS_ACK);
             tmp |= (shoe.scsi.atn * BUS_STATUS_ATN);
@@ -615,14 +620,14 @@ void scsi_reg_write ()
             
         case 5: // Start DMA send
             shoe.scsi.dma_send_written = 1;
-            via_raise_interrupt(2, 0);
+            scsi_raise_drq();
             break;
             
         case 6: // Start DMA target receive
             break;
             
         case 7: // Start DMA initiator receive
-            via_raise_interrupt(2, 0);
+            scsi_raise_drq();
             break;
     }
     

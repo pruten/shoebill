@@ -390,11 +390,13 @@ typedef struct {
 
 typedef struct {
     uint8_t ifr, ier, ddrb, ddra, sr, acr, pcr;
-    // uint8_t rega, regb;
-    uint16_t t1c, t2c, t1l;
+    
     uint8_t rega_input, regb_input;
     uint8_t rega_output, regb_output;
+    
+    uint16_t t1c, t2c, t1l;
     long double t1_last_set, t2_last_set;
+    _Bool /*t1_interrupt_enabled,*/ t2_interrupt_enabled; // whether the "one-shot" interrupt can fire
 } via_state_t;
 
 #define PRAM_READ 1
@@ -540,9 +542,8 @@ typedef struct {
 } video_ctx_color_t;
 
 typedef struct {
-    video_ctx_color_t *direct_buf, *clut;
-    uint8_t *indexed_buf, *rom;
-    uint8_t *cur_buf;
+    video_ctx_color_t *temp_buf, *clut;
+    uint8_t *rom, *direct_buf;
     
     uint32_t pixels;
     
@@ -611,8 +612,9 @@ typedef struct {
     volatile uint32_t via_thread_notifications;
     
     pthread_mutex_t cpu_thread_lock;
-    pthread_mutex_t via_clock_thread_lock;
+    pthread_mutex_t via_clock_thread_lock; // synchronizes shoebill_start() and the starting of via_clock_thread()
     pthread_mutex_t cpu_freeze_lock;
+    pthread_mutex_t via_cpu_lock; // synchronizes reads/writes of VIA registers and via_clock_thread()
     
     // -- Assorted CPU state variables --
     uint16_t op; // the first word of the instruction we're currently running
@@ -946,8 +948,8 @@ void *via_clock_thread(void *arg);
 #define IFR_SHIFT_REG 2
 #define IFR_CB2 3
 #define IFR_CB1 4
-#define IFR_TIMER1 5
-#define IFR_TIMER2 6
+#define IFR_TIMER2 5
+#define IFR_TIMER1 6
 #define IFR_IRQ 7
 
 // adb / keyboard / mouse stuff
