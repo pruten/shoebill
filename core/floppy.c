@@ -54,7 +54,7 @@ uint8_t iwm_dma_read()
     const uint8_t reg = ((shoe.iwm.latch >> 5) & 6) |
                         ((shoe.iwm.latch >> 4) & 1);
     
-    printf("iwm_dma_read: %s %s (reg = %u%u%u '%s' ",
+    slog("iwm_dma_read: %s %s (reg = %u%u%u '%s' ",
            latch_val ? "setting" : "clearing",
            latch_names[latch_addr],
            (reg>>2), (reg>>1)&1, reg&1, reg_names[reg]);
@@ -89,7 +89,7 @@ uint8_t iwm_dma_read()
     }
 done:
     
-    printf("result=0x%02x)\n", result);
+    slog("result=0x%02x)\n", result);
 
     return result;
 }
@@ -109,11 +109,11 @@ void iwm_dma_write()
     const uint8_t reg = ((shoe.iwm.latch >> 5) & 6) |
                         ((shoe.iwm.latch >> 4) & 1);
     
-    printf("iwm_dma_write: %s %s (reg = %u%u%u '%s' val 0x%02x)\n",
-           latch_val ? "setting" : "clearing",
-           latch_names[latch_addr],
-           (reg>>2), (reg>>1)&1, reg&1, reg_names[reg],
-           data);
+    slog("iwm_dma_write: %s %s (reg = %u%u%u '%s' val 0x%02x)\n",
+         latch_val ? "setting" : "clearing",
+         latch_names[latch_addr],
+         (reg>>2), (reg>>1)&1, reg&1, reg_names[reg],
+         data);
     
     // Allegedly, register writes can only occur when latch_val==1
     if (!latch_val) {

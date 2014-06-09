@@ -36,7 +36,7 @@ void symb_inorder(rb_node *cur) {
     if (!sym) 
         return ;
     symb_inorder(cur->left);
-    printf("0x%x %s\n", cur->key, sym->name);
+    slog("0x%x %s\n", cur->key, sym->name);
     symb_inorder(cur->right);
 }
 
@@ -74,7 +74,7 @@ coff_file* coff_parse(uint8_t *buf, uint32_t buflen, alloc_pool_t *parent_pool)
     
     // Pull out 20 bytes (the file header)
     if (!_coff_buf_read(rawhead, 20)) {
-        printf("coff_parse: error: this binary is missing its file header\n");
+        slog("coff_parse: error: this binary is missing its file header\n");
         goto fail;
     }
     
@@ -93,11 +93,11 @@ coff_file* coff_parse(uint8_t *buf, uint32_t buflen, alloc_pool_t *parent_pool)
     
     // A little sanity checking...
     if (cf->magic != 0x150) {
-        printf("coff_parse: I don't recognize this magic number: 0x%04x\n", cf->magic);
+        slog("coff_parse: I don't recognize this magic number: 0x%04x\n", cf->magic);
         goto fail;
     }
     else if (cf->num_sections != 3) {
-        //printf("coff_parse: warning: there are %u sections in this file (not 3, like I expect)\n", cf->num_sections);
+        //slog("coff_parse: warning: there are %u sections in this file (not 3, like I expect)\n", cf->num_sections);
         // FIXME: investigate all the other possible section types
     }
     
@@ -105,7 +105,7 @@ coff_file* coff_parse(uint8_t *buf, uint32_t buflen, alloc_pool_t *parent_pool)
     if (cf->opt_header_len > 0) {
         uint8_t *opt = p_alloc(cf->pool, cf->opt_header_len);
         if (!_coff_buf_read(opt, cf->opt_header_len)) {
-            printf("coff_parse: I ran out of data pulling the optional header (%u bytes)\n", cf->opt_header_len);
+            slog("coff_parse: I ran out of data pulling the optional header (%u bytes)\n", cf->opt_header_len);
             p_free(opt);
             goto fail;
         }
@@ -118,7 +118,7 @@ coff_file* coff_parse(uint8_t *buf, uint32_t buflen, alloc_pool_t *parent_pool)
         // read the header
         uint8_t rawsec[40];
         if (!_coff_buf_read(rawsec, 40)) {
-            printf("coff_parse: I ran out of data pulling section #%u\n", i+1);
+            slog("coff_parse: I ran out of data pulling section #%u\n", i+1);
             goto fail;
         }
         // and copy it into cf->sections[i]
@@ -136,7 +136,7 @@ coff_file* coff_parse(uint8_t *buf, uint32_t buflen, alloc_pool_t *parent_pool)
         
         // a little bit of sanity checking:
         if (cf->sections[i].v_addr != cf->sections[i].p_addr) {
-            //printf("coff_parse: warning: section %u's virtual_addr and physical_addr don't match: p=%x v=%x\n",
+            //slog("coff_parse: warning: section %u's virtual_addr and physical_addr don't match: p=%x v=%x\n",
                 // i+1, cf->sections[i].p_addr, cf->sections[i].v_addr);
             // This is okay for the unix kernel
         }
@@ -158,14 +158,14 @@ coff_file* coff_parse(uint8_t *buf, uint32_t buflen, alloc_pool_t *parent_pool)
         
         // seek to the position in the binary that holds this section's raw data
         if (!_coff_buf_seek(cf->sections[i].data_ptr)) {
-            printf("coff_parse: I couldn't seek to 0x%x in section %u\n", cf->sections[i].data_ptr, i+1);
+            slog("coff_parse: I couldn't seek to 0x%x in section %u\n", cf->sections[i].data_ptr, i+1);
             goto fail;
         }
         
         // load the data and attach it to the section struct
         data = p_alloc(cf->pool, cf->sections[i].sz); // FIXME: sz might not be a sane value
         if (!_coff_buf_read(data, cf->sections[i].sz)) {
-            printf("coff_parse: I couldn't fread section %u (%s)'s data (%u bytes)\n", i+1, cf->sections[i].name, cf->sections[i].sz);
+            slog("coff_parse: I couldn't fread section %u (%s)'s data (%u bytes)\n", i+1, cf->sections[i].name, cf->sections[i].sz);
             p_free(data);
             goto fail;
         }
@@ -178,19 +178,19 @@ coff_file* coff_parse(uint8_t *buf, uint32_t buflen, alloc_pool_t *parent_pool)
         return cf; // just return
     
     cf->func_tree = rb_new(cf->pool);
-    //printf("func_tree = %llx, *func_tree = %llx\n", cf->func_tree, *cf->func_tree);
+    //slog("func_tree = %llx, *func_tree = %llx\n", cf->func_tree, *cf->func_tree);
     cf->symbols = (coff_symbol*)p_alloc(cf->pool, sizeof(coff_symbol) *cf->num_symbols);
     
     // Seek to the symbol table
     if (!_coff_buf_seek(cf->symtab_offset)) {
-        printf("coff_parse: I couldn't seek to symtab_offset, 0x%x\n", cf->symtab_offset);
+        slog("coff_parse: I couldn't seek to symtab_offset, 0x%x\n", cf->symtab_offset);
         goto fail;
     }
     
     for (i=0; i < cf->num_symbols; i++) {
         uint8_t raw_symb[18];
         if (!_coff_buf_read(raw_symb, 18)) {
-            printf("coff_parse: I ran out of data pulling symbol #%u\n", i+1);
+            slog("coff_parse: I ran out of data pulling symbol #%u\n", i+1);
             goto fail;
         }
         
@@ -201,15 +201,15 @@ coff_file* coff_parse(uint8_t *buf, uint32_t buflen, alloc_pool_t *parent_pool)
             for (j=4, offset=0; j<8; j++) offset = (offset<<8) | raw_symb[j];
             idx += offset;
             
-            // printf("Loading from external: base idx=0x%x, offset=%u, addr=0x%x\n", idx-offset, offset, idx);
+            // slog("Loading from external: base idx=0x%x, offset=%u, addr=0x%x\n", idx-offset, offset, idx);
             
             if (!_coff_buf_seek(idx)) {
-                printf("coff_parse: I ran out of data pulling symbol %u's name (idx=0x%x)\n", i+1, idx);
+                slog("coff_parse: I ran out of data pulling symbol %u's name (idx=0x%x)\n", i+1, idx);
                 goto fail;
             }
             for (j=0; (_coff_buf_read(&tmp_name[j], 1)) && tmp_name[j]; j++) {
                 if (j >= 255) {
-                    // printf("coff_parse: this symbol's name is too long: %u\n", i+1);
+                    // slog("coff_parse: this symbol's name is too long: %u\n", i+1);
                     goto fail;
                 }
             }
@@ -235,17 +235,17 @@ coff_file* coff_parse(uint8_t *buf, uint32_t buflen, alloc_pool_t *parent_pool)
         // FIXME: I need to handle numaux > 0.
         
         //if (cf->symbols[i].numaux > 0) {
-            printf("%s\n", cf->symbols[i].name);
-            printf("value=0x%08x scnum=0x%04x type=0x%04x sclass=0x%02x numaux=%u\n\n",
+            slog("%s\n", cf->symbols[i].name);
+            slog("value=0x%08x scnum=0x%04x type=0x%04x sclass=0x%02x numaux=%u\n\n",
                 cf->symbols[i].value, cf->symbols[i].scnum, cf->symbols[i].type, cf->symbols[i].sclass, cf->symbols[i].numaux);
         //}
         
     
         if (cf->symbols[i].sclass == 2 || cf->symbols[i].sclass == 3) {
             rb_insert(cf->func_tree, cf->symbols[i].value, &cf->symbols[i], NULL);
-            //printf("%s addr=0x%x\n", cf->symbols[i].name, cf->symbols[i].value);
+            //slog("%s addr=0x%x\n", cf->symbols[i].name, cf->symbols[i].value);
         }
-        // printf("%u: %s (class=%u)\n", i+1, cf->symbols[i].name, cf->symbols[i].sclass);
+        // slog("%u: %s (class=%u)\n", i+1, cf->symbols[i].name, cf->symbols[i].sclass);
         
     }
     
@@ -301,19 +301,19 @@ void print_coff_info(coff_file *coff)
     time_t timestamp = coff->timestamp;
     uint32_t i;
     
-    printf("Magic = 0x%04x\n", coff->magic);
-    printf("Linked on %s", ctime_r(&timestamp, timebuf));
-    printf("Num sections = %u\n", coff->num_sections);
+    slog("Magic = 0x%04x\n", coff->magic);
+    slog("Linked on %s", ctime_r(&timestamp, timebuf));
+    slog("Num sections = %u\n", coff->num_sections);
     
-    printf("debug: num_symbols=%u, symtab_offset=0x%x\n", coff->num_symbols, coff->symtab_offset);
+    slog("debug: num_symbols=%u, symtab_offset=0x%x\n", coff->num_symbols, coff->symtab_offset);
     
     for (i=0; i<coff->num_sections; i++) {
         coff_section *s = &coff->sections[i];
         char name[9];
         memcpy(name, s->name, 8);
         name[8] = 0;
-        printf("Section #%u: %s\n", i+1, name);
-        printf("\taddr=0x%08x, len=0x%x, (debug: paddr=0x%08x, flags=0x%08x)\n", s->v_addr, s->sz, s->p_addr, s->flags);
+        slog("Section #%u: %s\n", i+1, name);
+        slog("\taddr=0x%08x, len=0x%x, (debug: paddr=0x%08x, flags=0x%08x)\n", s->v_addr, s->sz, s->p_addr, s->flags);
     }
 }
 
@@ -333,13 +333,13 @@ coff_symbol* coff_find_func(coff_file *coff, uint32_t addr)
     rb_node *cur;
     coff_symbol *last = NULL;
     
-    // printf("coff->num_symbols = %u\n", coff->num_symbols);
+    // slog("coff->num_symbols = %u\n", coff->num_symbols);
     if (coff->num_symbols == 0) 
         return NULL;
     cur = coff->func_tree->root;
     
     while (cur) {
-        // printf("... iterating\n");
+        // slog("... iterating\n");
         if (addr < cur->key) 
             cur = cur->left;
         else if (addr > cur->key) {

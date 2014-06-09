@@ -31,6 +31,7 @@
 #include <pthread.h>
 #include <unistd.h>
 #include <signal.h>
+#include <stdarg.h>
 #include "../core/shoebill.h"
 
 
@@ -414,11 +415,11 @@ static uint32_t _open_disk_images (shoebill_config_t *config, scsi_device_t *dis
     uint32_t i;
     
     for (i=0; i<8; i++) {
-        shoe.scsi_devices[i].scsi_id = i;
-        shoe.scsi_devices[i].block_size = 0;
-        shoe.scsi_devices[i].num_blocks = 0;
-        shoe.scsi_devices[i].image_path = "dummy";
-        shoe.scsi_devices[i].f = NULL;
+        disks[i].scsi_id = i;
+        disks[i].block_size = 0;
+        disks[i].num_blocks = 0;
+        disks[i].image_path = "dummy";
+        disks[i].f = NULL;
     }
     
     for (i=0; i<7; i++) {
@@ -437,7 +438,7 @@ static uint32_t _open_disk_images (shoebill_config_t *config, scsi_device_t *dis
         
         disks[i].scsi_id = i;
         disks[i].f = f;
-        tmp = p_alloc(shoe.pool, strlen(path+1));
+        tmp = p_alloc(shoe.pool, strlen(path) + 1);
         strcpy(tmp, path);
         disks[i].image_path = tmp;
                             
@@ -505,8 +506,7 @@ fail:
 }
 
 uint32_t shoebill_install_video_card(shoebill_config_t *config, uint8_t slotnum,
-                                     uint16_t width, uint16_t height,
-                                     double refresh_rate)
+                                     uint16_t width, uint16_t height)
 {
     shoebill_card_video_t *ctx;
     
@@ -530,10 +530,8 @@ uint32_t shoebill_install_video_card(shoebill_config_t *config, uint8_t slotnum,
     shoe.slots[slotnum].connected = 1;
     shoe.slots[slotnum].read_func = nubus_video_read_func;
     shoe.slots[slotnum].write_func = nubus_video_write_func;
-    shoe.slots[slotnum].interrupt_rate = refresh_rate;
-    shoe.slots[slotnum].last_fired = 0;
     shoe.slots[slotnum].interrupts_enabled = 1;
-    nubus_video_init(ctx, slotnum, width, height, scanline_width, refresh_rate);
+    nubus_video_init(ctx, slotnum, width, height, scanline_width);
     return 1;
 }
 
@@ -1007,4 +1005,26 @@ void shoebill_send_vbl_interrupt(uint8_t slotnum)
         via_raise_interrupt(2, IFR_CA1);
     }
 }
+
+
+void slog(const char *fmt, ...)
+{
+    va_list args;
+ 
+    return ;
+    
+    va_start(args, fmt);
+    vprintf(fmt, args);
+    va_end(args);
+}
+
+
+
+
+
+
+
+
+
+
 

@@ -287,13 +287,11 @@
 - (void) createScreenWindow:(uint8_t)slotnum
                      height:(uint16_t)height
                       width:(uint16_t)width
-               refresh_freq:(double)refresh_freq
 {
     shoebill_install_video_card(&config,
                                 slotnum,
                                 width,
-                                height,
-                                refresh_freq);
+                                height);
     
     windowController[slotnum] = [[shoeScreenWindowController alloc]
                                  initWithWindowNibName:@"shoeScreenView"
@@ -382,7 +380,7 @@ void pram_callback (void *param, const uint8_t addr, const uint8_t byte)
         return ;
     }
     
-    [self createScreenWindow:9 height:height width:width refresh_freq:200.0/3.0];
+    [self createScreenWindow:9 height:height width:width];
     
     shoebill_start();
     

@@ -24,15 +24,18 @@
  */
 
 #include <stdio.h>
-#include <machine/endian.h>
 #include <arpa/inet.h>
 #include <assert.h>
 #include <stdlib.h>
 #include "../core/shoebill.h"
 
 #ifdef __APPLE__
+#include <machine/endian.h>
 #include <libkern/OSByteOrder.h>
 #define ntohll(x) OSSwapBigToHostInt64(x)
+
+#elif (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__)
+#define ntohll(_x) ({uint64_t x = (_x); (((uint64_t)ntohl((uint32_t)x))<<32) | ntohl(x>>32);})
 #endif
 
 /* --- Physical_get jump table --- */
@@ -46,25 +49,11 @@ void _physical_get_ram (void)
     else
         addr = (uint64_t*)&shoe.physical_mem_base[shoe.physical_addr % shoe.physical_mem_size];
     
-    /*if ((shoe.physical_addr >= 0x100) && (shoe.physical_addr < (0x4000+256))) {
-        uint32_t i, val = 0;
-        _Bool uninit = 0;
-        for (i=0; i<shoe.physical_size; i++) {
-            const uint8_t byte = shoe.physical_mem_base[shoe.physical_addr+i];
-            val = val << 8;
-            val |= byte;
-            if (byte == 0xbc) uninit = 1;
-        }
-        if (uninit) {
-            printf("LOMEM: *0x%08x = 0x%x UNSET\n", shoe.physical_addr, val);
-        }
-    }*/
-    
     const uint8_t bits = (8 - shoe.physical_size) * 8;
     shoe.physical_dat = ntohll(*addr) >> bits;
     
     if ((shoe.physical_addr >= 256) && (shoe.physical_addr < 0x4000)) {
-        printf("LOMEM get: *0x%08x = 0x%x\n", shoe.physical_addr, (uint32_t)shoe.physical_dat);
+        slog("LOMEM get: *0x%08x = 0x%x\n", shoe.physical_addr, (uint32_t)shoe.physical_dat);
     }
 }
 
@@ -83,7 +72,7 @@ void _physical_get_io (void)
             via_read_raw();
             return ;
         case 0x50004000 ... 0x50005fff: {// SCC
-            //printf("physical_get: got read to SCC\n");
+            //slog("physical_get: got read to SCC\n");
             const uint32_t a = shoe.physical_addr & 0x1fff;
             if (a == 2 && shoe.physical_size==1)
                 shoe.physical_dat = 0x4; // R0TXRDY
@@ -101,17 +90,17 @@ void _physical_get_io (void)
             shoe.physical_dat = scsi_dma_read();
             return ;
         case 0x50014000 ... 0x50015fff: // Sound
-            //printf("physical_get: got read to sound\n");
-            printf("soundsound read : register 0x%04x sz=%u\n",
+            //slog("physical_get: got read to sound\n");
+            slog("soundsound read : register 0x%04x sz=%u\n",
                    shoe.physical_addr - 0x50014000, shoe.physical_size);
             shoe.physical_dat = 0;
             return ;
         case 0x50016000 ... 0x50017fff: // SWIM (IWM?)
-            // printf("physical_get: got read to IWM\n");
+            // slog("physical_get: got read to IWM\n");
             shoe.physical_dat = iwm_dma_read();
             return ;
         default:
-            //printf("physical_get: got read to UNKNOWN IO ADDR %x\n", shoe.physical_addr);
+            //slog("physical_get: got read to UNKNOWN IO ADDR %x\n", shoe.physical_addr);
             return ;
     }
 }
@@ -170,7 +159,7 @@ void _physical_set_ram (void)
         addr = &shoe.physical_mem_base[shoe.physical_addr];
     
     if ((shoe.physical_addr >= 0x100) && (shoe.physical_addr < (0x8000))) {
-        printf("LOMEM set: *0x%08x = 0x%x\n", shoe.physical_addr, (uint32_t)chop(shoe.physical_dat, shoe.physical_size));
+        slog("LOMEM set: *0x%08x = 0x%x\n", shoe.physical_addr, (uint32_t)chop(shoe.physical_dat, shoe.physical_size));
     }
     
     const uint32_t sz = shoe.physical_size;
@@ -215,7 +204,7 @@ void _physical_set_io (void)
             via_write_raw();
             return ;
         case 0x50004000 ... 0x50005fff: // SCC
-            //printf("physical_set: got write to SCC\n");
+            //slog("physical_set: got write to SCC\n");
             return ;
         case 0x50006000 ... 0x50007fff: // SCSI (pseudo-DMA with DRQ?)
             assert(shoe.physical_size == 4);
@@ -229,16 +218,16 @@ void _physical_set_io (void)
             scsi_dma_write(shoe.physical_dat);
             return ;
         case 0x50014000 ... 0x50015fff: // Sound
-            printf("soundsound write: register 0x%04x sz=%u dat=0x%x\n",
+            slog("soundsound write: register 0x%04x sz=%u dat=0x%x\n",
                    shoe.physical_addr - 0x50014000, shoe.physical_size, (uint32_t)shoe.physical_dat);
-            // printf("physical_set: got write to sound\n");
+            // slog("physical_set: got write to sound\n");
             return ;
         case 0x50016000 ... 0x50017fff: // SWIM (IWM?)
-            //printf("physical_set: got write to IWM\n");
+            //slog("physical_set: got write to IWM\n");
             iwm_dma_write();
             return ;
         default:
-            //printf("physical_set: got write to UNKNOWN IO ADDR %x\n", shoe.physical_addr);
+            //slog("physical_set: got write to UNKNOWN IO ADDR %x\n", shoe.physical_addr);
             return ;
     }
 }
@@ -710,7 +699,7 @@ static void ea_decode_extended()
         // the brief extension word is implicitly preindexed
         shoe.extended_addr = base_addr + base_disp + index_val;
         shoe.extended_len = mypc - start_pc;
-        //printf("I found address 0x%x\n", shoe.extended_addr);
+        //slog("I found address 0x%x\n", shoe.extended_addr);
         return ;
     }
     else { // If this is a full extension word,
@@ -768,9 +757,9 @@ static void ea_decode_extended()
             }
         }
         
-        //printf("D/A=%u, reg=%u, W/L=%u, Scale=%u, F=%u, BS=%u, IS=%u, BDSize=%u, I/IS=%u\n",
+        //slog("D/A=%u, reg=%u, W/L=%u, Scale=%u, F=%u, BS=%u, IS=%u, BDSize=%u, I/IS=%u\n",
         //d, r, w, s, F, b, i, z, I);
-        //printf("base_addr=%x, index_val=%x, base_disp=%x, outer_disp=%x\n",
+        //slog("base_addr=%x, index_val=%x, base_disp=%x, outer_disp=%x\n",
         //base_addr, index_val, base_disp, outer_disp);
         
         // Now mash all these numbers together to get an EA
@@ -782,7 +771,7 @@ static void ea_decode_extended()
                 if (shoe.abort) return ;
                 shoe.extended_addr = intermediate + outer_disp;
                 shoe.extended_len = mypc - start_pc;
-                // printf("addr=0x%x len=%u\n", shoe.extended_addr, shoe.extended_len);
+                // slog("addr=0x%x len=%u\n", shoe.extended_addr, shoe.extended_len);
                 return ;
             }
                 

@@ -106,7 +106,7 @@ void process_pending_interrupt ()
     
     const uint16_t vector_offset = (priority + 24) * 4;
     
-    printf("Interrupt pri %u! mask=%u vector_offset=0x%08x\n", priority, sr_mask(), vector_offset);
+    slog("Interrupt pri %u! mask=%u vector_offset=0x%08x\n", priority, sr_mask(), vector_offset);
     
     // Save the old SR, and switch to supervisor mode
     const uint16_t old_sr = shoe.sr;
@@ -114,15 +114,15 @@ void process_pending_interrupt ()
     
     // Write a "format 0" exception frame to ISP or MSP
     push_a7(0x0000 | vector_offset, 2);
-    printf("interrupt: pushed format 0x%04x to 0x%08x\n", 0x0000 | vector_offset, shoe.a[7]);
+    slog("interrupt: pushed format 0x%04x to 0x%08x\n", 0x0000 | vector_offset, shoe.a[7]);
         assert(!shoe.abort);
     
     push_a7(shoe.pc, 4);
-    printf("interrupt: pushed pc 0x%08x to 0x%08x\n", shoe.pc, shoe.a[7]);
+    slog("interrupt: pushed pc 0x%08x to 0x%08x\n", shoe.pc, shoe.a[7]);
         assert(!shoe.abort);
     
     push_a7(old_sr, 2);
-    printf("interrupt: pushed sr 0x%04x to 0x%08x\n", old_sr, shoe.a[7]);
+    slog("interrupt: pushed sr 0x%04x to 0x%08x\n", old_sr, shoe.a[7]);
         assert(!shoe.abort);
     
     if (sr_m()) {
@@ -152,7 +152,7 @@ void process_pending_interrupt ()
     
     // Fetch the autovector handler address
     const uint32_t newpc = lget(shoe.vbr + vector_offset, 4);
-    printf("autovector handler = *0x%08x = 0x%08x\n", shoe.vbr + vector_offset, newpc);
+    slog("autovector handler = *0x%08x = 0x%08x\n", shoe.vbr + vector_offset, newpc);
     assert(!shoe.abort);
     
     shoe.pc = newpc;
@@ -205,7 +205,7 @@ static void handle_pram_write_byte (void)
 {
     pram_state_t *pram = &shoe.pram;
     
-    printf("PRAMPRAM: wrote_byte 0x%02x\n", pram->byte);
+    slog("PRAMPRAM: wrote_byte 0x%02x\n", pram->byte);
     
     pram->mode = PRAM_READ;
     pram->byte = 0;
@@ -218,7 +218,7 @@ static void handle_pram_read_byte (void)
     assert(pram->command_i < 8);
     pram->command[pram->command_i++] = pram->byte;
     
-    printf("PRAMPRAM: read_byte: 0x%02x\n", pram->byte);
+    slog("PRAMPRAM: read_byte: 0x%02x\n", pram->byte);
     
     // If this is a pram-read/write...
     if ((pram->command[0] & 0x78) == 0x38) {
@@ -232,7 +232,7 @@ static void handle_pram_read_byte (void)
             if (pram->callback)
                 pram->callback(pram->callback_param, addr, pram->command[2]);
             
-            printf("PRAMPRAM: setting pram addr 0x%02x = 0x%02x\n", addr, pram->command[2]);
+            slog("PRAMPRAM: setting pram addr 0x%02x = 0x%02x\n", addr, pram->command[2]);
             
             pram->byte = 0;
             pram->command_i = 0;
@@ -244,7 +244,7 @@ static void handle_pram_read_byte (void)
             pram->byte = pram->data[addr];
             pram->command_i = 0;
             
-            printf("PRAMPRAM: fetching pram addr 0x%02x (= 0x%02x)\n", addr, pram->byte);
+            slog("PRAMPRAM: fetching pram addr 0x%02x (= 0x%02x)\n", addr, pram->byte);
             
             return ;
         }
@@ -265,7 +265,7 @@ static void handle_pram_read_byte (void)
         if ((pram->command_i == 2) && !isget) { // complete set command
             pram->mode = PRAM_READ; // stay in read-mode
             
-            printf("PRAMPRAM: setting time byte %u to 0x%02x (mysterybit=%u)\n", addr, pram->command[1], mysterybit);
+            slog("PRAMPRAM: setting time byte %u to 0x%02x (mysterybit=%u)\n", addr, pram->command[1], mysterybit);
             
             pram->byte = 0;
             pram->command_i = 0;
@@ -280,7 +280,7 @@ static void handle_pram_read_byte (void)
             pram->byte = now_byte;
             pram->command_i = 0;
             
-            printf("PRAMPRAM: fetching time byte %u of 0x%08x (mysterybit=%u)\n", addr, now, mysterybit);
+            slog("PRAMPRAM: fetching time byte %u of 0x%08x (mysterybit=%u)\n", addr, now, mysterybit);
             return ;
         }
         else { // incomplete command, keep reading
@@ -295,7 +295,7 @@ static void handle_pram_read_byte (void)
     else if (pram->command[0] == 0x35) {
         // Arrives in pairs of two bytes
         if (pram->command_i == 2) {
-            printf("PRAMPRAM: mystery command 2 0x%02x 0x%02x (?))\n", pram->command[0], pram->command[1]);
+            slog("PRAMPRAM: mystery command 2 0x%02x 0x%02x (?))\n", pram->command[0], pram->command[1]);
             
             pram->mode = PRAM_READ;
             pram->command_i = 0;
@@ -311,7 +311,7 @@ static void handle_pram_read_byte (void)
     }
     
     
-    printf("PRAMPRAM: don't understand this command\n");
+    slog("PRAMPRAM: don't understand this command\n");
     pram->command_i = 0;
     pram->mode = PRAM_READ;
 }
@@ -324,7 +324,7 @@ static void handle_pram_state_change (void)
     if (pram->last_bits == (shoe.via[0].regb_output & shoe.via[0].ddrb & 6))
         return ;
     
-    printf("PRAMPRAM: pram->last_bits = %u, (shoe.via[0].regb & 6) = %u\n", pram->last_bits, (shoe.via[0].regb_output & shoe.via[0].ddrb & 6));
+    slog("PRAMPRAM: pram->last_bits = %u, (shoe.via[0].regb & 6) = %u\n", pram->last_bits, (shoe.via[0].regb_output & shoe.via[0].ddrb & 6));
     
     // it doesn't matter what the last rtcData value was
     const _Bool last_rtcClock = (pram->last_bits >> 1) & 1;
@@ -334,13 +334,13 @@ static void handle_pram_state_change (void)
     const _Bool rtcClock = (shoe.via[0].regb_output >> 1) & 1;
     const _Bool rtcEnable = (shoe.via[0].regb_output >> 2) & 1;
     
-    printf("PRAMPRAM: bits changed %u%ux -> %u%u%u\n", last_rtcEnable, last_rtcClock, rtcEnable, rtcClock, rtcData);
+    slog("PRAMPRAM: bits changed %u%ux -> %u%u%u\n", last_rtcEnable, last_rtcClock, rtcEnable, rtcClock, rtcData);
     
     if (rtcEnable) {
         // rtcEnable==true => the RTC chip is enabled and we are talking to it
         // Not sure what happens when you toggle data/clock bits while rtcEnable is asserted...
         if (last_rtcEnable)
-            printf("PRAMPRAM: toggled bits while rtcEnable was asserted!\n");
+            slog("PRAMPRAM: toggled bits while rtcEnable was asserted!\n");
         goto done;
     }
     
@@ -366,7 +366,7 @@ static void handle_pram_state_change (void)
             
             if ((shoe.via[0].ddrb & 1) == 0) {
                 // This is input-mode -- should be output-mode
-                printf("PRAMPRAM: BOGUS MODE ddrb&1 == 0\n");
+                slog("PRAMPRAM: BOGUS MODE ddrb&1 == 0\n");
             }
             
             
@@ -519,7 +519,7 @@ static uint8_t via_read_reg(const uint8_t vianum, const uint8_t reg, const long 
 {
     via_state_t *via = &shoe.via[vianum - 1];
     
-    printf("via_reg_read: reading from via%u reg %s (%u) (shoe.pc = 0x%08x)\n", vianum, via_reg_str[reg], reg, shoe.pc);
+    slog("via_reg_read: reading from via%u reg %s (%u) (shoe.pc = 0x%08x)\n", vianum, via_reg_str[reg], reg, shoe.pc);
     
     switch (reg) {
         case VIA_ACR:
@@ -547,7 +547,7 @@ static uint8_t via_read_reg(const uint8_t vianum, const uint8_t reg, const long 
              *        if input latching is enabled, then the value of input pins
              *        is held in escrow until a CB1 transition occurs. I'm not doing that.
              */
-            printf("via_reg_read: FYI: regb_output=0x%02x regb_input=0x%02x ddrb=0x%02x combined=0x%02x\n",
+            slog("via_reg_read: FYI: regb_output=0x%02x regb_input=0x%02x ddrb=0x%02x combined=0x%02x\n",
                    shoe.via[vianum-1].regb_output, shoe.via[vianum-1].regb_input, via->ddrb, VIA_REGB_PINS(vianum));
             return VIA_REGB_PINS(vianum);
         }
@@ -600,7 +600,7 @@ static void via_write_reg(const uint8_t vianum, const uint8_t reg, const uint8_t
 {
     via_state_t *via = &shoe.via[vianum - 1];
     
-    printf("via_reg_write: writing 0x%02x to via%u reg %s (%u) (pc=0x%08x)\n", data, vianum, via_reg_str[reg], reg, shoe.pc);
+    slog("via_reg_write: writing 0x%02x to via%u reg %s (%u) (pc=0x%08x)\n", data, vianum, via_reg_str[reg], reg, shoe.pc);
     
     switch (reg) {
         case VIA_IER: {
@@ -710,7 +710,7 @@ void via_write_raw (void)
         const long double now = ((reg >= VIA_T1C_LO) && ((reg+1) <= VIA_T2C_HI)) ? _now() : 0.0;
         // Uncommon case: writing to two registers simultaneously
         
-        printf("via_write_raw: writing to two registers simultaneously %u and %u (0x%x)\n", reg, reg+1 , (uint32_t)shoe.physical_dat);
+        slog("via_write_raw: writing to two registers simultaneously %u and %u (0x%x)\n", reg, reg+1 , (uint32_t)shoe.physical_dat);
         
         assert(reg != 15); // If A/UX is trying to write to two VIA chips simultanously, that's not cool
         
@@ -741,7 +741,7 @@ void via_read_raw (void)
         
         // Uncommon case: reading from two registers simultaneously
         
-        printf("via_read_raw: reading from two registers simultaneously %u and %u\n", reg, reg+1);
+        slog("via_read_raw: reading from two registers simultaneously %u and %u\n", reg, reg+1);
         
         assert(reg != 15); // If A/UX is trying to read from two VIA chips simultaneously, that's not cool
         

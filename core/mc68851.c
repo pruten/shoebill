@@ -36,50 +36,50 @@ extern struct dis_t dis;
 extern uint16_t dis_op;
 
 void inst_mc68851_prestore() {
-    printf("%s: Error, not implemented!\n", __func__);
+    slog("%s: Error, not implemented!\n", __func__);
     assert(!"blowup");
 }
 
 void inst_mc68851_psave(){
-    printf("%s: Error, not implemented!\n", __func__);
+    slog("%s: Error, not implemented!\n", __func__);
     assert(!"blowup");
 }
 
 void inst_mc68851_pbcc(){
-    printf("%s: Error, not implemented!\n", __func__);
+    slog("%s: Error, not implemented!\n", __func__);
     assert(!"blowup");
 }
 
 
 void inst_mc68851_pdbcc(uint16_t cond){
-    printf("%s: Error, not implemented!\n", __func__);
+    slog("%s: Error, not implemented!\n", __func__);
     assert(!"blowup");
 }
 
 void inst_mc68851_ptrapcc(uint16_t cond){
-    printf("%s: Error, not implemented!\n", __func__);
+    slog("%s: Error, not implemented!\n", __func__);
     assert(!"blowup");
 }
 
 void inst_mc68851_pscc(uint16_t cond){
-    printf("%s: Error, not implemented!\n", __func__);
+    slog("%s: Error, not implemented!\n", __func__);
     assert(!"blowup");
 }
 
 
 void inst_mc68851_pload(uint16_t ext){
-    printf("%s: Error, not implemented!\n", __func__);
+    slog("%s: Error, not implemented!\n", __func__);
     assert(!"blowup");
 }
 
 void inst_mc68851_pvalid(uint16_t ext){
-    printf("%s: Error, not implemented!\n", __func__);
+    slog("%s: Error, not implemented!\n", __func__);
     assert(!"blowup");
 }
 
 void inst_mc68851_pflushr(uint16_t ext){
     verify_supervisor();
-    printf("pflushr!");
+    slog("pflushr!");
     // Just nuke the entire cache
     bzero(shoe.pmmu_cache[0].valid_map, PMMU_CACHE_SIZE/8);
     bzero(shoe.pmmu_cache[1].valid_map, PMMU_CACHE_SIZE/8);
@@ -87,10 +87,10 @@ void inst_mc68851_pflushr(uint16_t ext){
 
 void inst_mc68851_pflush(uint16_t ext){
     verify_supervisor();
-    printf("pflush!");
+    slog("pflush!");
     bzero(shoe.pmmu_cache[0].valid_map, PMMU_CACHE_SIZE/8);
     bzero(shoe.pmmu_cache[1].valid_map, PMMU_CACHE_SIZE/8);
-    // printf("%s: Error, not implemented!\n", __func__);
+    // slog("%s: Error, not implemented!\n", __func__);
 }
 
 void inst_mc68851_pmove(uint16_t ext){
@@ -232,7 +232,7 @@ static int64_t ptest_search(const uint32_t _logical_addr, const uint64_t rootp)
         
         // load the child descriptor
         if (_logical_addr == 0)
-            printf("Loading descriptor s=%llu from addr=0x%08x\n", desc_dt(desc, desc_size) & 1, (uint32_t)desc_table_addr(desc));
+            slog("Loading descriptor s=%llu from addr=0x%08x\n", desc_dt(desc, desc_size) & 1, (uint32_t)desc_table_addr(desc));
         const uint32_t table_base_addr = desc_table_addr(desc);
         const uint8_t s = desc_dt(desc, desc_size) & 1;
         
@@ -244,7 +244,7 @@ static int64_t ptest_search(const uint32_t _logical_addr, const uint64_t rootp)
         
         const uint8_t dt = desc_dt(desc, desc_size);
         if (_logical_addr == 0)
-            printf("i=%u desc = 0x%llx dt=%u\n", i, desc, dt);
+            slog("i=%u desc = 0x%llx dt=%u\n", i, desc, dt);
         
         // If this descriptor is invalid, throw a bus error
         if (dt == 0) {
@@ -339,7 +339,7 @@ void inst_mc68851_ptest(uint16_t ext){
     else if (fc == 5)
         rootp = shoe.srp;
     else {
-        printf("ptest: I can't handle this FC: %u pc=0x%08x\n", fc, shoe.orig_pc);
+        slog("ptest: I can't handle this FC: %u pc=0x%08x\n", fc, shoe.orig_pc);
         assert(!"ptest: I can't handle this FC");
     }
     
@@ -353,7 +353,7 @@ void inst_mc68851_ptest(uint16_t ext){
 
     
 
-    // printf("%s: Error, not implemented!\n", __func__);
+    // slog("%s: Error, not implemented!\n", __func__);
 }
 
 void dis_mc68851_prestore() {

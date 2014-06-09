@@ -240,7 +240,7 @@ static disk_t* open_disk (const char *disk_path, char *error_str)
         }
     }
     
-    // printf("sizeof(apple_part_map_t) = %lu\n", sizeof(apple_partition_map_t));
+    // slog("sizeof(apple_part_map_t) = %lu\n", sizeof(apple_partition_map_t));
     
     // Load the partition maps
     
@@ -269,8 +269,8 @@ static disk_t* open_disk (const char *disk_path, char *error_str)
         memcpy(disk->partitions[i].name, disk->partition_maps[i].pmPartName, 32);
         memcpy(disk->partitions[i].type, disk->partition_maps[i].pmPartType, 32);
         
-        printf("%u type:%s name:%s\n", i, disk->partitions[i].type, disk->partitions[i].name);
-        printf("bz_magic=0x%08x slice=%u\n", disk->partition_maps[i].bz.magic, disk->partition_maps[i].bz.slice);
+        slog("%u type:%s name:%s\n", i, disk->partitions[i].type, disk->partitions[i].name);
+        slog("bz_magic=0x%08x slice=%u\n", disk->partition_maps[i].bz.magic, disk->partition_maps[i].bz.slice);
     }
     
     return disk;
@@ -332,7 +332,7 @@ static int32_t find_root_partition_number(disk_t *disk, uint8_t clus_num)
         partition_t *part = &disk->partitions[i];
         apple_partition_map_t *apm = &disk->partition_maps[i];
         
-        // printf("%u magic=0x%08x root=%u type=%s\n", i, apm->bz.magic, apm->bz.root, part->type);
+        // slog("%u magic=0x%08x root=%u type=%s\n", i, apm->bz.magic, apm->bz.root, part->type);
         
         if (apm->bz.magic != 0xabadbabe)
             continue;
@@ -417,7 +417,7 @@ static uint8_t svfs_read_block(svfs_t *mount, uint8_t *block, uint32_t blockno)
     const uint32_t start_sector = blockno * sectors_per_block;
     uint32_t i;
     
-    // printf("sectors_per_block = %u, start_sector=%u\n", sectors_per_block, start_sector);
+    // slog("sectors_per_block = %u, start_sector=%u\n", sectors_per_block, start_sector);
     
     for (i=0; i<sectors_per_block; i++) {
         part_get_block(mount->part, &block[i * 512], start_sector+i);
@@ -637,9 +637,9 @@ svfs_inode_t* svfs_traverse_path(svfs_t *mount, const char *_path)
     for (elem = strtok_r(path, "/", &last);
          elem;
          elem = strtok_r(NULL, "/", &last)) {
-        //printf("elem = [%s]\n", elem);
+        //slog("elem = [%s]\n", elem);
         const uint32_t num_entries = inode->size / 16;
-        //printf("inode size = %u\n", inode->size);
+        //slog("inode size = %u\n", inode->size);
         svfs_dir_entry_t *dir = (svfs_dir_entry_t*)svfs_read_inode_data(mount, inode);
         if (!dir)
             goto fail;
@@ -660,7 +660,7 @@ svfs_inode_t* svfs_traverse_path(svfs_t *mount, const char *_path)
             goto fail;
         }
     }
-    //printf("final inode size = %u\n", inode->size);
+    //slog("final inode size = %u\n", inode->size);
     p_free(path);
     return inode;
     
@@ -900,8 +900,8 @@ static uint8_t ufs_load_inode(ufs_t *mount, ufs_inode_t *inode, uint32_t inum)
     uint32_t i;
     uint8_t *buf = p_alloc(mount->pool, mount->frag_size);
     
-    // printf("group_num = %u, ino_offset=%u, addr = 0x%08x, offset = 0x%08x\n", group_num, group_ino_offset, frag_addr, frag_offset);
-    // printf("mount->superblock.iblkno = 0x%08x\n", mount->superblock.iblkno);
+    // slog("group_num = %u, ino_offset=%u, addr = 0x%08x, offset = 0x%08x\n", group_num, group_ino_offset, frag_addr, frag_offset);
+    // slog("mount->superblock.iblkno = 0x%08x\n", mount->superblock.iblkno);
     
     if (!ufs_read_frag(mount, buf, frag_addr))
         goto fail;
@@ -953,7 +953,7 @@ static uint8_t ufs_read_level(ufs_t *mount,
         goto fail;
     
     // for (i=0; i<num_pointers; i++)
-        // printf("%u 0x%08x\n", i, ntohl(table[i]));
+        // slog("%u 0x%08x\n", i, ntohl(table[i]));
     
     if (level == 1)
         block = p_alloc(mount->pool, mount->block_size);
@@ -970,11 +970,11 @@ static uint8_t ufs_read_level(ufs_t *mount,
             const uint32_t block_addr = (blockno / mount->frag_per_block) * mount->frag_per_block;
             const uint32_t block_offset = (blockno - block_addr) * mount->frag_size;
             
-            printf("L%u: raw_blkno=0x%08x len=0x%08x blockno:0x%08x chunk_size=0x%08x\n", level-1, blockno, (uint32_t)*len, block_addr, (uint32_t)chunk_size);
+            slog("L%u: raw_blkno=0x%08x len=0x%08x blockno:0x%08x chunk_size=0x%08x\n", level-1, blockno, (uint32_t)*len, block_addr, (uint32_t)chunk_size);
             
             // If the chunk_size is a whole block, then we better be reading in a whole block
             if (chunk_size == mount->block_size) {
-                // printf("block_offset = 0x%x\n", block_offset);
+                // slog("block_offset = 0x%x\n", block_offset);
                 assert(block_offset == 0);
             }
             
@@ -1020,7 +1020,7 @@ static uint8_t* ufs_read_inode_data(ufs_t *mount, ufs_inode_t *inode)
         const uint32_t block_addr = (inode->direct[i] / mount->frag_per_block) * mount->frag_per_block;
         const uint32_t block_offset = (inode->direct[i] - block_addr) * mount->frag_size;
         
-        // printf("block_addr=0x%08x, block_offset")
+        // slog("block_addr=0x%08x, block_offset")
         
         // If the chunk_size is a whole block, then we better be reading in a whole block
         if (chunk_size == mount->block_size)
@@ -1032,7 +1032,7 @@ static uint8_t* ufs_read_inode_data(ufs_t *mount, ufs_inode_t *inode)
         memcpy(buf + len, block + block_offset, chunk_size);
 
         len += chunk_size;
-        // printf("direct block %u = 0x%08x\n", i, inode->direct[i]);
+        // slog("direct block %u = 0x%08x\n", i, inode->direct[i]);
     }
 
 
@@ -1252,7 +1252,7 @@ uint8_t* shoebill_extract_kernel(const char *disk_path, const char *kernel_path,
         sprintf(error_str, "Couldn't find root partition");
         goto done;
     }
-    printf("apm_part_num = %u\n", apm_part_num);
+    slog("apm_part_num = %u\n", apm_part_num);
     
     svfs_mount_obj = svfs_mount(&disk->partitions[apm_part_num]);
     if (svfs_mount_obj) {
@@ -1290,7 +1290,7 @@ uint8_t* shoebill_extract_kernel(const char *disk_path, const char *kernel_path,
     
 done:
     if (strlen(error_str))
-        printf("error: [%s]\n", error_str);
+        slog("error: [%s]\n", error_str);
     if (disk)
         close_disk(disk);
     return kernel_data;

@@ -115,7 +115,7 @@ static _Bool phase_match (void)
 
 static void switch_status_phase (uint8_t status_byte)
 {
-    printf("scsi_reg_something: switching to STATUS phase\n");
+    slog("scsi_reg_something: switching to STATUS phase\n");
     
     shoe.scsi.phase = STATUS;
     shoe.scsi.status_byte = status_byte;
@@ -131,7 +131,7 @@ static void switch_status_phase (uint8_t status_byte)
 
 static void switch_command_phase (void)
 {
-    printf("scsi_reg_something: switching to COMMAND phase\n");
+    slog("scsi_reg_something: switching to COMMAND phase\n");
     shoe.scsi.phase = COMMAND;
     
     shoe.scsi.msg = 0;
@@ -146,7 +146,7 @@ static void switch_command_phase (void)
 
 static void switch_message_in_phase (uint8_t message_byte)
 {
-    printf("scsi_reg_something: switching to MESSAGE_IN phase\n");
+    slog("scsi_reg_something: switching to MESSAGE_IN phase\n");
     
     shoe.scsi.phase = MESSAGE_IN;
     shoe.scsi.msg = 1;
@@ -161,7 +161,7 @@ static void switch_message_in_phase (uint8_t message_byte)
 
 static void switch_bus_free_phase (void)
 {
-    printf("scsi_reg_something: switching to BUS_FREE phase\n");
+    slog("scsi_reg_something: switching to BUS_FREE phase\n");
     
     shoe.scsi.phase = BUS_FREE;
     
@@ -178,7 +178,7 @@ static void switch_bus_free_phase (void)
 
 static void switch_data_in_phase (void)
 {
-    printf("scsi_reg_something: switching to DATA_IN phase\n");
+    slog("scsi_reg_something: switching to DATA_IN phase\n");
     
     shoe.scsi.phase = DATA_IN;
     
@@ -192,7 +192,7 @@ static void switch_data_in_phase (void)
 
 static void switch_data_out_phase (void)
 {
-    printf("scsi_reg_something: switching to DATA_OUT phase\n");
+    slog("scsi_reg_something: switching to DATA_OUT phase\n");
     
     shoe.scsi.phase = DATA_OUT;
 
@@ -306,17 +306,17 @@ static void scsi_buf_set (uint8_t byte)
         
         switch (shoe.scsi.buf[0]) {
             case 0: // test unit ready (6)
-                printf("scsi_buf_set: responding to test-unit-ready\n");
+                slog("scsi_buf_set: responding to test-unit-ready\n");
                 switch_status_phase(0); // switch to the status phase, with a status byte of 0
                 break;
                 
             case 0x15: // mode select (6)
-                printf("scsi_buf_set: responding to mode-select\n");
+                slog("scsi_buf_set: responding to mode-select\n");
                 switch_status_phase(0);
                 break;
                 
             case 0x25: // read capacity (10)
-                printf("scsi_buf_set: responding to read-capacity\n");
+                slog("scsi_buf_set: responding to read-capacity\n");
                 // bytes [0,3] -> BE number of blocks
                 shoe.scsi.buf[0] = (dev->num_blocks >> 24) & 0xff;
                 shoe.scsi.buf[1] = (dev->num_blocks >> 16) & 0xff;
@@ -337,7 +337,7 @@ static void scsi_buf_set (uint8_t byte)
                 break;
                 
             case 0x12: { // inquiry command (6)
-                printf("scsi_buf_set: responding to inquiry\n");
+                slog("scsi_buf_set: responding to inquiry\n");
                 const uint8_t alloc_len = shoe.scsi.buf[4];
                 
                 scsi_handle_inquiry_command(alloc_len);
@@ -353,7 +353,7 @@ static void scsi_buf_set (uint8_t byte)
                 
                 assert(dev->f);
                 
-                printf("scsi_buf_set: Responding to read at off=%u len=%u\n", offset, len);
+                slog("scsi_buf_set: Responding to read at off=%u len=%u\n", offset, len);
                 
                 //assert(len <= 64);
                 
@@ -382,7 +382,7 @@ static void scsi_buf_set (uint8_t byte)
                     (shoe.scsi.buf[3]);
                 const uint8_t len = shoe.scsi.buf[4];
                 
-                printf("scsi_buf_set: Responding to write at off=%u len=%u\n", offset, len);
+                slog("scsi_buf_set: Responding to write at off=%u len=%u\n", offset, len);
                 
                 //assert(len <= 64);
                 
@@ -422,7 +422,7 @@ void scsi_reg_read ()
 {
     const uint32_t reg = ((shoe.physical_addr & 0xffff) >> 4) & 0xf;
 
-    //printf("\nscsi_reg_read: reading from register %s(%u) ", scsi_read_reg_str[reg], reg);
+    //slog("\nscsi_reg_read: reading from register %s(%u) ", scsi_read_reg_str[reg], reg);
     
     switch (reg) {
         case 0: // Current scsi data bus register
@@ -505,7 +505,7 @@ void scsi_reg_read ()
             break;
     }
     
-    //printf("(set to 0x%02x)\n\n", (uint32_t)shoe.physical_dat);
+    //slog("(set to 0x%02x)\n\n", (uint32_t)shoe.physical_dat);
 }
 
 void scsi_reg_write ()
@@ -534,7 +534,7 @@ void scsi_reg_write ()
                 // Asserting SEL in arbitration phase means we switch to selection phase :)
                 shoe.scsi.phase = SELECTION;
                 shoe.scsi.target_id = INVALID_ID; // invalid ID
-                printf("scsi_reg_write: selection phase\n");
+                slog("scsi_reg_write: selection phase\n");
                 break;
             }
 */
@@ -547,7 +547,7 @@ void scsi_reg_write ()
                 for (id=0; (id < 8) && !(shoe.scsi.data & (1 << id)); id++) ;
                 assert(id != 8);
                 shoe.scsi.target_id = id;
-                printf("scsi_reg_write: selected target id %u\n", id);
+                slog("scsi_reg_write: selected target id %u\n", id);
                 shoe.scsi.target_bsy = 1; // target asserts BSY to acknowledge being selected
                 shoe.scsi.phase = SELECTION;
                 break;
@@ -555,7 +555,7 @@ void scsi_reg_write ()
             
             // SELECTION ends when SEL gets unset
             if (!shoe.scsi.sel && shoe.scsi.phase == SELECTION) {
-                printf("scsi_reg_write: switch to COMMAND phase\n"); // what's next?
+                slog("scsi_reg_write: switch to COMMAND phase\n"); // what's next?
                 
                 shoe.scsi.req = 1; // target asserts REQ after initiator deasserts SEL
                 
@@ -600,7 +600,7 @@ void scsi_reg_write ()
             shoe.scsi.mode = dat;
             
             if (shoe.scsi.mode & MODE_ARBITRATE) {
-                printf("scsi_reg_write: arbitration phase\n");
+                slog("scsi_reg_write: arbitration phase\n");
                 shoe.scsi.phase = ARBITRATION;
                 shoe.scsi.initiator_command |= INIT_COMM_ARBITRATION_IN_PROGRESS;
             }
@@ -631,7 +631,7 @@ void scsi_reg_write ()
             break;
     }
     
-    printf("\nscsi_reg_write: writing to register %s(%u) (0x%x)\n\n", scsi_write_reg_str[reg], reg, dat);
+    slog("\nscsi_reg_write: writing to register %s(%u) (0x%x)\n\n", scsi_write_reg_str[reg], reg, dat);
 }
 
 void scsi_dma_write_long(const uint32_t dat)
@@ -645,13 +645,13 @@ void scsi_dma_write_long(const uint32_t dat)
 void scsi_dma_write (const uint8_t byte)
 {
     if (shoe.scsi.phase == COMMAND) {
-        printf("scsi_reg_dma_write: writing COMMAND byte 0x%02x\n", byte);
+        slog("scsi_reg_dma_write: writing COMMAND byte 0x%02x\n", byte);
         scsi_buf_set(byte);
     }
     else if (shoe.scsi.phase == DATA_OUT && shoe.scsi.dma_send_written) {
         shoe.scsi.buf[shoe.scsi.out_i++] = byte;
         
-        //printf("scsi_reg_dma_write: writing DATA_OUT byte 0x%02x (%c)\n", byte, isprint(byte)?byte:'.');
+        //slog("scsi_reg_dma_write: writing DATA_OUT byte 0x%02x (%c)\n", byte, isprint(byte)?byte:'.');
         
         if (shoe.scsi.out_i >= shoe.scsi.out_len) {
             assert(shoe.scsi.target_id < 8);
@@ -668,10 +668,10 @@ void scsi_dma_write (const uint8_t byte)
         }
     }
     else if (shoe.scsi.phase == DATA_OUT) {
-        printf("scsi_reg_dma_write: writing DATA_OUT byte (without shoe.scsi.dma_send_written) 0x%02x\n", byte);
+        slog("scsi_reg_dma_write: writing DATA_OUT byte (without shoe.scsi.dma_send_written) 0x%02x\n", byte);
     }
     else {
-        printf("scsi_reg_dma_write: writing 0x%02x in UNKNOWN PHASE!\n", byte);
+        slog("scsi_reg_dma_write: writing 0x%02x in UNKNOWN PHASE!\n", byte);
     }
     
 }
@@ -707,7 +707,7 @@ uint8_t scsi_dma_read ()
         }
     }
     
-    //printf("scsi_reg_dma_read: called, returning 0x%02x\n", (uint8_t)result);
+    //slog("scsi_reg_dma_read: called, returning 0x%02x\n", (uint8_t)result);
     
     return result;
 }

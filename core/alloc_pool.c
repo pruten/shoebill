@@ -26,6 +26,7 @@
 #include <stdlib.h>
 #include <assert.h>
 #include <stdint.h>
+#include <string.h>
 #include "../core/shoebill.h"
 
 
@@ -53,6 +54,11 @@ typedef struct _alloc_pool_t {
 } alloc_pool_t;
 */
 
+static void _check_pool(alloc_pool_t *pool)
+{
+    
+}
+
 static alloc_pool_t* _ptr_to_header(void *ptr)
 {
     alloc_pool_t *apt = (alloc_pool_t*)ptr;
@@ -66,7 +72,8 @@ void* p_alloc(alloc_pool_t *pool, uint64_t size)
     buf->type = POOL_ALLOC_TYPE;
     buf->t.alloc.size = size;
     
-    buf->magic = 'moof';
+    buf->start_magic = POOL_START_MAGIC;
+    buf->end_magic = POOL_END_MAGIC;
     
     buf->next = pool->next;
     buf->prev = pool;
@@ -82,7 +89,8 @@ void* p_realloc(void *ptr, uint64_t size)
 {
     alloc_pool_t *header = _ptr_to_header(ptr);
 
-    assert(header->magic == 'moof');
+    assert(header->start_magic == POOL_START_MAGIC);
+    assert(header->end_magic == POOL_END_MAGIC);
     assert(header->type == POOL_ALLOC_TYPE);
     
     alloc_pool_t *new_header = realloc(header, size + sizeof(alloc_pool_t));
@@ -107,7 +115,8 @@ void* p_realloc(void *ptr, uint64_t size)
  */
 static void _p_free_any(alloc_pool_t *header)
 {
-    assert(header->magic == 'moof');
+    assert(header->start_magic == POOL_START_MAGIC);
+    assert(header->end_magic == POOL_END_MAGIC);
     
     if (header->next)
         header->next->prev = header->prev;
@@ -125,6 +134,7 @@ void p_free(void *ptr)
 {
     alloc_pool_t *header = _ptr_to_header(ptr);
     assert(header->type == POOL_ALLOC_TYPE);
+    memset(ptr, 0xaa, header->t.alloc.size);
     _p_free_any(header);
 }
 
@@ -136,7 +146,8 @@ void p_free_pool(alloc_pool_t *pool)
     while (pool) {
         alloc_pool_t *cur = pool;
         pool = cur->next;
-        assert(cur->magic == 'moof');
+        assert(cur->start_magic == POOL_START_MAGIC);
+        assert(cur->end_magic == POOL_END_MAGIC);
         
         switch (cur->type) {
             case POOL_ALLOC_TYPE:
@@ -166,7 +177,8 @@ alloc_pool_t* p_new_pool(alloc_pool_t *parent_pool)
 {
     alloc_pool_t *pool = calloc(sizeof(alloc_pool_t), 1);
     
-    pool->magic = 'moof';
+    pool->start_magic = POOL_START_MAGIC;
+    pool->end_magic = POOL_END_MAGIC;
     pool->type = POOL_HEAD;
     
     if (parent_pool) {

@@ -138,7 +138,7 @@ static void inst_asx_reg (void) {
         uint32_t dat = get_d(r, sz);
         const uint32_t tmask = (mib(dat,sz)) << (sz*8-1); // 0 if mib==0, 0x80, 0x8000, or 0x80000000 if mib==1
         
-        //printf("asr: dat=%u sz=%u count=%u", dat, sz, count);
+        //slog("asr: dat=%u sz=%u count=%u", dat, sz, count);
         
         uint8_t i=0, lastb=0;
         for (; i < count; i++) {
@@ -155,7 +155,7 @@ static void inst_asx_reg (void) {
         set_sr_v(0);
         set_sr_c(lastb);
         
-        //printf(" result=%u\n", get_d(r, sz));
+        //slog(" result=%u\n", get_d(r, sz));
     }
 }
 
@@ -182,7 +182,7 @@ static void inst_asx_mem (void) {
         const uint16_t R = (uint16_t)(((int16_t)dat) >> 1);
         const uint16_t lost = dat & 1;
         
-        printf("asr_mem: shifted 0x%04x to 0x%04x lost=%u\n", dat, R, lost);
+        slog("asr_mem: shifted 0x%04x to 0x%04x lost=%u\n", dat, R, lost);
         
         shoe.dat = R;
         call_ea_write(M, 2);
@@ -322,7 +322,7 @@ static void inst_rox_reg (void) {
     uint8_t count = i ? (shoe.d[c] & 63) : ( c ? c : 8) ;
     uint32_t j;
     
-    // printf("rox_reg: count = %u\n", count);
+    // slog("rox_reg: count = %u\n", count);
     
     if (!d) { // right
         for (j=0; j<count; j++) {
@@ -447,7 +447,7 @@ static void inst_abcd (void) {
     uint8_t packed_x, packed_y;
     const uint8_t extend = sr_x() ? 1 : 0;
     
-    // printf("abcd: pc=0x%08x extend=%u m=%u x=%u y=%u\n", shoe.orig_pc, extend, m, x, y);
+    // slog("abcd: pc=0x%08x extend=%u m=%u x=%u y=%u\n", shoe.orig_pc, extend, m, x, y);
     
     if (m) {
         // predecrement mem to predecrement mem
@@ -473,7 +473,7 @@ static void inst_abcd (void) {
     const uint8_t carry = (sum >= 100);
     const uint8_t packed_sum = ((unpacked_sum / 10) << 4) | (unpacked_sum % 10);
     
-    // printf("abcd: packed_x = 0x%02x(%u) packed_y = 0x%02x(%u) sum=0x%02x(%u) carry=%u\n", packed_x, unpacked_x, packed_y, unpacked_y, packed_sum, unpacked_sum, carry);
+    // slog("abcd: packed_x = 0x%02x(%u) packed_y = 0x%02x(%u) sum=0x%02x(%u) carry=%u\n", packed_x, unpacked_x, packed_y, unpacked_y, packed_sum, unpacked_sum, carry);
     
     if (unpacked_sum)
         set_sr_z(0);
@@ -508,7 +508,7 @@ static void inst_muls (void) {
     const int32_t s_result = ((int32_t)s_a) * ((int32_t)s_b);
     const uint32_t result = (uint32_t)s_result;
     
-    //printf("muls: %d * %d = %d\n", s_a, s_b, s_result);
+    //slog("muls: %d * %d = %d\n", s_a, s_b, s_result);
     
     shoe.d[r] = result;
     
@@ -606,7 +606,7 @@ static void inst_rte (void) {
     const uint16_t format_word = lget(shoe.a[7]+6, 2);
     if (shoe.abort) return ;
     
-    // printf("rte: sr=0x%04x pc=0x%08x format=0x%04x, post-pop a7=0x%08x\n", sr, pc, format_word, shoe.a[7]+8);
+    // slog("rte: sr=0x%04x pc=0x%08x format=0x%04x, post-pop a7=0x%08x\n", sr, pc, format_word, shoe.a[7]+8);
     
     switch (format_word >> 12) {
         case 0:
@@ -631,7 +631,7 @@ static void inst_rte (void) {
             return ;
         }
         default:
-            printf("rte?? I don't recognize this exception format! 0x%04x\n", format_word);
+            slog("rte?? I don't recognize this exception format! 0x%04x\n", format_word);
             assert(!"rte?? Don't recognize this exception format!\n");
             break;
     }
@@ -732,8 +732,8 @@ static void inst_moveq (void) {
     set_sr_v(0);
     set_sr_z(d==0);
     set_sr_n(d>>7);
-    // printf("dat = %x, shoe.d[%u] = %x\n", dat, r, shoe.d[r]);
-    // printf("I'm called, right?\n");
+    // slog("dat = %x, shoe.d[%u] = %x\n", dat, r, shoe.d[r]);
+    // slog("I'm called, right?\n");
 }
 
 static void inst_add (void) {
@@ -795,7 +795,7 @@ static void inst_addx (void) {
         
         const uint32_t R = shoe.d[y] + extend_bit + shoe.d[x];
         
-        // printf("addx: S d[%u] = 0x%x, D d[%u] = 0x%x, R = 0x%x\n", crop(shoe.d[y], sz), crop(shoe.d[x], sz), crop(R, sz));
+        // slog("addx: S d[%u] = 0x%x, D d[%u] = 0x%x, R = 0x%x\n", crop(shoe.d[y], sz), crop(shoe.d[x], sz), crop(R, sz));
         
         set_d(x, R, sz);
         Rm = mib(R, sz);
@@ -983,7 +983,7 @@ static void inst_long_mul (void) {
         const int64_t R_signed = ((int64_t)S) * ((int64_t)D);
         R = R_signed;
         
-        //printf("long_muls: %d * %d = (int64_t)%lld (int32_t)%d\n", S, D, R, (uint32_t)(R&0xffffffff));
+        //slog("long_muls: %d * %d = (int64_t)%lld (int32_t)%d\n", S, D, R, (uint32_t)(R&0xffffffff));
     }
     
     shoe.d[L] = (uint32_t)R;
@@ -1298,7 +1298,7 @@ static void inst_movec (void) {
         case 0x805: // MMUSR
         case 0x806: // URP
         case 0x807: // SRP
-            printf("inst_movec: error! I don't support this condition code yet! (0x%03x)\n", c);
+            slog("inst_movec: error! I don't support this condition code yet! (0x%03x)\n", c);
             assert(!"inst_movec: error: unknown condition\n");
             return ;
             
@@ -1336,7 +1336,7 @@ static void inst_moves (void) {
     
     // For now, only supporting fc 1 (user data space)
     if (fc != 1) {
-        printf("inst_moves: error: hit fc=%u\n", fc);
+        slog("inst_moves: error: hit fc=%u\n", fc);
         assert(!"inst_moves: error, hit weird function code");
         return ;
     }
@@ -1923,7 +1923,7 @@ static void inst_jsr (void) {
     lset(shoe.a[7]-4, 4, shoe.pc);
     if (shoe.abort) return ;
     
-    // printf("jsr: writing pc (0x%08x) to *0x%08x (phys=0x%08x)\n", shoe.pc, shoe.a[7]-4, shoe.physical_addr);
+    // slog("jsr: writing pc (0x%08x) to *0x%08x (phys=0x%08x)\n", shoe.pc, shoe.a[7]-4, shoe.physical_addr);
     
     shoe.a[7] -= 4;
     shoe.pc = shoe.dat;
@@ -2011,7 +2011,7 @@ static void inst_rts (void) {
         // return ;
         coff_symbol *symb = coff_find_func(shoe.coff, shoe.pc);
         if (symb)
-            printf("RETURN TO %s+%u 0x%08x\n", symb->name, shoe.pc-symb->value, shoe.pc);
+            slog("RETURN TO %s+%u 0x%08x\n", symb->name, shoe.pc-symb->value, shoe.pc);
     }
     else if (0){
         char *name = (char*)"unknown";
@@ -2027,7 +2027,7 @@ static void inst_rts (void) {
             }
         }
         
-        printf("RETURN TO %s+%u 0x%08x\n", name, shoe.pc-value, shoe.pc);
+        slog("RETURN TO %s+%u 0x%08x\n", name, shoe.pc-value, shoe.pc);
     }*/
 }
 
@@ -2112,7 +2112,7 @@ static void inst_movem (void) {
         if (~bmatch(M, xx100xxx)) { // if predecrement,
             uint16_t maskcopy;
             
-            // printf("*0x%08x movem %02x\n", shoe.orig_pc, shoe.op);
+            // slog("*0x%08x movem %02x\n", shoe.orig_pc, shoe.op);
             
             for (maskcopy=mask, i=0; i < 16; i++) {
                 newmask = (newmask<<1) | (maskcopy & 1); // build a flipped version of mask
@@ -2158,7 +2158,7 @@ static void inst_movem (void) {
                 // if this is pre-dec mode, and we're pushing the address reg specified in the EA
                 if ( (M>>3) == 4 && (M&7)==i ) {
                     data -= sz;
-                    printf("movem: For movem %u/%u, deciding to write 0x%08x for a%u\n", M>>3, M&7, data, M&7);
+                    slog("movem: For movem %u/%u, deciding to write 0x%08x for a%u\n", M>>3, M&7, data, M&7);
                 }
                 
                 lset(addr, sz, data);
@@ -2240,7 +2240,7 @@ void write_bitfield(const uint32_t width, const uint32_t offset, const uint32_t 
         // call_ea_addr(M);
         
         const uint32_t first_byte_addr = ea + byte_offset;
-        //printf("debug: extract_bitfield: addr = 0x%08x, first_byte_addr = 0x%08x\n", ea, first_byte_addr);
+        //slog("debug: extract_bitfield: addr = 0x%08x, first_byte_addr = 0x%08x\n", ea, first_byte_addr);
         
         
         // if the field is contained entirely within the first byte
@@ -2252,8 +2252,8 @@ void write_bitfield(const uint32_t width, const uint32_t offset, const uint32_t 
             const uint8_t new_byte = (old_byte & (~~byte_mask)) | field_mask;
             
             lset(first_byte_addr, 1, new_byte);
-            //printf("write_bitfield: byte_mask = 0x%02x field_mask = 0x%02x bit_offset=%u byte_offset=%u\n", byte_mask, field_mask, bit_offset, byte_offset);
-            //printf("write_bitfield: changing byte at 0x%08x from 0x%02x to 0x%02x\n",
+            //slog("write_bitfield: byte_mask = 0x%02x field_mask = 0x%02x bit_offset=%u byte_offset=%u\n", byte_mask, field_mask, bit_offset, byte_offset);
+            //slog("write_bitfield: changing byte at 0x%08x from 0x%02x to 0x%02x\n",
                    //first_byte_addr, old_byte, new_byte);
             if (shoe.abort) return ;
         }
@@ -2271,10 +2271,10 @@ void write_bitfield(const uint32_t width, const uint32_t offset, const uint32_t 
                 const uint8_t field_chunk = remaining_field >> (32-curwidth);
                 const uint8_t rotated_chunk = (field_chunk << (8-curwidth)) >> boff;
                 
-                // printf("mask  = 0x%02x\nfield = 0x%02x\n", mask, rotated_chunk);
+                // slog("mask  = 0x%02x\nfield = 0x%02x\n", mask, rotated_chunk);
                 
                 lset(addr, 1, (byte & mask) | rotated_chunk);
-                //printf("write_bitfield: changing byte at 0x%08x from 0x%02x to 0x%02x\n",
+                //slog("write_bitfield: changing byte at 0x%08x from 0x%02x to 0x%02x\n",
                        //addr, byte, (byte & mask) | rotated_chunk);
                 if (shoe.abort) return ;
                 
@@ -2317,13 +2317,13 @@ uint32_t extract_bitfield(const uint32_t width, const uint32_t offset, const uin
         // ea_addr();
         // if (shoe.abort) return 0;
         
-        //printf("debug: extract_bitfield: offset = 0x%08x, byte_offset = %d, bit_offset = %d\n", offset, byte_offset, bit_offset);
+        //slog("debug: extract_bitfield: offset = 0x%08x, byte_offset = %d, bit_offset = %d\n", offset, byte_offset, bit_offset);
         
         const uint32_t first_byte_addr = ea + byte_offset;
-        //printf("debug: extract_bitfield: addr = 0x%08x, first_byte_addr = 0x%08x\n", ea, first_byte_addr);
+        //slog("debug: extract_bitfield: addr = 0x%08x, first_byte_addr = 0x%08x\n", ea, first_byte_addr);
         
         field = bitchop(lget(first_byte_addr, 1), 8-bit_offset);
-        //printf("debug: extract_bitfield: first byte field (low %u bits): 0x%02x\n", 8-bit_offset, field);
+        //slog("debug: extract_bitfield: first byte field (low %u bits): 0x%02x\n", 8-bit_offset, field);
         if (shoe.abort) return 0;
         if (width > (8-bit_offset)) { // if the data isn't entirely contained in the first byte
             uint32_t last_long = lget(first_byte_addr+1, 4);
@@ -2534,7 +2534,7 @@ static void inst_bfins (void) {
     const uint32_t offset = F ? (shoe.d[f]) : f; // [0, 31]
     
     const uint32_t field = bitchop(shoe.d[r], width);
-    // printf("write_bitfield: writing %u at offset=%u width=%u\n", field, offset, width);
+    // slog("write_bitfield: writing %u at offset=%u width=%u\n", field, offset, width);
     
     uint32_t ea = 0;
     if (M >> 3) { // If ea isn't data reg mode (handled separately in *_bitfield())
@@ -2790,7 +2790,7 @@ static void inst_mc68851_decode (void) {
 }
 
 static void inst_unknown (void) {
-    printf("Unknown instruction (0x%04x)!\n", shoe.op);
+    slog("Unknown instruction (0x%04x)!\n", shoe.op);
     /*if (shoe.op == 0x33fe) {
         dump_ring();
         assert(!"dumped");
@@ -2806,13 +2806,13 @@ static void inst_a_line (void) {
         uint32_t fp_op = lget(shoe.a[7]+0, 2);
         uint32_t fp_operand_addr = lget(shoe.a[7]+2, 4);
         
-        printf("%s : op 0x%04x (", (shoe.op == 0xA9EB) ? "FP68K" : "Elems68K", fp_op);
+        slog("%s : op 0x%04x (", (shoe.op == 0xA9EB) ? "FP68K" : "Elems68K", fp_op);
         
         uint8_t buf[10];
         uint32_t i;
         for (i=0; i<10; i++) {
             buf[i] = lget(fp_operand_addr+i, 1);
-            printf("%02x ", buf[i]);
+            slog("%02x ", buf[i]);
         }
         
         {
@@ -2821,7 +2821,7 @@ static void inst_a_line (void) {
                 buf[4], buf[3], buf[2], buf[1], buf[0],
                 0, 0
             };
-            printf("%Lf)\n", *(long double*)&castable[0]);
+            slog("%Lf)\n", *(long double*)&castable[0]);
         }
         
         
@@ -2838,7 +2838,7 @@ void trap_debug()
     shoe.suppress_exceptions = 1;
     
     const uint32_t syscall = lget(shoe.a[7]+4, 4);
-    printf("syscall = %u\n", shoe.d[0]);
+    slog("syscall = %u\n", shoe.d[0]);
     
 
     switch (shoe.d[0]) {
@@ -2846,13 +2846,13 @@ void trap_debug()
             uint32_t fd = lget(shoe.a[7]+4, 4);
             uint32_t buf = lget(shoe.a[7]+8, 4);
             uint32_t len = lget(shoe.a[7]+12, 4);
-            printf("write(%u, 0x%08x, %u) \"", fd, buf, len);
+            slog("write(%u, 0x%08x, %u) \"", fd, buf, len);
             
             uint32_t i;
             for (i=0; i<len; i++) {
-                printf("%c", (uint32_t)lget(buf+i, 1));
+                slog("%c", (uint32_t)lget(buf+i, 1));
             }
-            printf("\"\n");
+            slog("\"\n");
             
             break;
         }
@@ -2860,29 +2860,29 @@ void trap_debug()
             uint32_t path_p = lget(shoe.a[7]+4, 4);
             uint32_t oflag = lget(shoe.a[7]+8, 4);
             
-            printf("shoe.orig_pc = 0x%08x\n", shoe.orig_pc);
-            printf("open(0x%08x, %u) \"", path_p, oflag);
+            slog("shoe.orig_pc = 0x%08x\n", shoe.orig_pc);
+            slog("open(0x%08x, %u) \"", path_p, oflag);
             uint32_t i;
             for (i=0; 1; i++) {
                 uint8_t c = lget(path_p+i, 1);
                 if (c == 0) break;
-                printf("%c", c);
+                slog("%c", c);
             }
-            printf("\"\n");
+            slog("\"\n");
             break;
         }*/
         case 59: // exece
         case 11: { // exec
             char name[64];
             uint32_t path_p = lget(shoe.a[7]+4, 4);
-            printf("exec(0x%08x, ...) \"", path_p);
+            slog("exec(0x%08x, ...) \"", path_p);
             uint32_t i;
             for (i=0; i < 64; i++) {
                 name[i] = lget(path_p+i, 1);
                 if (name[i] == 0) break;
             }
             name[63] = 0;
-            printf("%s\"\n", name);
+            slog("%s\"\n", name);
             
             break;
         }

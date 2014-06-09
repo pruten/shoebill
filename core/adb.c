@@ -107,7 +107,7 @@ void init_adb_state()
 
 void adb_start_service_request()
 {
-    //printf("adb_start_service_request: pending_requests = 0x%02x\n", shoe.adb.pending_service_requests);
+    //slog("adb_start_service_request: pending_requests = 0x%02x\n", shoe.adb.pending_service_requests);
     if (shoe.adb.pending_service_requests) {
         shoe.adb.service_request = 1;
         
@@ -144,32 +144,33 @@ static void keyboard_talk(uint8_t reg)
             else
                 shoe.adb.timeout = 1;
 
-            return ;
+            break ;
             
         case 2:
             // All the modifier keys are up
             shoe.adb.data[0] = ~b(01111111);
             shoe.adb.data[1] = ~b(11100111);
             shoe.adb.data_len = 2;
-            return ;
+            break ;
             
         case 1:
             shoe.adb.timeout = 1;
-            return ;
+            break ;
             
         case 3:
-            shoe.adb.data[0] = 0;
-            shoe.adb.data[1] = 0;
+            shoe.adb.data[0] = 0x02; // device address == 2 -> keyboard
+            shoe.adb.data[1] = 0x02; // device handler ID == 0x03 -> Apple Extended Keyboard
             shoe.adb.data_len = 2;
-            return ;
+            break ;
     }
+    slog("keyboard_talk: reg=%u timeout=%u data=0x%02x%02x datalen=%u\n", reg, shoe.adb.timeout, shoe.adb.data[0], shoe.adb.data[1], shoe.adb.data_len);
 }
 
 static void mouse_talk(uint8_t reg)
 {
     shoe.adb.timeout = 0;
     
-    printf("mouse_talk: reg=%u\n", reg);
+    slog("mouse_talk: reg=%u\n", reg);
     switch (reg) {
             
         case 0:
@@ -180,7 +181,7 @@ static void mouse_talk(uint8_t reg)
                 int32_t x = shoe.mouse.delta_x;
                 int32_t y = shoe.mouse.delta_y;
                 
-                //printf("mouse_talk: x=%d, y=%d button=%u\n", shoe.mouse.delta_x, shoe.mouse.delta_y, shoe.mouse.button_down);
+                //slog("mouse_talk: x=%d, y=%d button=%u\n", shoe.mouse.delta_x, shoe.mouse.delta_y, shoe.mouse.button_down);
                 
                 
                 if (x > hi_delta_limit) x = hi_delta_limit;
@@ -194,7 +195,7 @@ static void mouse_talk(uint8_t reg)
                     //shoe.adb.data[1] |= 0x80;
                     shoe.adb.data[0] |= 0x80;
                 }
-                // printf("mouse_talk: ")
+                // slog("mouse_talk: ")
                 
                 
                 shoe.adb.data_len = 2;
@@ -243,7 +244,7 @@ static void adb_handle_state_zero(uint8_t command_byte, uint8_t is_poll) // "Com
     else
         assert(!"What is this adb state-0 command? xxxx 01xx");
     
-    printf("adb_handle_state_zero: command_byte=0x%02x, id=%u, reg=%u\n", command_byte, id, reg);
+    slog("adb_handle_state_zero: command_byte=0x%02x, id=%u, reg=%u\n", command_byte, id, reg);
     
     shoe.adb.command_device_id = id;
     shoe.adb.command_reg = reg;
@@ -279,7 +280,7 @@ static void adb_handle_state_one (void) // "Even" state
 {
     via_state_t *via = &shoe.via[0];
     
-    printf("adb_handle_state_one: ");
+    slog("adb_handle_state_one: ");
     if (shoe.adb.poll) {
         // Upon receiving a service request, the adb controller sends a TALK/reg=0 to the last accessed device
         adb_handle_state_zero((shoe.adb.command_device_id << 4) | 0x0c, 1);
@@ -292,12 +293,12 @@ static void adb_handle_state_one (void) // "Even" state
             break;
             
         case adb_talk:
-            printf("adb_talk: ");
+            slog("adb_talk: ");
             if (shoe.adb.timeout) {
                 shoe.adb.timeout = 0;
                 via->regb_input &= ~~VIA_REGB_ADB_STATUS; // adb_status_line cleared == timeout
                 via_raise_interrupt(1, IFR_SHIFT_REG);
-                printf("timeout\n");
+                slog("timeout\n");
                 return ;
             }
             
@@ -306,17 +307,17 @@ static void adb_handle_state_one (void) // "Even" state
             else
                 via->sr = 0;
             
-            printf("set sr = 0x%02x\n", via->sr);
+            slog("set sr = 0x%02x\n", via->sr);
             
             break;
         
         case adb_listen:
-            printf("adb_listen: ");
+            slog("adb_listen: ");
             if (shoe.adb.timeout) {
                 shoe.adb.timeout = 0;
                 via->regb_input &= ~~VIA_REGB_ADB_STATUS; // adb_status_line cleared == timeout
                 via_raise_interrupt(1, IFR_SHIFT_REG);
-                printf("timeout\n");
+                slog("timeout\n");
                 return ;
             }
             
@@ -325,7 +326,7 @@ static void adb_handle_state_one (void) // "Even" state
             else
                 assert(!"OS made us listen to > 8 bytes");
             
-            printf("loaded sr = 0x%02x\n", via->sr);
+            slog("loaded sr = 0x%02x\n", via->sr);
             
             break;
     }
@@ -338,13 +339,13 @@ static void adb_handle_state_two (void) // "Odd" state
 {
     via_state_t *via = &shoe.via[0];
     
-    printf("adb_handle_state_two: ");
+    slog("adb_handle_state_two: ");
     
     // If this transaction was part of a service request, clear the service_request flag now
     if (shoe.adb.service_request) {
         shoe.adb.service_request = 0;
         via->regb_input &= ~~VIA_REGB_ADB_STATUS; // adb_status_line cleared == service request
-        printf("(service request) ");
+        slog("(service request) ");
     }
     else
         via->regb_input |= VIA_REGB_ADB_STATUS; // adb_status_line set == no-service request
@@ -352,25 +353,25 @@ static void adb_handle_state_two (void) // "Odd" state
     switch (shoe.adb.command_type) {
         case adb_flush:
         case adb_reset:
-            printf("adb_flush/reset\n");
+            slog("adb_flush/reset\n");
             break;
             
         case adb_talk:
-            printf("adb_talk: ");
+            slog("adb_talk: ");
             if (shoe.adb.data_i < shoe.adb.data_len)
                 via->sr = shoe.adb.data[shoe.adb.data_i++];
             else
                 via->sr = 0;
-            printf("set sr = 0x%02x\n", via->sr);
+            slog("set sr = 0x%02x\n", via->sr);
             break;
             
         case adb_listen:
-            printf("adb_listen: ");
+            slog("adb_listen: ");
             if (shoe.adb.data_i < 8)
                 shoe.adb.data[shoe.adb.data_i++] = via->sr;
             else
                 assert(!"OS made us listen to > 8 bytes");
-            printf("read sr = 0x%02x\n", via->sr);
+            slog("read sr = 0x%02x\n", via->sr);
             break;
     }
     
@@ -379,7 +380,7 @@ static void adb_handle_state_two (void) // "Odd" state
 
 static void adb_handle_state_three (void) // "idle" state
 {
-    printf("adb_handle_state_three: completed for id %u\n", shoe.adb.command_device_id);
+    slog("adb_handle_state_three: completed for id %u\n", shoe.adb.command_device_id);
     
     switch (shoe.adb.command_type) {
         case adb_reset:
@@ -388,7 +389,7 @@ static void adb_handle_state_three (void) // "idle" state
             break;
             
         case adb_listen:
-            printf("adb_handle_state_three: listen completed for id %u, reg %u, data_len = %u {%02x %02x}\n",
+            slog("adb_handle_state_three: listen completed for id %u, reg %u, data_len = %u {%02x %02x}\n",
                    shoe.adb.command_device_id, shoe.adb.command_reg, shoe.adb.data_i, shoe.adb.data[0], shoe.adb.data[1]);
             break;
     }
@@ -400,7 +401,7 @@ void adb_handle_state_change(uint8_t old_state, uint8_t new_state)
 {
     via_state_t *via = &shoe.via[0];
     
-    printf("%s: lock\n", __func__); fflush(stdout);
+    slog("%s: lock\n", __func__); fflush(stdout);
     assert(pthread_mutex_lock(&shoe.adb.lock) == 0);
     
     shoe.adb.state = new_state;
@@ -424,7 +425,7 @@ void adb_handle_state_change(uint8_t old_state, uint8_t new_state)
             break ;
     }
     
-    printf("%s: unlock\n", __func__); fflush(stdout);
+    slog("%s: unlock\n", __func__); fflush(stdout);
     pthread_mutex_unlock(&shoe.adb.lock);
 }
 

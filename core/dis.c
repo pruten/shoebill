@@ -67,7 +67,7 @@ void disass_ea_extended (char *buf, uint8_t mr)
     // z == base displacement size
     // I == index/indirect selection
     
-    // printf("index_reg_type=%u, index_reg=%u, index_sz=%u, scale=%u, brief/ful=%u, supress_base=%u, suppress_index=%u, base_disp_sz=%u, I=%x\n",
+    // slog("index_reg_type=%u, index_reg=%u, index_sz=%u, scale=%u, brief/ful=%u, supress_base=%u, suppress_index=%u, base_disp_sz=%u, I=%x\n",
         // d, r, w, s, F, b, i, z, I);
     
     if (F == 0) { // If this is the brief extension word

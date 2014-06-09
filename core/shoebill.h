@@ -86,8 +86,7 @@ void shoebill_restart (void);
 
 /* Call this after shoebill_initialize() to configure a video card */
 uint32_t shoebill_install_video_card(shoebill_config_t *config, uint8_t slotnum,
-                                     uint16_t width, uint16_t height,
-                                     double refresh_rate);
+                                     uint16_t width, uint16_t height);
 
 /* Get a video frame from a particular video card */
 shoebill_video_frame_info_t shoebill_get_video_frame(uint8_t slotnum, _Bool just_params);
@@ -115,6 +114,8 @@ void shoebill_mouse_click(uint8_t down);
 
 void shoebill_start();
 void shoebill_stop();
+
+void slog(const char *fmt, ...);
 
 uint8_t* shoebill_extract_kernel(const char *disk_path, const char *kernel_path, char *error_str, uint32_t *len);
 
@@ -229,11 +230,13 @@ uint8_t* shoebill_extract_kernel(const char *disk_path, const char *kernel_path,
 /*
  * alloc_pool.c
  */
-
+#define POOL_START_MAGIC 0x231eb4af
+#define POOL_END_MAGIC 0xb09f39f1
 #define POOL_ALLOC_TYPE 0
 #define POOL_CHILD_LINK 1
 #define POOL_HEAD 2
 typedef struct _alloc_pool_t {
+    uint32_t start_magic;
     struct _alloc_pool_t *prev, *next;
 
     union {
@@ -249,7 +252,7 @@ typedef struct _alloc_pool_t {
     } t;
     
     uint32_t type;
-    uint32_t magic;
+    uint32_t end_magic;
 } alloc_pool_t;
 
 void* p_alloc(alloc_pool_t *pool, uint64_t size);
@@ -576,8 +579,6 @@ typedef struct {
     uint8_t slotnum;
     _Bool connected;
     _Bool interrupts_enabled;
-    
-    long double interrupt_rate, last_fired; // FIXME: probably don't need these?
     
     void *ctx;
     card_names_t card_type;
@@ -972,8 +973,7 @@ void nubus_tfb_write_func(uint32_t, uint32_t, uint32_t, uint8_t);
 
 // Shoebill Virtual Video Card
 void nubus_video_init(void *_ctx, uint8_t slotnum,
-                      uint16_t width, uint16_t height, uint16_t scanline_width,
-                      double refresh_rate);
+                      uint16_t width, uint16_t height, uint16_t scanline_width);
 
 uint32_t nubus_video_read_func(const uint32_t rawaddr, const uint32_t size,
                                const uint8_t slotnum);

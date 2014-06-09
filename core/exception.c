@@ -45,7 +45,7 @@ void throw_long_bus_error(uint32_t addr, uint8_t is_write)
     // Save this value now, because lset() calls will reset it
     const uint8_t fc = shoe.logical_fc;
     
-    //printf("throw_long_bus_error(): I'm throwing a LONG bus error (at pc = 0x%08x)!\n", shoe.orig_pc);
+    //slog("throw_long_bus_error(): I'm throwing a LONG bus error (at pc = 0x%08x)!\n", shoe.orig_pc);
     
     // set supervisor bit
     set_sr_s(1);
@@ -60,7 +60,7 @@ void throw_long_bus_error(uint32_t addr, uint8_t is_write)
     
     // fetch vector handler address
     const uint32_t vector_addr = lget(shoe.vbr + vector_offset, 4);
-    //printf("throw_long_bus_error(): shoe.vbr=0x%08x, vector_addr=0x%08x, offending addr=0x%08x, shoe.op=0x%04x\n", shoe.vbr, vector_addr, addr, shoe.op);
+    //slog("throw_long_bus_error(): shoe.vbr=0x%08x, vector_addr=0x%08x, offending addr=0x%08x, shoe.op=0x%04x\n", shoe.vbr, vector_addr, addr, shoe.op);
     assert(!shoe.abort); // FIXME: I can't handle another exception here
     
     const uint16_t ssw = SSW_DF | (is_write ? 0 : SSW_IS_READ) | fc;
@@ -120,7 +120,7 @@ void throw_bus_error(uint32_t addr, uint8_t is_write)
     
     //dbg_state.running = 0;
     
-    //printf("throw_bus_error(): I'm throwing a bus error (at pc = 0x%08x)!\n", shoe.orig_pc);
+    //slog("throw_bus_error(): I'm throwing a bus error (at pc = 0x%08x)!\n", shoe.orig_pc);
     
     // set supervisor bit
     set_sr_s(1);
@@ -135,7 +135,7 @@ void throw_bus_error(uint32_t addr, uint8_t is_write)
     
     // fetch vector handler address
     const uint32_t vector_addr = lget(shoe.vbr + vector_offset, 4);
-    //printf("throw_bus_error(): shoe.vbr=0x%08x, vector_addr=0x%08x, offending addr=0x%08x, shoe.op=0x%04x, a7=0x%08x", shoe.vbr, vector_addr, addr, shoe.op, shoe.a[7]);
+    //slog("throw_bus_error(): shoe.vbr=0x%08x, vector_addr=0x%08x, offending addr=0x%08x, shoe.op=0x%04x, a7=0x%08x", shoe.vbr, vector_addr, addr, shoe.op, shoe.a[7]);
     assert(!shoe.abort); // FIXME: I can't handle another exception here
     
     const uint16_t ssw =
@@ -143,7 +143,7 @@ void throw_bus_error(uint32_t addr, uint8_t is_write)
         (is_write ? 0 : SSW_IS_READ) | // read or write
         fc; // a/ux 3.0.1 cares about this - the address space
     
-    //printf(" fc=%u\n", shoe.logical_fc);
+    //slog(" fc=%u\n", shoe.logical_fc);
     
     // Note: We're pushing frame format 0xA
     push_a7(0, 4); // internal registers 5 and 4
@@ -167,7 +167,7 @@ void throw_bus_error(uint32_t addr, uint8_t is_write)
 
 void throw_address_error()
 {
-    printf("throw_address_error(): I'm throwing an address error!\n");
+    slog("throw_address_error(): I'm throwing an address error!\n");
     assert(!"address error");
     shoe.abort = 1;
 }
@@ -217,7 +217,7 @@ void throw_frame_two (uint16_t sr, uint32_t next_pc, uint32_t vector_num, uint32
 
 void throw_illegal_instruction()
 {
-    //printf("throw_illegal_instruction(): I'm throwing an illegal instruction exception! (shoe.pc = 0x%08x, op=0x%04x, a7=0x%08x)\n", shoe.orig_pc, shoe.op, shoe.a[7]);
+    //slog("throw_illegal_instruction(): I'm throwing an illegal instruction exception! (shoe.pc = 0x%08x, op=0x%04x, a7=0x%08x)\n", shoe.orig_pc, shoe.op, shoe.a[7]);
     
     /*if ((shoe.op != 0xf010) && ((shoe.op >> 12) != 0xa))
         //assert(!"illegal");
@@ -231,7 +231,7 @@ void throw_illegal_instruction()
     throw_frame_zero(shoe.orig_sr, shoe.orig_pc, vector_num);
     
     /*if ((shoe.op >> 12) == 0xa) {
-        printf("Atrap: %s\n", atrap_names[shoe.op & 0xfff]?atrap_names[shoe.op & 0xfff]:"???");
+        slog("Atrap: %s\n", atrap_names[shoe.op & 0xfff]?atrap_names[shoe.op & 0xfff]:"???");
     }
     else
         dbg_state.running = 0;*/
@@ -240,7 +240,7 @@ void throw_illegal_instruction()
 
 void throw_privilege_violation()
 {
-    //printf("throw_privilege_violation(): I'm throwing a privilege violation exception! (shoe.orig_pc = 0x%08x op=0x%04x\n", shoe.orig_pc, shoe.op);
+    //slog("throw_privilege_violation(): I'm throwing a privilege violation exception! (shoe.orig_pc = 0x%08x op=0x%04x\n", shoe.orig_pc, shoe.op);
     
     throw_frame_zero(shoe.orig_sr, shoe.orig_pc, 8);
     // shoe.abort = 1;

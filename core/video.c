@@ -81,8 +81,7 @@ static void _switch_depth(shoebill_card_video_t *ctx, uint32_t depth)
 }
 
 void nubus_video_init(void *_ctx, uint8_t slotnum,
-                      uint16_t width, uint16_t height, uint16_t scanline_width,
-                      double refresh_rate)
+                      uint16_t width, uint16_t height, uint16_t scanline_width)
 {
     shoebill_card_video_t *ctx = (shoebill_card_video_t*)_ctx;
     ctx->width = width;
@@ -147,7 +146,7 @@ uint32_t nubus_video_read_func(const uint32_t rawaddr, const uint32_t size,
     // ROM and control registers
     if ((addr >> 20) == 0xf) {
         
-        printf("nubus_video_read_func: got a read to 0x%08x sz=%u\n", rawaddr, size);
+        slog("nubus_video_read_func: got a read to 0x%08x sz=%u\n", rawaddr, size);
         
         // ROM (0xFsFFxxxx)
         if ((addr >> 16) == 0xff) {
@@ -191,7 +190,7 @@ void nubus_video_write_func(const uint32_t rawaddr, const uint32_t size,
     // ROM and control registers
     if ((addr >> 20) == 0xf) {
         
-        printf("nubus_video_write_func: got a write to 0x%08x sz=%u data=0x%x\n", rawaddr, size, data);
+        slog("nubus_video_write_func: got a write to 0x%08x sz=%u data=0x%x\n", rawaddr, size, data);
         
         // ROM (0xFsFFxxxx)
         if ((addr >> 16) == 0xff)
@@ -231,33 +230,33 @@ void nubus_video_write_func(const uint32_t rawaddr, const uint32_t size,
                             assert(!"driver tried to set bogus depth");
                     }
                     _switch_depth(ctx, newdepth);
-                    printf("nubus_magic: set depth = %u\n", ctx->depth);
+                    slog("nubus_magic: set depth = %u\n", ctx->depth);
                     break;
                 }
                 case 2: { // Gray out screen
                     // FIXME: implement me
-                    printf("nubus_magic: grey screen\n");
+                    slog("nubus_magic: grey screen\n");
                     break;
                 }
                 case 3: { // Set clut index
                     ctx->clut_idx = data & 0xff;
                     // assert(ctx->clut_idx < 256);
-                    printf("nubus_magic: set clut_idx = %u\n", ctx->clut_idx);
+                    slog("nubus_magic: set clut_idx = %u\n", ctx->clut_idx);
                     break;
                 }
                 case 4: { // Set red component of clut
                     ctx->clut[ctx->clut_idx].r = (data >> 8) & 0xff;
-                    printf("nubus_magic: set %u.red = 0x%04x\n", ctx->clut_idx, data);
+                    slog("nubus_magic: set %u.red = 0x%04x\n", ctx->clut_idx, data);
                     break;
                 }
                 case 5: { // Set green component of clut
                     ctx->clut[ctx->clut_idx].g = (data >> 8) & 0xff;
-                    printf("nubus_magic: set %u.green = 0x%04x\n", ctx->clut_idx, data);
+                    slog("nubus_magic: set %u.green = 0x%04x\n", ctx->clut_idx, data);
                     break;
                 }
                 case 6: { // Set blue component of clut
                     ctx->clut[ctx->clut_idx].b = (data >> 8) & 0xff;
-                    printf("nubus_magic: set %u.blue = 0x%04x\n", ctx->clut_idx, data);
+                    slog("nubus_magic: set %u.blue = 0x%04x\n", ctx->clut_idx, data);
                     break;
                 }
             }

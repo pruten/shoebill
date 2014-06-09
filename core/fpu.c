@@ -257,7 +257,7 @@ void inst_fpu_decode ()
         return ;
     }
     
-    printf("inst_fpu_decode: unhandled instruction: %s op=0x%04x ext = 0x%04x pc=0x%08x\n", fpu_inst_table[name].name, shoe.op, ext, shoe.orig_pc);
+    slog("inst_fpu_decode: unhandled instruction: %s op=0x%04x ext = 0x%04x pc=0x%08x\n", fpu_inst_table[name].name, shoe.op, ext, shoe.orig_pc);
     assert(!"unknown fpu inst");
     //dbg_state.running = 0;
     
@@ -339,14 +339,14 @@ void inst_frestore(uint16_t op, uint16_t ext)
     else if ((word & 0xff) == 0x00b4)
         size = 0xb8; // BUSY state frame
     else {
-        printf("Frestore encountered an unknown state frame 0x%04x\n", word);
+        slog("Frestore encountered an unknown state frame 0x%04x\n", word);
         assert("inst_frestore: bad state frame");
         return ;
     }
     
     if (m==3) {
         shoe.a[r] += size;
-        printf("frestore: changing shoe.a[%u] += %u\n", r, size);
+        slog("frestore: changing shoe.a[%u] += %u\n", r, size);
     }
 }
 
@@ -480,7 +480,7 @@ void inst_fmovecr(uint16_t op, uint16_t ext)
     
     fpu_set_reg_cc(f, r);
     
-    printf("inst_fmovecr: set fp%u=%.30Lg\n", r, shoe.fp[r]);
+    slog("inst_fmovecr: set fp%u=%.30Lg\n", r, shoe.fp[r]);
     
     // fpu_finalize_exceptions();
 }
@@ -573,7 +573,7 @@ void inst_fmovem_control(uint16_t op, uint16_t ext)
             uint8_t newround = shoe.fpcr.b.mc_rnd;
             
             if (round != newround) {
-                printf("inst_fmovem_control: HEY: round %u -> %u\n", round, newround);
+                slog("inst_fmovem_control: HEY: round %u -> %u\n", round, newround);
             }
         }
         if (S) shoe.fpsr.raw = buf[i++];
@@ -593,7 +593,7 @@ void inst_fmovem_control(uint16_t op, uint16_t ext)
     
     
     
-    printf("inst_fmove_control: notice: (EA = %u/%u %08x CSI = %u%u%u)\n", m, r, (uint32_t)shoe.dat, C, S, I);
+    slog("inst_fmove_control: notice: (EA = %u/%u %08x CSI = %u%u%u)\n", m, r, (uint32_t)shoe.dat, C, S, I);
 }
 
 void dis_fmovem_control(uint16_t op, uint16_t ext)
@@ -670,7 +670,7 @@ void inst_fbcc(uint16_t op, uint16_t ext)
     }
     
     if (b) {
-        printf("inst_fbcc: fixme: Got a CC that wants to set BSUN, not implemented\n");
+        slog("inst_fbcc: fixme: Got a CC that wants to set BSUN, not implemented\n");
         //assert(0); // FIXME: implement BSUN, or uncomment this
     }
     
@@ -799,7 +799,7 @@ void inst_fmovem(uint16_t op, uint16_t ext)
         assert(p); // assert post-increment mask
     }
     
-    printf("inst_fmovem: pre=%08x mask=%08x EA=%u/%u addr=0x%08x size=%u %s\n", pre_mask, mask, m, r, addr, size, d?"to mem":"from mem");
+    slog("inst_fmovem: pre=%08x mask=%08x EA=%u/%u addr=0x%08x size=%u %s\n", pre_mask, mask, m, r, addr, size, d?"to mem":"from mem");
     
     if (d) {
         // Write those registers
@@ -810,16 +810,16 @@ void inst_fmovem(uint16_t op, uint16_t ext)
             uint8_t buf[12];
             x87_to_motorola(shoe.fp[i], buf);
             
-            printf("inst_fmovem: writing %Lf from fp%u", shoe.fp[i], i);
+            slog("inst_fmovem: writing %Lf from fp%u", shoe.fp[i], i);
             uint32_t j;
             for (j=0; j<12; j++) {
-                printf(" %02x", buf[j]);
+                slog(" %02x", buf[j]);
                 lset(addr, 1, buf[j]);
                 addr++;
                 if (shoe.abort)
                     return ;
             }
-            printf("\n");
+            slog("\n");
         }
     }
     else {
@@ -838,7 +838,7 @@ void inst_fmovem(uint16_t op, uint16_t ext)
             }
             shoe.fp[i] = motorola_to_x87(buf);
             
-            printf("inst_fmovem: read %Lf to fp%u\n", shoe.fp[i], i);
+            slog("inst_fmovem: read %Lf to fp%u\n", shoe.fp[i], i);
         }
     }
     
@@ -848,7 +848,7 @@ void inst_fmovem(uint16_t op, uint16_t ext)
     else if (m == 4)
         shoe.a[r] -= size;
     
-    //printf("inst_fmovem: notice: not implemented (EA = %u/%u, mask=0x%02x)\n", m, r, mask);
+    //slog("inst_fmovem: notice: not implemented (EA = %u/%u, mask=0x%02x)\n", m, r, mask);
     
 }
 
@@ -972,11 +972,11 @@ got_address:
         uint8_t *ptr = &buf[sizes[format]];
         uint32_t i;
         
-        printf("inst_f fpu_read_ea: format=%u, data =", format);
+        slog("inst_f fpu_read_ea: format=%u, data =", format);
         for (i=0; i<sizes[format]; i++) {
             ptr--;
             *ptr = lget(addr+i, 1);
-            printf(" %02x", *ptr);
+            slog(" %02x", *ptr);
             if (shoe.abort)
                 return 0.0;
         }
@@ -1023,7 +1023,7 @@ got_data:
     fpu_set_round();
     result = data;
     fpu_reset_round();
-    printf(" data=%Lf result=%Lf\n", data, result);
+    slog(" data=%Lf result=%Lf\n", data, result);
     return result;
 }
 
@@ -1047,7 +1047,7 @@ static void fpu_write_ea(uint8_t mr, uint8_t format, long double orig_data)
         return ;
     }
     
-    printf("inst_f fpu_write_ea EA=%u/%u data=%Lf format=%u\n", m, r, data, format);
+    slog("inst_f fpu_write_ea EA=%u/%u data=%Lf format=%u\n", m, r, data, format);
     
     // Convert to the appropriate format
     
@@ -1060,7 +1060,7 @@ static void fpu_write_ea(uint8_t mr, uint8_t format, long double orig_data)
         case format_W: {
             int16_t tmp = data;
             *((int16_t*)ptr) = tmp;
-            printf("inst_f fpu_write_ea formatted=%u (0x%04x)\n", *((int16_t*)ptr), *((uint16_t*)ptr));
+            slog("inst_f fpu_write_ea formatted=%u (0x%04x)\n", *((int16_t*)ptr), *((uint16_t*)ptr));
             break;
         }
         case format_L: {
@@ -1130,7 +1130,7 @@ write_to_mem:
     }
     
     // Copy the formatted data into the EA
-    printf("inst_f fpu_write_ea: addr=0x%08x\n", addr);
+    slog("inst_f fpu_write_ea: addr=0x%08x\n", addr);
     for (i=0; i < sizes[format]; i++) {
         lset(addr + i, 1, buf[i]);
         if (shoe.abort)
@@ -1208,7 +1208,7 @@ void inst_fmove(uint16_t op, uint16_t ext)
     }
     
     const uint8_t sizes[8] = {4, 4, 12, 12, 2, 8, 1, 12};
-    printf("inst_fmove src=%Lf size=%u a=%u z=%u to-mem=%u useEA=%u EA = %u/%u\n", data, sizes[format], a, z, V, E, m, r);
+    slog("inst_fmove src=%Lf size=%u a=%u z=%u to-mem=%u useEA=%u EA = %u/%u\n", data, sizes[format], a, z, V, E, m, r);
 }
 
 void dis_fnop(uint16_t op, uint16_t ext)
@@ -1274,50 +1274,50 @@ void inst_fmath(uint16_t op, uint16_t ext)
     
     if (src_in_ea) {
         source = fpu_read_ea(M, source_specifier);
-        printf("inst_fmath: source = %u/%u = %Lf", M>>3, M&7, source);
+        slog("inst_fmath: source = %u/%u = %Lf", M>>3, M&7, source);
         if ((M>>3) == 3)
-            printf(" a[%u]=0x%08x", M&7, shoe.a[M&7]);
+            slog(" a[%u]=0x%08x", M&7, shoe.a[M&7]);
         
         if (shoe.abort)
             return ;
     }
     else {
         source = shoe.fp[source_specifier];
-        printf("inst_fmath: source = fp%u = %Lf", source_specifier, source);
+        slog("inst_fmath: source = fp%u = %Lf", source_specifier, source);
     }
     
     dest = shoe.fp[dest_register];
-    printf("  dest = fp%u = %Lf\n", dest_register, dest);
+    slog("  dest = fp%u = %Lf\n", dest_register, dest);
     
     switch (e) {
         case ~b(0000001): assert(!"fpu_inst_fint;");
         case ~b(0000010): assert(!"fpu_inst_fsinh;");
         case ~b(0000011): // fpu_inst_fintrz
-            printf("inst_fintrz dest = %Lf source = %Lf\n", dest, source);
+            slog("inst_fintrz dest = %Lf source = %Lf\n", dest, source);
             result = truncl(source);
             break;
             
         case ~b(0000110): // flognp1
-            printf("inst_flognp1 dest = %Lf source = %Lf\n", dest, source);
+            slog("inst_flognp1 dest = %Lf source = %Lf\n", dest, source);
             assert(source > -1.0);
             result = log1pl(source);
             break;
         case ~b(0001000): assert(!"fpu_inst_fetoxm1;");
         case ~b(0001001): assert(!"fpu_inst_ftanh;");
         case ~b(0001010): // fatan
-            printf("inst_fatan dest = %Lf source = %Lf\n", dest, source);
+            slog("inst_fatan dest = %Lf source = %Lf\n", dest, source);
             result = atanl(source);
             break;
             
         case ~b(0001100): assert(!"fpu_inst_fasin;");
         case ~b(0001101): assert(!"fpu_inst_fatanh;");
         case ~b(0001110): // fsin
-            printf("inst_fsin dest = %Lf source = %Lf\n", dest, source);
+            slog("inst_fsin dest = %Lf source = %Lf\n", dest, source);
             result = sinl(source);
             break;
         case ~b(0001111): assert(!"fpu_inst_ftan;");
         case ~b(0010000): // fetox
-            printf("inst_fetox dest = %Lf source = %Lf\n", dest, source);
+            slog("inst_fetox dest = %Lf source = %Lf\n", dest, source);
             result = expl(source);
             break;
         case ~b(0010001): assert(!"fpu_inst_ftwotox;");
@@ -1328,7 +1328,7 @@ void inst_fmath(uint16_t op, uint16_t ext)
         case ~b(0011001): assert(!"fpu_inst_fcosh;");
         case ~b(0011100): assert(!"fpu_inst_facos;");
         case ~b(0011101): // fcos
-            printf("fpu_inst_fcos dest = %Lf source = %Lf\n", dest, source);
+            slog("fpu_inst_fcos dest = %Lf source = %Lf\n", dest, source);
             result = cosl(source);
             break;
             
@@ -1342,14 +1342,14 @@ void inst_fmath(uint16_t op, uint16_t ext)
             assert(source != 0.0);
             result = remainderl(dest, source);
             fpu_set_fpsr_quotient(dest, source, result);
-            printf("inst_frem: dest = %Lf source = %Lf quot = %u result = %Lf\n", dest, source, shoe.fpsr.b.qu_quotient, result);
+            slog("inst_frem: dest = %Lf source = %Lf quot = %u result = %Lf\n", dest, source, shoe.fpsr.b.qu_quotient, result);
             break;
         }
         case ~b(0100110): assert(!"fpu_inst_fscale;");
             
         case ~b(0111000): { // fpu_inst_fcmp
             const long double diff = dest - source;
-            printf("inst_fcmp: dest = %Lf source = %Lf\n", dest, source);
+            slog("inst_fcmp: dest = %Lf source = %Lf\n", dest, source);
             fpu_set_cc(diff);
             do_write_back_result = 0; // don't write result back to register
             break;
@@ -1365,7 +1365,7 @@ void inst_fmath(uint16_t op, uint16_t ext)
         case ~b(1100110):
             assert(!"can't handle");
         case ~b(0100010): { // fpu_inst_fadd
-            printf("inst_fadd dest = %Lf source = %Lf\n", dest, source);
+            slog("inst_fadd dest = %Lf source = %Lf\n", dest, source);
             result = dest + source;
             break;
         }
@@ -1375,7 +1375,7 @@ void inst_fmath(uint16_t op, uint16_t ext)
             assert(!"can't handle");
         case ~b(0100000): { // fpu_inst_fdiv
             assert(source != 0.0);
-            printf("inst_fdiv dest = %Lf source = %Lf\n", dest, source);
+            slog("inst_fdiv dest = %Lf source = %Lf\n", dest, source);
             
             result = dest / source;
             break;
@@ -1386,7 +1386,7 @@ void inst_fmath(uint16_t op, uint16_t ext)
         case ~b(1100111):
             assert(!"can't handle");
         case ~b(0100011): { // fpu_inst_fmul
-            printf("inst_fmul dest = %Lf source = %Lf\n", dest, source);
+            slog("inst_fmul dest = %Lf source = %Lf\n", dest, source);
             result = source * dest;
             break;
         }
@@ -1395,7 +1395,7 @@ void inst_fmath(uint16_t op, uint16_t ext)
         case ~b(1011110):
             assert(!"fneg: can't handle");
         case ~b(0011010): // fneg
-            printf("inst_fneg dest = %Lf source = %Lf\n", dest, source);
+            slog("inst_fneg dest = %Lf source = %Lf\n", dest, source);
             result = -source;
             break;
             
@@ -1403,7 +1403,7 @@ void inst_fmath(uint16_t op, uint16_t ext)
         case ~b(1000101):
             assert(!"can't handle");
         case ~b(0000100): { // fpu_inst_fsqrt
-            printf("inst_fsqrt dest = %Lf source = %Lf\n", dest, source);
+            slog("inst_fsqrt dest = %Lf source = %Lf\n", dest, source);
             result = sqrtl(source);
             break;
         }
@@ -1412,7 +1412,7 @@ void inst_fmath(uint16_t op, uint16_t ext)
         case ~b(1101100):
             assert(!"can't handle");
         case ~b(0101000): { // fpu_inst_fsub
-            printf("inst_fsub dest = %Lf source = %Lf\n", dest, source);
+            slog("inst_fsub dest = %Lf source = %Lf\n", dest, source);
             result = dest - source;
             break;
         }
@@ -1428,7 +1428,7 @@ void inst_fmath(uint16_t op, uint16_t ext)
     
     // Only write back the result if necessary (fcmp doesn't do this)
     if (do_write_back_result) {
-        printf("inst_fmath: result = %Lf\n", result);
+        slog("inst_fmath: result = %Lf\n", result);
         fpu_set_reg_cc(result, dest_register);
     }
 }

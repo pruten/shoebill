@@ -207,7 +207,7 @@ uint32_t nubus_tfb_read_func(const uint32_t rawaddr, const uint32_t size, const 
             if ((addr & 3) == 0) {
                 const uint32_t rom_addr = (addr >> 2) % 4096;
                 result = macii_video_rom[rom_addr];
-                printf("nubus_tfb_read_func: returning %x for addr %x (rom_addr=%x)\n", (uint32_t)result, shoe.physical_addr, rom_addr);
+                slog("nubus_tfb_read_func: returning %x for addr %x (rom_addr=%x)\n", (uint32_t)result, shoe.physical_addr, rom_addr);
             }
             else
                 result = 0;
@@ -220,21 +220,21 @@ uint32_t nubus_tfb_read_func(const uint32_t rawaddr, const uint32_t size, const 
             if (addr == 0xd0000) {
                 ctx->vsync++;
                 result = (ctx->vsync >> 7)&1;
-                printf("nubus_tfb_read_func: reading vsync bit shoe.pc=0x%08x\n", shoe.orig_pc);
+                slog("nubus_tfb_read_func: reading vsync bit shoe.pc=0x%08x\n", shoe.orig_pc);
                 // We just need to oscillate the vsync bit, to pretend we're going in and out of the blanking interval.
                 // The card driver waits until the bit goes low, then waits until it goes high
                 // FIXME: clean this up
                 break;
             }
             else {
-                printf("nubus_tfb_read_func: unknown read of *0x%08x\n", shoe.physical_addr);
+                slog("nubus_tfb_read_func: unknown read of *0x%08x\n", shoe.physical_addr);
                 result = 0;
                 break;
             }
         }
             
         default: {
-            printf("nubus_tfb_read_func: unknown read of *0x%08x\n", shoe.physical_addr);
+            slog("nubus_tfb_read_func: unknown read of *0x%08x\n", shoe.physical_addr);
             result = 0;
             break;
         }
@@ -281,14 +281,14 @@ void nubus_tfb_write_func(const uint32_t rawaddr, const uint32_t size,
                 return ;
             }
             else {
-                printf("video_nubus_set: unknown write to *0x%08x (0x%x)\n", shoe.physical_addr, data);
+                slog("video_nubus_set: unknown write to *0x%08x (0x%x)\n", shoe.physical_addr, data);
                 return ;
             }
         }
             
         case 0x9: { // CLUT registers?
             if (addr == 0x90018) { // CLUT
-                printf("clut[0x%03x (0x%02x+%u)] = 0x%02x\n", ctx->clut_idx, ctx->clut_idx/3, ctx->clut_idx%3, (uint8_t)(data & 0xff));
+                slog("clut[0x%03x (0x%02x+%u)] = 0x%02x\n", ctx->clut_idx, ctx->clut_idx/3, ctx->clut_idx%3, (uint8_t)(data & 0xff));
                 ctx->clut[ctx->clut_idx] = 255 - (data & 0xff);
             
                 ctx->clut_idx = (ctx->clut_idx == 0) ? 767 : ctx->clut_idx-1;
@@ -302,7 +302,7 @@ void nubus_tfb_write_func(const uint32_t rawaddr, const uint32_t size,
                 ctx->clut_idx = clut_dat * 3 + 2;
 
             }
-            printf("video_nubus_set: unknown write to *0x%08x (0x%x)\n", shoe.physical_addr, data);
+            slog("video_nubus_set: unknown write to *0x%08x (0x%x)\n", shoe.physical_addr, data);
             return ;
         }
             
@@ -314,7 +314,7 @@ void nubus_tfb_write_func(const uint32_t rawaddr, const uint32_t size,
         }
          
         default: {
-            printf("video_nubus_set: unknown write to *0x%08x (0x%x)\n", shoe.physical_addr, data);
+            slog("video_nubus_set: unknown write to *0x%08x (0x%x)\n", shoe.physical_addr, data);
             return ;
         }
     }

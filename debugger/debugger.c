@@ -861,8 +861,7 @@ int main (int argc, char **argv)
     shoebill_install_video_card(&config,
                                 9, // slotnum
                                 640, // 1024,
-                                480, // 768,
-                                60.0);
+                                480); // 768,
     
     // Start the VIA timer thread
     shoebill_start();
