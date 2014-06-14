@@ -55,7 +55,7 @@
 
 #else /* #if (defined __APPLE__) */
 
-#ifdef __LITTLE_ENDIAN__
+#if __BYTE_ORDER  == __LITTLE_ENDIAN
 #define ntohll(_x) ({uint64_t x = (_x); (((uint64_t)ntohl((uint32_t)x))<<32) | ntohl(x>>32);})
 #else
 #define ntohll(_x) (_x)
@@ -63,6 +63,19 @@
 
 #endif /* #if (defined __APPLE__) */
 #endif /* #if (defined WIN32) || (defined _WIN64) */
+
+#if __BYTE_ORDER  == __LITTLE_ENDIAN
+#define fix_endian(x) do { \
+    switch (sizeof(x)) { \
+        case 1: break; \
+        case 2: (x) = ntohs(x); break; \
+        case 4: (x) = ntohl(x); break; \
+        case 8: (x) = ntohll(x); break; \
+        default: assert(!"bogus size"); \
+}} while (0)
+#else
+#define fix_endian(x)
+#endif
 
 
 /*

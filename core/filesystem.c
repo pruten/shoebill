@@ -30,16 +30,6 @@
 #include <string.h>
 #include "../core/shoebill.h"
 
-#define fix_endian(x) do { \
-    if (ntohs(1) == 1) \
-        break; \
-    switch (sizeof(x)) { \
-        case 1: break; \
-        case 2: (x) = ntohs(x); break; \
-        case 4: (x) = ntohl(x); break; \
-        default: assert(!"bogus size"); \
-}} while (0)
-
 /* --- Disk/partition management stuff --- */
 #pragma mark Disk/partition management stuff
 

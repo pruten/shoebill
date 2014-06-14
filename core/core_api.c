@@ -238,18 +238,16 @@ static void _init_macintosh_lomem_globals (const uint32_t offset)
  */
 static void _init_kernel_info(shoebill_config_t *config, scsi_device_t *disks, uint32_t offset)
 {
-    struct kernel_info ki, *p;
-    uint32_t i, p_addr;
-    
-    p_addr = offset + 0x3c00;
-    p = (struct kernel_info*) (uint64_t)p_addr;
+    struct kernel_info ki;
+    const uint32_t ki_addr = offset + 0x3c00;
+    uint32_t i;
     
     /*
      * On boot, the kernel looks for this magic constant in d0 to see whether
      * the bootloader setup a kernel_info structure.
      */
     shoe.d[0] = 0x536d7201; // "Smr\1"? Something version 1?
-    shoe.a[0] = (uint32_t)p; // Address of the kernel_info structure
+    shoe.a[0] = (uint32_t)ki_addr; // Address of the kernel_info structure
     
     /* ----- Setup kernel info structure ------ */
     
@@ -312,37 +310,39 @@ static void _init_kernel_info(shoebill_config_t *config, scsi_device_t *disks, u
     ki.ki_version = 1;
     
     /* ----- Copy ki into memory ----- */
-#define ki_pset(_f) pset((uint32_t)&p->_f, sizeof(p->_f), ki._f)
-    ki_pset(auto_magic);
+    fix_endian(ki.auto_magic);
     for (i=0; i<16; i++) {
-        ki_pset(auto_id[i]);
-        ki_pset(auto_version[i]);
+        fix_endian(ki.auto_id[i]);
+        fix_endian(ki.auto_version[i]);
     }
-    ki_pset(auto_command);
+    fix_endian(ki.auto_command);
     
-    ki_pset(root_ctrl);
-    ki_pset(root_drive);
-    ki_pset(root_cluster);
+    fix_endian(ki.root_ctrl);
+    fix_endian(ki.root_drive);
+    fix_endian(ki.root_cluster);
     
     for (i=0; i<3; i++) {
-        ki_pset(si[i].vstart);
-        ki_pset(si[i].pstart);
-        ki_pset(si[i].size);
+        fix_endian(ki.si[i].vstart);
+        fix_endian(ki.si[i].pstart);
+        fix_endian(ki.si[i].size);
     }
     
-    ki_pset(machine_type);
-    ki_pset(drive_queue_offset);
-    ki_pset(ki_flags);
-    ki_pset(ki_version);
-    ki_pset(root_partition);
-    ki_pset(swap_ctrl);
-    ki_pset(swap_drive);
-    ki_pset(swap_partition);
+    fix_endian(ki.machine_type);
+    fix_endian(ki.drive_queue_offset);
+    fix_endian(ki.ki_flags);
+    fix_endian(ki.ki_version);
+    fix_endian(ki.root_partition);
+    fix_endian(ki.swap_ctrl);
+    fix_endian(ki.swap_drive);
+    fix_endian(ki.swap_partition);
+    
+    for (i=0; i<sizeof(struct kernel_info); i++)
+        pset(ki_addr+i, 1, ((uint8_t*)&ki)[i]);
     
     /* ---- Copy DrvQEl elements into memory ---- */
     // FIXME: btw, this is probably wrong. DrvQEl elements are supposed to be partitions, I think
     
-    uint32_t addr = p_addr + sizeof(struct kernel_info);
+    uint32_t addr = ki_addr + sizeof(struct kernel_info);
     uint32_t num_disks = 0;
     for (i=0; i<7; i++)
         if (disks[i].f) num_disks++;
