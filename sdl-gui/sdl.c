@@ -36,13 +36,13 @@ static void _init_keyboard_map (void)
 {
     #define mapkeymod(u, a, m) do { \
         assert((a >> 7) == 0); \
-        void *value = (void*)(((m) << 8)| (a)); \
-        rb_insert(keymap, u, value, NULL); \
+        uint16_t value = ((m) << 8)| (a); \
+        rb_insert(keymap, u, &value, NULL); \
     } while (0)
         
     #define mapkey(_u, a) mapkeymod(_u, a, 0)
     
-    keymap = rb_new(p_new_pool(NULL));
+    keymap = rb_new(p_new_pool(NULL), sizeof(uint16_t));
     
     // Letters
     mapkey('a', 0x00);
@@ -269,7 +269,7 @@ static _Bool _setup_shoebill (void)
     uint32_t i;
     shoebill_config_t config;
     
-    bzero(&config, sizeof(shoebill_config_t));
+    memset(&config, 0, sizeof(shoebill_config_t));
     
     config.aux_verbose = user_params.verbose;
     config.ram_size = user_params.ram_megabytes * 1024 * 1024;
@@ -299,7 +299,7 @@ static void _handle_key_event (SDL_Event *event)
     const _Bool key_down = (event->type == SDL_KEYDOWN);
     const SDL_Keymod sdl_mod = SDL_GetModState();
     uint16_t adb_mod = 0;
-    void *_value;
+    uint16_t value;
     
     if (sdl_mod & KMOD_SHIFT) adb_mod |= modShift;
     if (sdl_mod & KMOD_CTRL) adb_mod |= modControl;
@@ -307,8 +307,7 @@ static void _handle_key_event (SDL_Event *event)
     if (sdl_mod & KMOD_GUI) adb_mod |= modCommand;
     if (sdl_mod & KMOD_CAPS) adb_mod |= modCapsLock;
     
-    if (rb_find(keymap, sym, &_value)) {
-        const uint16_t value = (uint16_t)_value;
+    if (rb_find(keymap, sym, &value)) {
         shoebill_key_modifier((value >> 8) | adb_mod);
         shoebill_key(key_down, value & 0xff);
     }

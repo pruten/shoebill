@@ -32,6 +32,7 @@
 #include <unistd.h>
 #include <signal.h>
 #include <stdarg.h>
+#include <time.h>
 #include "../core/shoebill.h"
 
 
@@ -55,13 +56,15 @@ void shoebill_stop()
     pthread_join(shoe.via_thread_pid, NULL);
     pthread_mutex_destroy(&shoe.via_clock_thread_lock);
     
-    pthread_kill(shoe.cpu_thread_pid, SIGUSR2); // wake up the CPU thread if it was STOPPED
-    pthread_mutex_lock(&shoe.cpu_thread_lock);
-    pthread_mutex_unlock(&shoe.cpu_thread_lock);
+    unstop_cpu_thread(); // wake up the CPU thread if it was STOPPED
+    
     pthread_join(shoe.cpu_thread_pid, NULL);
     pthread_mutex_destroy(&shoe.cpu_thread_lock);
     
     pthread_mutex_destroy(&shoe.via_cpu_lock);
+    
+    pthread_mutex_destroy(&shoe.cpu_stop_mutex);
+    pthread_cond_destroy(&shoe.cpu_stop_cond);
     
     shoe.running = 0;
     
@@ -79,15 +82,30 @@ void shoebill_stop()
     memset(&shoe, 0, sizeof(shoe));
 }
 
-void _sigusr2 (int p)
+static void _await_interrupt (void)
 {
-    return ;
+    struct timeval now;
+    struct timespec later;
+    
+    assert(pthread_mutex_lock(&shoe.cpu_stop_mutex) == 0);
+    
+    gettimeofday(&now, NULL);
+    later.tv_sec = now.tv_sec;
+    later.tv_nsec = (now.tv_usec * 1000) + (1000000000 / 60);
+    if (later.tv_nsec >= 1000000000) {
+        later.tv_nsec -= 1000000000;
+        later.tv_sec++;
+    }
+    
+    /* Only wait for (1/60) seconds - an interrupt should have fired by then */
+    pthread_cond_timedwait(&shoe.cpu_stop_cond,
+                           &shoe.cpu_stop_mutex,
+                           &later);
+    assert(pthread_mutex_unlock(&shoe.cpu_stop_mutex) == 0);
 }
 
 void *_cpu_thread (void *arg)
 {
-    signal(SIGUSR2, _sigusr2);
-    
     pthread_mutex_lock(&shoe.cpu_thread_lock);
     
     while (1) {
@@ -105,7 +123,7 @@ void *_cpu_thread (void *arg)
             }
             
             if (shoe.cpu_thread_notifications & SHOEBILL_STATE_STOPPED) {
-                sleep(1);
+                _await_interrupt();
                 continue;
             }
         }
@@ -364,7 +382,7 @@ static uint32_t _load_rom (shoebill_config_t *config, uint8_t **_rom_data, uint3
 {
     uint32_t i, rom_size;
     uint8_t *rom_data = (uint8_t*)p_alloc(shoe.pool, 64 * 1024);
-    FILE *f = fopen(config->rom_path, "r");
+    FILE *f = fopen(config->rom_path, "rb");
     
     if (f == NULL) {
         sprintf(config->error_msg, "Couldn't open rom path [%s]\n", config->rom_path);
@@ -429,7 +447,7 @@ static uint32_t _open_disk_images (shoebill_config_t *config, scsi_device_t *dis
         
         if (!path) continue;
         
-        FILE *f = fopen(path, "r+");
+        FILE *f = fopen(path, "r+b");
         
         if (f == NULL) {
             sprintf(config->error_msg, "Couldn't open scsi id #%u disk [%s]\n", i, path);
@@ -757,15 +775,19 @@ uint32_t shoebill_initialize(shoebill_config_t *config)
     memcpy(shoe.scsi_devices, disks, 8 * sizeof(scsi_device_t));
     
     pthread_mutex_init(&shoe.via_cpu_lock, NULL);
-    
     pthread_mutex_init(&shoe.via_clock_thread_lock, NULL);
+    
     pthread_mutex_lock(&shoe.via_clock_thread_lock);
     pthread_create(&shoe.via_thread_pid, NULL, via_clock_thread, NULL);
     
     /*
      * config->debug_mode is a hack - the debugger implements its own CPU thread
      */
+    
+    pthread_cond_init(&shoe.cpu_stop_cond, NULL);
+    pthread_mutex_init(&shoe.cpu_stop_mutex, NULL);
     pthread_mutex_init(&shoe.cpu_thread_lock, NULL);
+    
     pthread_mutex_lock(&shoe.cpu_thread_lock);
     if (!config->debug_mode)
         pthread_create(&shoe.cpu_thread_pid, NULL, _cpu_thread, NULL);
@@ -861,7 +883,7 @@ void shoebill_restart (void)
     assert(coff && "can't parse the kernel");
     
     // Re-open the root disk image
-    shoe.scsi_devices[0].f = fopen(shoe.scsi_devices[0].image_path, "r+");
+    shoe.scsi_devices[0].f = fopen(shoe.scsi_devices[0].image_path, "r+b");
     assert(shoe.scsi_devices[0].f && "couldn't reopen the disk image at scsi id #0"); // FIXME: and this
     
     shoe.coff = coff;

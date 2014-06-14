@@ -97,7 +97,7 @@ void nubus_video_init(void *_ctx, uint8_t slotnum,
     
     // Set the depth and clut for B&W
     _switch_depth(ctx, 1);
-    bzero(ctx->clut, 256 * 4);
+    memset(ctx->clut, 0, 256 * 4);
     ctx->clut[0].r = 0xff;
     ctx->clut[0].g = 0xff;
     ctx->clut[0].b = 0xff;

@@ -585,9 +585,8 @@ void global_passive_motion_func (int x, int y)
 
 void global_keyboard_up_func (unsigned char c, int x, int y)
 {
-    void *_value;
-    if (rb_find(keymap, c, &_value)) {
-        const uint16_t value = (uint16_t)_value;
+    uint16_t value;
+    if (rb_find(keymap, c, &value)) {
         shoebill_key_modifier((value >> 8) | (_get_modifiers() >> 16));
         shoebill_key(0, value & 0xff);
     }
@@ -595,9 +594,8 @@ void global_keyboard_up_func (unsigned char c, int x, int y)
 
 void global_keyboard_down_func (unsigned char c, int x, int y)
 {
-    void *_value;
-    if (rb_find(keymap, c, &_value)) {
-        const uint16_t value = (uint16_t)_value;
+    uint16_t value;
+    if (rb_find(keymap, c, &value)) {
         shoebill_key_modifier((value >> 8) | (_get_modifiers() >> 16));
         shoebill_key(1, value & 0xff);
     }
@@ -659,13 +657,13 @@ static void _init_keyboard_map (void)
 {
     #define mapkeymod(u, a, m) do { \
         assert((a >> 7) == 0); \
-        void *value = (void*)(((m) << 8)| (a)); \
-        rb_insert(keymap, u, value, NULL); \
+        uint16_t value = ((m) << 8)| (a); \
+        rb_insert(keymap, u, &value, NULL); \
     } while (0)
     
     #define mapkey(_u, a) mapkeymod(_u, a, 0)
 
-    keymap = rb_new(p_new_pool(NULL));
+    keymap = rb_new(p_new_pool(NULL), sizeof(uint16_t));
     
     // Letters
     mapkey('a', 0x00);

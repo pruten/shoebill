@@ -71,8 +71,7 @@ void via_raise_interrupt(uint8_t vianum, uint8_t ifr_bit)
     
     // if the CPU was stopped, wake it up
     if (shoe.cpu_thread_notifications & SHOEBILL_STATE_STOPPED) {
-        if (!shoe.config_copy.debug_mode)
-            pthread_kill(shoe.cpu_thread_pid, SIGUSR2);
+        unstop_cpu_thread();
     }
 }
 

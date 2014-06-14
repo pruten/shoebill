@@ -33,11 +33,41 @@
 #include <pthread.h>
 
 
+#if (defined WIN32) || (defined _WIN64)
+
+#ifndef ntohl
+/* Assumes that all windows platforms are little endian */
+#define ntohs(_v) ({const uint16_t v = (_v); (v>>8) | (v<<8);})
+#define ntohl(_v) ({const uint32_t v = (_v); (v>>24) | (((v>>16)&0xff)<<8) | (((v>>8)&0xff)<<16) | ((v&0xff)<<24);})
+#define ntohll(_x) ({uint64_t x = (_x); (((uint64_t)ntohl((uint32_t)x))<<32) | ntohl(x>>32);})
+#define htons(_v) ntohs(_v)
+#define htonl(_v) ntohl(_v)
+#endif
+
+#else /* #if (defined WIN32) || (defined _WIN64) */
+#include <arpa/inet.h>
+
+#if (defined __APPLE__)
+
+#include <machine/endian.h>
+#include <libkern/OSByteOrder.h>
+#define ntohll(x) OSSwapBigToHostInt64(x)
+
+#else /* #if (defined __APPLE__) */
+
+#ifdef __LITTLE_ENDIAN__
+#define ntohll(_x) ({uint64_t x = (_x); (((uint64_t)ntohl((uint32_t)x))<<32) | ntohl(x>>32);})
+#else
+#define ntohll(_x) (_x)
+#endif
+
+#endif /* #if (defined __APPLE__) */
+#endif /* #if (defined WIN32) || (defined _WIN64) */
+
 
 /*
  * core_api.c stuff
  */
-
 
 
 typedef void (*shoebill_pram_callback_t) (void *param, const uint8_t addr, const uint8_t byte);
@@ -266,27 +296,26 @@ alloc_pool_t* p_new_pool(alloc_pool_t *parent_pool);
  */
 
 typedef uint32_t rb_key_t;
-typedef void* rb_value_t;
 
 typedef struct _rb_node {
     struct _rb_node *left, *right, *parent;
     rb_key_t key;
-    rb_value_t value;
     uint8_t is_red : 1;
 } rb_node;
 
 typedef struct {
     rb_node *root;
     alloc_pool_t *pool;
+    uint32_t sz;
 } rb_tree;
 
 
-rb_tree* rb_new(alloc_pool_t *pool);
+rb_tree* rb_new(alloc_pool_t *pool, uint32_t sz);
 void rb_free (rb_tree *tree);
 
-uint8_t rb_insert (rb_tree *root, rb_key_t key, rb_value_t value, rb_value_t *old_value);
-uint8_t rb_find (rb_tree *tree, rb_key_t key, rb_value_t *value);
-uint8_t rb_index (rb_tree *tree, uint32_t index, rb_key_t *key, rb_value_t *value);
+uint8_t rb_insert (rb_tree *root, rb_key_t key, void *value, void *old_value);
+uint8_t rb_find (rb_tree *tree, rb_key_t key, void *value);
+uint8_t rb_index (rb_tree *tree, uint32_t index, rb_key_t *key, void *value);
 uint32_t rb_count (rb_tree *tree);
 
 
@@ -600,6 +629,12 @@ typedef struct {
     
 } via_clock_t;
 
+#define unstop_cpu_thread() do {\
+    assert(pthread_mutex_lock(&shoe.cpu_stop_mutex) == 0); \
+    assert(pthread_cond_signal(&shoe.cpu_stop_cond) == 0); \
+    assert(pthread_mutex_unlock(&shoe.cpu_stop_mutex) == 0); \
+} while (0)
+
 typedef struct {
     
     _Bool running;
@@ -614,8 +649,11 @@ typedef struct {
     
     pthread_mutex_t cpu_thread_lock;
     pthread_mutex_t via_clock_thread_lock; // synchronizes shoebill_start() and the starting of via_clock_thread()
-    pthread_mutex_t cpu_freeze_lock;
     pthread_mutex_t via_cpu_lock; // synchronizes reads/writes of VIA registers and via_clock_thread()
+    
+    // The pthread condition/mutex pair for yielding CPU on STOP, and waking up upon receiving an interrupt
+    pthread_mutex_t cpu_stop_mutex;
+    pthread_cond_t cpu_stop_cond;
     
     // -- Assorted CPU state variables --
     uint16_t op; // the first word of the instruction we're currently running

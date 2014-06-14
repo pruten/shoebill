@@ -32,15 +32,15 @@
 
 #define mapkeymod(u, a, m) do { \
     assert((a >> 7) == 0); \
-    void *value = (void*)(((m) << 8)| (a)); \
-    rb_insert(keymap, u, value, NULL); \
+    uint16_t value = ((m) << 8)| (a); \
+    rb_insert(keymap, u, &value, NULL); \
 } while (0) \
 
 #define mapkey(_u, a) mapkeymod(_u, a, 0)
 
 - (void)initKeyboardMap
 {
-    keymap = rb_new(p_new_pool(NULL));
+    keymap = rb_new(p_new_pool(NULL), sizeof(uint16_t));
     
     // Letters
     mapkey('a', 0x00);
@@ -178,13 +178,12 @@
             NSString *chars = [[event charactersIgnoringModifiers] lowercaseString];
             NSUInteger modifierFlags = [event modifierFlags];
             unichar c = [chars characterAtIndex:0];
-            void *_value;
+            uint16_t value;
             
             if (keymap == NULL)
                 [self initKeyboardMap];
             
-            if (rb_find(keymap, c, &_value)) {
-                uint16_t value = (uint16_t)_value;
+            if (rb_find(keymap, c, &value)) {
                 shoebill_key_modifier((value >> 8) | (modifierFlags >> 16));
                 shoebill_key((type == NSKeyDown), value & 0xff);
                 

@@ -14,7 +14,7 @@ int main (int argc, char **argv)
         return 0;
     }
     
-    assert(in = fopen(argv[1], "r"));
+    assert(in = fopen(argv[1], "rb"));
     assert(out = fopen(argv[2], "w"));
     
     assert(fread(rom, 4096, 1, in) == 1);

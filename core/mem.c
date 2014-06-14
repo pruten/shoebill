@@ -24,19 +24,9 @@
  */
 
 #include <stdio.h>
-#include <arpa/inet.h>
 #include <assert.h>
 #include <stdlib.h>
 #include "../core/shoebill.h"
-
-#ifdef __APPLE__
-#include <machine/endian.h>
-#include <libkern/OSByteOrder.h>
-#define ntohll(x) OSSwapBigToHostInt64(x)
-
-#elif (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__)
-#define ntohll(_x) ({uint64_t x = (_x); (((uint64_t)ntohl((uint32_t)x))<<32) | ntohl(x>>32);})
-#endif
 
 /* --- Physical_get jump table --- */
 #pragma mark Physical_get jump table

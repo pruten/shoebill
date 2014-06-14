@@ -32,7 +32,7 @@
 #include "shoebill.h"
 
 void symb_inorder(rb_node *cur) {
-    const coff_symbol *sym = (coff_symbol*)cur->value;
+    const coff_symbol *sym = *(coff_symbol**)&cur[1];
     if (!sym) 
         return ;
     symb_inorder(cur->left);
@@ -177,7 +177,7 @@ coff_file* coff_parse(uint8_t *buf, uint32_t buflen, alloc_pool_t *parent_pool)
     if (cf->num_symbols == 0) // if num_symbols==0, symtab_offset may be bogus
         return cf; // just return
     
-    cf->func_tree = rb_new(cf->pool);
+    cf->func_tree = rb_new(cf->pool, sizeof(coff_symbol*));
     //slog("func_tree = %llx, *func_tree = %llx\n", cf->func_tree, *cf->func_tree);
     cf->symbols = (coff_symbol*)p_alloc(cf->pool, sizeof(coff_symbol) *cf->num_symbols);
     
@@ -242,7 +242,8 @@ coff_file* coff_parse(uint8_t *buf, uint32_t buflen, alloc_pool_t *parent_pool)
         
     
         if (cf->symbols[i].sclass == 2 || cf->symbols[i].sclass == 3) {
-            rb_insert(cf->func_tree, cf->symbols[i].value, &cf->symbols[i], NULL);
+            void *ptr = &cf->symbols[i];
+            rb_insert(cf->func_tree, cf->symbols[i].value, &ptr, NULL);
             //slog("%s addr=0x%x\n", cf->symbols[i].name, cf->symbols[i].value);
         }
         // slog("%u: %s (class=%u)\n", i+1, cf->symbols[i].name, cf->symbols[i].sclass);
@@ -274,7 +275,7 @@ fail:
 
 coff_file* coff_parse_from_path(const char *path, alloc_pool_t *parent_pool)
 {
-    FILE *f = fopen(path, "r");
+    FILE *f = fopen(path, "rb");
     uint8_t *buf = malloc(1);
     uint32_t i=0, tmp;
     coff_file *coff;
@@ -343,11 +344,11 @@ coff_symbol* coff_find_func(coff_file *coff, uint32_t addr)
         if (addr < cur->key) 
             cur = cur->left;
         else if (addr > cur->key) {
-            last = cur->value;
+            last = *(coff_symbol**)&cur[1];
             cur = cur->right;
         }
         else
-            return cur->value;
+            return *(coff_symbol**)&cur[1];
     }
     
     return last;

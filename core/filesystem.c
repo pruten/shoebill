@@ -207,7 +207,7 @@ static disk_t* open_disk (const char *disk_path, char *error_str)
     disk->error_str = error_str;
     disk->path = disk_path;
     
-    f = fopen(disk_path, "r");
+    f = fopen(disk_path, "rb");
     if (f == NULL) {
         sprintf(error_str, "Can't open that path");
         goto fail;
@@ -1306,7 +1306,7 @@ done:
     if (!buf)
         return 0;
     
-    FILE *f = fopen("result", "w");
+    FILE *f = fopen("result", "wb");
     fwrite(buf, size, 1, f);
     fclose(f);
     
