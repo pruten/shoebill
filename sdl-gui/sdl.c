@@ -195,7 +195,7 @@ struct {
     
     uint32_t height, width;
     uint32_t ram_megabytes;
-    _Bool verbose;
+    _Bool verbose, use_tfb;
 } user_params;
 
 #define equals_arg(name) keylen = strlen(name); value = argv[i]+keylen; if (strncmp((name), argv[i], keylen) == 0)
@@ -214,9 +214,16 @@ static void _init_user_params (int argc, char **argv)
     user_params.width = 800;
     user_params.ram_megabytes = 16;
     user_params.verbose = 1;
+    user_params.use_tfb = 0;
     
     
     for (i=1; i<argc; i++) {
+        key = "toby"; // Whether to use the "toby frame buffer" card, instead of the regular shoebill video card
+        if(strncmp(key, argv[i], strlen(key)) == 0) {
+            user_params.use_tfb = 1;
+            continue;
+        }
+        
         key = "ram=";
         if (strncmp(key, argv[i], strlen(key)) == 0) {
             user_params.ram_megabytes = strtoul(argv[i]+strlen(key), NULL, 10);
@@ -284,10 +291,16 @@ static _Bool _setup_shoebill (void)
         return 0;
     }
     
-    shoebill_install_video_card(&config,
-                                9, // slotnum
-                                user_params.width, // 1024,
-                                user_params.height); // 768,
+    if (user_params.use_tfb) {
+        shoebill_install_tfb_card(&config, 9);
+    }
+    else {
+        shoebill_install_video_card(&config,
+                                    9, // slotnum
+                                    user_params.width,
+                                    user_params.height);
+    }
+    
 
     shoebill_start();
     return 1;

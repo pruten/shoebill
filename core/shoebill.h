@@ -131,6 +131,8 @@ void shoebill_restart (void);
 uint32_t shoebill_install_video_card(shoebill_config_t *config, uint8_t slotnum,
                                      uint16_t width, uint16_t height);
 
+uint32_t shoebill_install_tfb_card(shoebill_config_t *config, uint8_t slotnum);
+
 /* Get a video frame from a particular video card */
 shoebill_video_frame_info_t shoebill_get_video_frame(uint8_t slotnum, _Bool just_params);
 
@@ -493,22 +495,6 @@ typedef struct {
     uint8_t changed;
 } mouse_state_t;
 
-/*typedef struct {
-    uint8_t *buf_base;
-    uint32_t buf_size;
-    
-    uint32_t h_offset; // offset in bytes for each horizontal line
-    
-    uint8_t vsync;
-    
-    // unit8_t via_interrupt_flag;
-    
-    uint8_t depth;
-    uint8_t clut[256 * 3];
-    uint32_t clut_idx;
-    
-} video_state_t;*/
-
 typedef struct {
     // lsb==phase0, msb==L7
     uint8_t latch;
@@ -592,15 +578,15 @@ typedef struct {
     
     uint32_t pixels;
     
-    uint16_t width, height, scanline_width;
+    uint16_t width, height, scanline_width, line_offset;
     
     uint16_t depth, clut_idx;
-    
-    double refresh_rate;
 } shoebill_card_video_t;
 
 typedef struct {
-    uint8_t *frame_buffer;
+    uint8_t *direct_buf, *temp_buf, *clut, *rom;
+    uint16_t depth, clut_idx, line_offset;
+    uint8_t vsync;
 } shoebill_card_tfb_t;
 
 typedef struct {
@@ -1018,9 +1004,11 @@ struct macii_rom_symbols_t {
 extern const struct macii_rom_symbols_t macii_rom_symbols[];
 
 // Emulated Toby Frame Buffer nubus card
-void nubus_tfb_init(uint8_t slotnum);
+void nubus_tfb_init(void *_ctx, uint8_t slotnum);
 uint32_t nubus_tfb_read_func(uint32_t, uint32_t, uint8_t);
 void nubus_tfb_write_func(uint32_t, uint32_t, uint32_t, uint8_t);
+shoebill_video_frame_info_t nubus_tfb_get_frame(shoebill_card_tfb_t *ctx,
+                                                _Bool just_params);
 
 // Shoebill Virtual Video Card
 void nubus_video_init(void *_ctx, uint8_t slotnum,
@@ -1030,6 +1018,8 @@ uint32_t nubus_video_read_func(const uint32_t rawaddr, const uint32_t size,
                                const uint8_t slotnum);
 void nubus_video_write_func(const uint32_t rawaddr, const uint32_t size,
                             const uint32_t data, const uint8_t slotnum);
+shoebill_video_frame_info_t nubus_video_get_frame(shoebill_card_video_t *ctx,
+                                                  _Bool just_params);
 
 
 

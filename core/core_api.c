@@ -259,7 +259,7 @@ static void _init_kernel_info(shoebill_config_t *config, scsi_device_t *disks, u
     }
     
     // FIXME: I need to stick the auto_id for each nubus card in here
-    // ki.auto_id[0xb] = 0x5; // Macintosh II video card has an auto_id of 5 (I guess?)
+    // ki.auto_id[9] = 0x5; // Macintosh II video card has an auto_id of 5 (I guess?)
     
     ki.auto_command = config->aux_autoconfig; // AUTO_NONE/AUTO_CONFIG
     
@@ -553,110 +553,49 @@ uint32_t shoebill_install_video_card(shoebill_config_t *config, uint8_t slotnum,
     return 1;
 }
 
-static void _do_clut_translation(shoebill_card_video_t *ctx)
+uint32_t shoebill_install_tfb_card(shoebill_config_t *config, uint8_t slotnum)
 {
-    uint32_t i;
+    shoebill_card_tfb_t *ctx;
     
-    switch (ctx->depth) {
-        case 1: {
-            for (i=0; i < ctx->pixels/8; i++) {
-                const uint8_t byte = ctx->direct_buf[i];
-                ctx->temp_buf[i * 8 + 0] = ctx->clut[(byte >> 7) & 1];
-                ctx->temp_buf[i * 8 + 1] = ctx->clut[(byte >> 6) & 1];
-                ctx->temp_buf[i * 8 + 2] = ctx->clut[(byte >> 5) & 1];
-                ctx->temp_buf[i * 8 + 3] = ctx->clut[(byte >> 4) & 1];
-                ctx->temp_buf[i * 8 + 4] = ctx->clut[(byte >> 3) & 1];
-                ctx->temp_buf[i * 8 + 5] = ctx->clut[(byte >> 2) & 1];
-                ctx->temp_buf[i * 8 + 6] = ctx->clut[(byte >> 1) & 1];
-                ctx->temp_buf[i * 8 + 7] = ctx->clut[(byte >> 0) & 1];
-            }
-            break;
-        }
-        case 2: {
-            for (i=0; i < ctx->pixels/4; i++) {
-                const uint8_t byte = ctx->direct_buf[i];
-                ctx->temp_buf[i * 4 + 0] = ctx->clut[(byte >> 6) & 3];
-                ctx->temp_buf[i * 4 + 1] = ctx->clut[(byte >> 4) & 3];
-                ctx->temp_buf[i * 4 + 2] = ctx->clut[(byte >> 2) & 3];
-                ctx->temp_buf[i * 4 + 3] = ctx->clut[(byte >> 0) & 3];
-            }
-            break;
-        }
-        case 4: {
-            for (i=0; i < ctx->pixels/2; i++) {
-                const uint8_t byte = ctx->direct_buf[i];
-                ctx->temp_buf[i * 2 + 0] = ctx->clut[(byte >> 4) & 0xf];
-                ctx->temp_buf[i * 2 + 1] = ctx->clut[(byte >> 0) & 0xf];
-            }
-            break;
-        }
-        case 8: {
-            for (i=0; i < ctx->pixels; i++)
-                ctx->temp_buf[i] = ctx->clut[ctx->direct_buf[i]];
-            break;
-        }
-        case 16: {
-            uint16_t *direct = (uint16_t*)ctx->direct_buf;
-            for (i=0; i < ctx->pixels; i++) {
-                const uint16_t p = ntohs(direct[i]);
-                video_ctx_color_t tmp;
-                tmp.r = ((p >> 10) & 31);
-                tmp.g = (p >> 5) & 31;
-                tmp.b = (p >> 0) & 31;
-                
-                ctx->temp_buf[i].r = (tmp.r << 3) | (tmp.r >> 2);
-                ctx->temp_buf[i].g = (tmp.g << 3) | (tmp.g >> 2);
-                ctx->temp_buf[i].b = (tmp.b << 3) | (tmp.b >> 2);
-                
-            }
-            break;
-        }
-            
-        case 32: {
-            uint32_t *direct = (uint32_t*)ctx->direct_buf, *tmp = (uint32_t*)ctx->temp_buf;
-            for (i=0; i < ctx->pixels; i++)
-                tmp[i] = direct[i] >> 8;
-            
-            
-            // OpenGL wants RGBA
-            // Apple must be ARGB (which is BGRA, when dereferenced)
-            break;
-        }
-            
-        default:
-            assert(!"unsupported depth");
-            
+    if (shoe.slots[slotnum].card_type != card_none) {
+        sprintf(config->error_msg, "This slot (%u) already has a card\n", slotnum);
+        return 0;
     }
+    
+    ctx = p_alloc(shoe.pool, sizeof(shoebill_card_tfb_t));
+    shoe.slots[slotnum].ctx = ctx;
+    
+    shoe.slots[slotnum].card_type = card_toby_frame_buffer;
+    
+    shoe.slots[slotnum].connected = 1;
+    shoe.slots[slotnum].read_func = nubus_tfb_read_func;
+    shoe.slots[slotnum].write_func = nubus_tfb_write_func;
+    shoe.slots[slotnum].interrupts_enabled = 1;
+    nubus_tfb_init(ctx, slotnum);
+    return 1;
 }
 
 shoebill_video_frame_info_t shoebill_get_video_frame(uint8_t slotnum,
                                                      _Bool just_params)
 {
-    shoebill_card_video_t *ctx = (shoebill_card_video_t*)shoe.slots[slotnum].ctx;
     shoebill_video_frame_info_t result;
-    
-    assert(shoe.slots[slotnum].card_type == card_shoebill_video); // TBF not supported yet
     
     if (!shoe.running) {
         memset(&result, 0, sizeof(result));
         return result;
     }
     
-    result.width = ctx->width;
-    result.height = ctx->height;
-    result.scan_width = ctx->scanline_width;
-    result.depth = ctx->depth;
+    void *ctx = shoe.slots[slotnum].ctx;
     
-    // If caller just wants video parameters...
-    if (just_params)
-        return result;
+    if (shoe.slots[slotnum].card_type == card_toby_frame_buffer)
+        return nubus_tfb_get_frame(ctx, just_params);
+    else if (shoe.slots[slotnum].card_type == card_shoebill_video)
+        return nubus_video_get_frame(ctx, just_params);
     
-    _do_clut_translation(ctx);
-    result.buf = (uint8_t*)ctx->temp_buf;
+    assert(!"Unknown card type");
     
+    memset(&result, 0, sizeof(result));
     return result;
-    
-    
 }
 
 /*

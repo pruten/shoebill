@@ -19,7 +19,7 @@ int main (int argc, char **argv)
     
     assert(fread(rom, 4096, 1, in) == 1);
     
-    fprintf(out, "uint8_t _video_rom[4096] = {\n\t");
+    fprintf(out, "static uint8_t _video_rom[4096] = {\n\t");
     for (i=0; i<4095; i++) {
         fprintf(out, "0x%02x, ", rom[i]);
         if ((i % 8) == 7)

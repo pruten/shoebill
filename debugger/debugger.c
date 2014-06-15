@@ -784,9 +784,9 @@ static void _init_keyboard_map (void)
 
 static void _init_glut_video (void)
 {
-    shoebill_card_video_t *ctx = (shoebill_card_video_t*)shoe.slots[9].ctx;
+    shoebill_video_frame_info_t frame = shoebill_get_video_frame(9, 1);
     
-    glutInitWindowSize(ctx->width, ctx->height);
+    glutInitWindowSize(frame.width, frame.height);
     glutCreateWindow("Shoebill");
     glutDisplayFunc(_display_func);
     glutIgnoreKeyRepeat(1);
@@ -812,9 +812,9 @@ static void _init_glut_video (void)
     glLoadIdentity();
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
-    glOrtho(0, ctx->width, 0, ctx->height, -1.0, 1.0);
+    glOrtho(0, frame.width, 0, frame.height, -1.0, 1.0);
     
-    glViewport(0, 0,  ctx->width, ctx->height);
+    glViewport(0, 0,  frame.width, frame.height);
     
 }
 
@@ -838,12 +838,12 @@ int main (int argc, char **argv)
     config.debug_mode = 1;
      
     config.aux_verbose = 1;
-    config.ram_size = 8 * 1024 * 1024;
+    config.ram_size = 16 * 1024 * 1024;
     config.aux_kernel_path = "/unix";
     config.rom_path = "../priv/macii.rom";
     
-    config.scsi_devices[0].path = "../priv/aux_3.0.1.img";
-    config.scsi_devices[1].path = "../priv/marathon.img";
+    config.scsi_devices[0].path = "../priv/aux_beta_compacted.img";
+    //config.scsi_devices[1].path = "../priv/marathon.img";
     
     /*dbg_state.ring_len = 256 * 1024 * 1024;
     dbg_state.ring = malloc(dbg_state.ring_len);
@@ -856,10 +856,12 @@ int main (int argc, char **argv)
     
     _init_keyboard_map();
     
-    shoebill_install_video_card(&config,
+    /*shoebill_install_video_card(&config,
                                 9, // slotnum
                                 640, // 1024,
-                                480); // 768,
+                                480);*/ // 768,
+    
+    shoebill_install_tfb_card(&config, 9);
     
     // Start the VIA timer thread
     shoebill_start();
