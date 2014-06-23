@@ -349,7 +349,7 @@ static void scsi_buf_set (uint8_t byte)
                     (shoe.scsi.buf[1] << 16) |
                     (shoe.scsi.buf[2] << 8 ) |
                     (shoe.scsi.buf[3]);
-                const uint8_t len = shoe.scsi.buf[4];
+                const uint16_t len = (shoe.scsi.buf[4]==0) ? 0x100 : shoe.scsi.buf[4]; // len==0 -> 256 sectors
                 
                 assert(dev->f);
                 
@@ -380,7 +380,7 @@ static void scsi_buf_set (uint8_t byte)
                     (shoe.scsi.buf[1] << 16) |
                     (shoe.scsi.buf[2] << 8 ) |
                     (shoe.scsi.buf[3]);
-                const uint8_t len = shoe.scsi.buf[4];
+                const uint16_t len = (shoe.scsi.buf[4]==0) ? 0x100 : shoe.scsi.buf[4]; // len==0 -> 256 sectors
                 
                 slog("scsi_buf_set: Responding to write at off=%u len=%u\n", offset, len);
                 
