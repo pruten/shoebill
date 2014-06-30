@@ -9,10 +9,10 @@ Shoebill requires OS X, a Macintosh II, IIx or IIcx ROM, and a disk image with A
 [Download the latest release], and then see the [getting started] wiki.  
 Also check out [screenshots].
 
-__Update (May 24, 2014): [Shoebill 0.0.3 is available]__
+__Update (June 30, 2014): [Shoebill 0.0.4 is available]__
 
 ####Supports
-* A/UX 1.1.1 through 3.0.0 (but not 3.0.1 or higher, yet)
+* A/UX 1.1.1 through 3.1
 
 ####Currently Implements
 * 68020 CPU (mostly)
@@ -20,20 +20,19 @@ __Update (May 24, 2014): [Shoebill 0.0.3 is available]__
 * 68851 PMMU (just enough to boot A/UX)
 * SCSI
 * ADB
-* A NuBus video card with 8-bit resolution
-* PRAM (as of v0.0.3)
+* PRAM
+* A NuBus video card with 24-bit depth
 
 #### Does not implement (yet)
 * Sound
 * Floppy
 * Serial ports
 * Ethernet
-* VIA timers
-* Support for multiple screens, or 16/24-bit resolutions
+* Support for multiple screens
 
     
 [Download the latest release]:https://github.com/pruten/Shoebill/releases
 [getting started]:https://github.com/pruten/Shoebill/wiki/Getting-Started
 [screenshots]:https://github.com/pruten/Shoebill/wiki/Screenshots
-[Shoebill 0.0.3 is available]:https://github.com/pruten/Shoebill/releases
+[Shoebill 0.0.4 is available]:https://github.com/pruten/Shoebill/releases
 
