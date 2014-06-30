@@ -139,6 +139,9 @@ shoebill_video_frame_info_t shoebill_get_video_frame(uint8_t slotnum, _Bool just
 /* Call this after rendering a video frame to send a VBL interrupt */
 void shoebill_send_vbl_interrupt(uint8_t slotnum);
 
+/* Call to validate input pram and zap if invalid */
+void shoebill_validate_or_zap_pram(uint8_t *pram, _Bool forcezap);
+
 /*
  * These keyboard modifier constants match the ones used
  * in NSEvent shifted right by 16 bits.
@@ -1021,6 +1024,8 @@ void nubus_video_write_func(const uint32_t rawaddr, const uint32_t size,
 shoebill_video_frame_info_t nubus_video_get_frame(shoebill_card_video_t *ctx,
                                                   _Bool just_params);
 
-
+// Sound (Apple Sound Chip)
+void sound_dma_write_raw(uint16_t addr, uint8_t sz, uint32_t data);
+uint32_t sound_dma_read_raw(uint16_t addr, uint8_t sz);
 
 #endif // _SHOEBILL_H

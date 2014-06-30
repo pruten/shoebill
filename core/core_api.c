@@ -259,7 +259,7 @@ static void _init_kernel_info(shoebill_config_t *config, scsi_device_t *disks, u
     }
     
     // FIXME: I need to stick the auto_id for each nubus card in here
-    // ki.auto_id[9] = 0x5; // Macintosh II video card has an auto_id of 5 (I guess?)
+    ki.auto_id[9] = 0x0050; // Macintosh II video card has an auto_id of 5 (I guess?)
     
     ki.auto_command = config->aux_autoconfig; // AUTO_NONE/AUTO_CONFIG
     
@@ -967,6 +967,21 @@ void shoebill_send_vbl_interrupt(uint8_t slotnum)
     }
 }
 
+void shoebill_validate_or_zap_pram(uint8_t *pram, _Bool forcezap)
+{
+    if (!forcezap) {
+        if (memcmp(pram + 0xc, "NuMc", 4) == 0)
+            return ;
+    }
+    
+    memset(pram, 0, 256);
+    memcpy(pram + 0xc, "NuMc", 4); // Mark PRAM as "valid"
+    
+    /*
+     * Set text box I-beam blink speed and mouse acceleration to something reasonable
+     */
+    pram[9] = 0x88;
+}
 
 void slog(const char *fmt, ...)
 {

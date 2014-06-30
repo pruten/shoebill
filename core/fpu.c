@@ -424,24 +424,41 @@ static void fpu_set_reg_cc(long double f, uint8_t r)
     fpu_set_cc(fpu_set_reg(f, r));
 }
 
-static long double fpu_bytes_to_long_double(uint8_t bytes[12])
+static void x87_to_motorola(long double x87, uint8_t motorola[12])
 {
-    volatile long double f;
-    uint8_t *ptr = (uint8_t*)&f;
+    uint8_t *x87_ptr = (uint8_t*)&x87;
+    motorola[0] = x87_ptr[9];
+    motorola[1] = x87_ptr[8];
+    motorola[2] = 0;
+    motorola[3] = 0;
+    motorola[4] = x87_ptr[7];
+    motorola[5] = x87_ptr[6];
+    motorola[6] = x87_ptr[5];
+    motorola[7] = x87_ptr[4];
+    motorola[8] = x87_ptr[3];
+    motorola[9] = x87_ptr[2];
+    motorola[10] = x87_ptr[1];
+    motorola[11] = x87_ptr[0];
+}
+
+static long double motorola_to_x87(const uint8_t motorola[12])
+{
+    uint8_t x87[12];
     
-    ptr[9] = bytes[0];
-    ptr[8] = bytes[1];
+    x87[11] = 0;
+    x87[10] = 0;
+    x87[9] = motorola[0];
+    x87[8] = motorola[1];
     
-    ptr[7] = bytes[4];
-    ptr[6] = bytes[5];
-    ptr[5] = bytes[6];
-    ptr[4] = bytes[7];
-    ptr[3] = bytes[8];
-    ptr[2] = bytes[9];
-    ptr[1] = bytes[10];
-    ptr[0] = bytes[11];
-    
-    return f;
+    x87[7] = motorola[4];
+    x87[6] = motorola[5];
+    x87[5] = motorola[6];
+    x87[4] = motorola[7];
+    x87[3] = motorola[8];
+    x87[2] = motorola[9];
+    x87[1] = motorola[10];
+    x87[0] = motorola[11];
+    return *(long double*)&x87[0];
 }
 
 void inst_fmovecr(uint16_t op, uint16_t ext)
@@ -476,7 +493,7 @@ void inst_fmovecr(uint16_t op, uint16_t ext)
     }
     
     // The constants in the 68881's ROM must be in the "intermediate" format, because they're rounded differently based on fpcr.rnd
-    const long double f = fpu_bytes_to_long_double(c->dat[shoe.fpcr.b.mc_rnd]);
+    const long double f = motorola_to_x87(c->dat[shoe.fpcr.b.mc_rnd]);
     
     fpu_set_reg_cc(f, r);
     
@@ -705,43 +722,6 @@ void dis_fbcc(uint16_t op, uint16_t ext)
     const uint32_t addr = dis.orig_pc + 2 + displacement;
     
     sprintf(dis.str, "fb%s.%c *0x%08x", fpu_cc_names[c], "wl"[s], addr);
-}
-
-static void x87_to_motorola(long double x87, uint8_t motorola[12])
-{
-    uint8_t *x87_ptr = (uint8_t*)&x87;
-    motorola[0] = x87_ptr[9];
-    motorola[1] = x87_ptr[8];
-    motorola[2] = 0;
-    motorola[3] = 0;
-    motorola[4] = x87_ptr[7];
-    motorola[5] = x87_ptr[6];
-    motorola[6] = x87_ptr[5];
-    motorola[7] = x87_ptr[4];
-    motorola[8] = x87_ptr[3];
-    motorola[9] = x87_ptr[2];
-    motorola[10] = x87_ptr[1];
-    motorola[11] = x87_ptr[0];
-}
-
-static long double motorola_to_x87(const uint8_t motorola[12])
-{
-    uint8_t x87[12];
-    
-    x87[11] = 0;
-    x87[10] = 0;
-    x87[9] = motorola[0];
-    x87[8] = motorola[1];
-    
-    x87[7] = motorola[4];
-    x87[6] = motorola[5];
-    x87[5] = motorola[6];
-    x87[4] = motorola[7];
-    x87[3] = motorola[8];
-    x87[2] = motorola[9];
-    x87[1] = motorola[10];
-    x87[0] = motorola[11];
-    return *(long double*)&x87[0];
 }
 
 static void reverse_order(uint8_t *buf, const uint32_t size)
@@ -1236,14 +1216,9 @@ void dis_fmove(uint16_t op, uint16_t ext)
     
 }
 
-void dis_dyadic(uint16_t op, uint16_t ext)
+void dis_fmath(uint16_t op, uint16_t ext)
 {
-    sprintf(dis.str, "dyadic fpu???");
-}
-
-void dis_monadic(uint16_t op, uint16_t ext)
-{
-    sprintf(dis.str, "monadic fpu??");
+    sprintf(dis.str, "fmath ??");
 }
 
 static void fpu_set_fpsr_quotient(long double a, long double b, long double result)
@@ -1290,7 +1265,24 @@ void inst_fmath(uint16_t op, uint16_t ext)
     slog("  dest = fp%u = %Lf\n", dest_register, dest);
     
     switch (e) {
-        case ~b(0000001): assert(!"fpu_inst_fint;");
+        case ~b(0000001): {// fpu_inst_fint
+            const uint8_t dir = shoe.fpcr.b.mc_rnd;
+            
+            // {FE_TONEAREST, FE_TOWARDZERO, FE_DOWNWARD, FE_UPWARD};
+            
+            if (dir == 0)
+                result = roundl(source);
+            else if (dir == 1)
+                result = truncl(source);
+            else if (dir == 2)
+                result = floorl(source);
+            else
+                result = ceill(source);
+            
+            slog("inst_fint: source = %Lf result = %Lf round=%u\n", source, result, dir);
+            
+            break;
+        }
         case ~b(0000010): assert(!"fpu_inst_fsinh;");
         case ~b(0000011): // fpu_inst_fintrz
             slog("inst_fintrz dest = %Lf source = %Lf\n", dest, source);
@@ -1332,11 +1324,29 @@ void inst_fmath(uint16_t op, uint16_t ext)
             result = cosl(source);
             break;
             
-        case ~b(0011110): assert(!"fpu_inst_fgetexp;");
+        case ~b(0011110): {// fpu_inst_fgetexp
+            if (!((source > 0) || (source < 0)))
+                result = source; // positive or negative zero
+            else if (!isfinite(source)) {
+                assert(!"fgetexp: isinfl(source)");
+                // returns NAN and an exception bit - not implemented for the moment
+            }
+            else {
+                // Extract the debiased exponent from the 80-bit source
+                uint8_t motorola[12];
+                x87_to_motorola(source, motorola);
+                int32_t exp = (motorola[0] & 0x7f) << 8;
+                exp |= motorola[1];
+                exp -= 16383; // debias
+                result = exp;
+            }
+            break;
+        }
         case ~b(0011111): assert(!"fpu_inst_fgetman;");
         case ~b(0100001):
             // don't forget to set fpu_set_fpsr_quotient();
             assert(!"fpu_inst_fmod;");
+            
         case ~b(0100100): assert(!"fpu_inst_fsgldiv;");
         case ~b(0100101): { // fpu_inst_frem
             assert(source != 0.0);
@@ -1354,12 +1364,20 @@ void inst_fmath(uint16_t op, uint16_t ext)
             do_write_back_result = 0; // don't write result back to register
             break;
         }
-        case ~b(0111010): assert(!"fpu_inst_ftst;");
+        case ~b(0111010): { // fpu_inst_ftst
+            slog("fpu_inst_ftst: dest = %Lf\n");
+            fpu_set_cc(source);
+            do_write_back_result = 0; // don't write result back to register
+            break;
+        }
             
-        case ~b(0011000):
-        case ~b(1011000):
         case ~b(1011100):
-            assert(!"fpu_inst_fabs;");
+        case ~b(1011000):
+            assert(!"inst_fabs: can't handle");
+        case ~b(0011000):// fpu_inst_fabs
+            result = fabsl(source);
+            slog("inst_fabs: source=%Lf result=%Lf\n", source, result);
+            break;
             
         case ~b(1100010):
         case ~b(1100110):
@@ -1419,6 +1437,9 @@ void inst_fmath(uint16_t op, uint16_t ext)
             
         case ~b(0110000) ... ~b(0110111):
             assert(!"fpu_inst_fsincos;");
+        
+        default:
+            assert(!"inst_fmath: unknown instruction");
     }
     
     // Finalize the read, if source was in memory
@@ -1467,36 +1488,48 @@ void fpu_setup_jump_table()
     fpu_inst_table[fpu_inst_fsave].emu = inst_fsave;
     fpu_inst_table[fpu_inst_fsave].dis = dis_fsave;
     
-    const fpu_inst_name_t monadic[] = {
+    const fpu_inst_name_t _fmath[] = {
+        fpu_inst_fsincos,
+        fpu_inst_fint,
+        fpu_inst_fsinh,
         fpu_inst_fintrz,
-        fpu_inst_fsqrt,
         fpu_inst_flognp1,
-        fpu_inst_fetox,
-        fpu_inst_fsin,
-        fpu_inst_fcos,
-        fpu_inst_fneg,
+        fpu_inst_fetoxm1,
+        fpu_inst_ftanh,
         fpu_inst_fatan,
-    };
-    
-    const fpu_inst_name_t dyadic[] = {
+        fpu_inst_fatanh,
+        fpu_inst_fsin,
+        fpu_inst_ftan,
+        fpu_inst_fetox,
+        fpu_inst_ftwotox,
+        fpu_inst_ftentox,
+        fpu_inst_flogn,
+        fpu_inst_flog10,
+        fpu_inst_flog2,
+        fpu_inst_fcosh,
+        fpu_inst_facos,
+        fpu_inst_fcos,
+        fpu_inst_fgetexp,
+        fpu_inst_fgetman,
+        fpu_inst_fmod,
+        fpu_inst_fsgldiv,
+        fpu_inst_frem,
+        fpu_inst_fscale,
         fpu_inst_fcmp,
+        fpu_inst_ftst,
+        fpu_inst_fabs,
         fpu_inst_fadd,
         fpu_inst_fdiv,
         fpu_inst_fmul,
-        fpu_inst_fsub,
-        fpu_inst_frem,
+        fpu_inst_fneg,
+        fpu_inst_fsqrt,
+        fpu_inst_fsub
     };
     
-    for (i=0; i < sizeof(monadic) / sizeof(monadic[0]); i++) {
-        fpu_inst_table[monadic[i]].emu = inst_fmath;
-        fpu_inst_table[monadic[i]].dis = dis_monadic;
+    for (i=0; i < sizeof(_fmath) / sizeof(fpu_inst_name_t); i++) {
+        fpu_inst_table[_fmath[i]].emu = inst_fmath;
+        fpu_inst_table[_fmath[i]].dis = dis_fmath;
     }
-    
-    for (i=0; i < sizeof(dyadic) / sizeof(dyadic[0]); i++) {
-        fpu_inst_table[dyadic[i]].emu = inst_fmath;
-        fpu_inst_table[dyadic[i]].dis = dis_dyadic;
-    }
-    
 }
 
 

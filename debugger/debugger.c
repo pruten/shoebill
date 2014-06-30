@@ -45,6 +45,8 @@ struct dbg_state_t {
     
     char *ring;
     uint32_t ring_i, ring_len;
+    
+    uint64_t op_count[0x10000];
 
 };
 
@@ -842,7 +844,8 @@ int main (int argc, char **argv)
     config.aux_kernel_path = "/unix";
     config.rom_path = "../priv/macii.rom";
     
-    config.scsi_devices[0].path = "../priv/aux_beta_compacted.img";
+
+    config.scsi_devices[0].path = "../priv/aux3.0.1.img";
     //config.scsi_devices[1].path = "../priv/marathon.img";
     
     /*dbg_state.ring_len = 256 * 1024 * 1024;
@@ -856,12 +859,10 @@ int main (int argc, char **argv)
     
     _init_keyboard_map();
     
-    /*shoebill_install_video_card(&config,
+    shoebill_install_video_card(&config,
                                 9, // slotnum
                                 640, // 1024,
-                                480);*/ // 768,
-    
-    shoebill_install_tfb_card(&config, 9);
+                                480); // 768,
     
     // Start the VIA timer thread
     shoebill_start();

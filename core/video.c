@@ -180,13 +180,58 @@ uint32_t nubus_video_read_func(const uint32_t rawaddr, const uint32_t size,
     return result;
 }
 
-
+void _gray_page(shoebill_card_video_t *ctx)
+{
+    uint32_t h, w, i;
+    
+    if (ctx->depth <= 8) {
+        uint16_t pat;
+        uint8_t *ptr = ctx->direct_buf;
+        uint32_t width_bytes = (ctx->depth * ctx->scanline_width) / 8;
+        switch (ctx->depth) {
+            case 1:
+                pat = 0xaaaa;
+                break;
+            case 2:
+                pat = 0xcccc;
+                break;
+            case 4:
+                pat = 0xf0f0;
+                break;
+            case 8:
+                pat = 0x00ff;
+                break;
+        }
+        
+        for (h=0; h<ctx->height; h++) {
+            for (w=0; w < width_bytes; w++)
+                ptr[w] = pat >> ((w&1)*8);
+            ptr += width_bytes;
+            pat ^= 0xffff;
+        }
+    }
+    else if (ctx->depth == 16) {
+        const uint16_t fill_word = htons(0x4210);
+        uint16_t *ptr = (uint16_t*)ctx->direct_buf;
+        for (i=0; i < (ctx->width * ctx->height); i++)
+            ptr[i] = fill_word;
+    }
+    else if (ctx->depth == 32) {
+        const uint32_t fill_long = htonl(0x00808080);
+        uint32_t *ptr = (uint32_t*)ctx->direct_buf;
+        for (i=0; i < (ctx->width * ctx->height); i++)
+            ptr[i] = fill_long;
+    }
+    else
+        assert(!"unknown depth");
+}
 
 void nubus_video_write_func(const uint32_t rawaddr, const uint32_t size,
                             const uint32_t data, const uint8_t slotnum)
 {
     shoebill_card_video_t *ctx = (shoebill_card_video_t*)shoe.slots[slotnum].ctx;
     const uint32_t addr = rawaddr & 0x00ffffff;
+    uint32_t i;
     
     // ROM and control registers
     if ((addr >> 20) == 0xf) {
@@ -234,8 +279,10 @@ void nubus_video_write_func(const uint32_t rawaddr, const uint32_t size,
                     slog("nubus_magic: set depth = %u\n", ctx->depth);
                     break;
                 }
-                case 2: { // Gray out screen
-                    // FIXME: implement me
+                case 2: { // Gray out screen buffer
+                    
+                    _gray_page(ctx);
+                    
                     slog("nubus_magic: grey screen\n");
                     break;
                 }
@@ -260,6 +307,31 @@ void nubus_video_write_func(const uint32_t rawaddr, const uint32_t size,
                     slog("nubus_magic: set %u.blue = 0x%04x\n", ctx->clut_idx, data);
                     break;
                 }
+                case 7: { // Set interrupts
+                    shoe.slots[slotnum].interrupts_enabled = (data != 0);
+                    slog("nubus_magic: interrupts_enabled = %u\n",
+                         shoe.slots[slotnum].interrupts_enabled);
+                    break;
+                }
+                case 8: { // Debug
+                    slog("video_debug: 0x%08x\n", data);
+                    break;
+                }
+                case 9: { // Gray out CLUT
+                    if (!data) break;
+                    for (i=0; i<256; i++) {
+                        ctx->clut[i].r = 0x80;
+                        ctx->clut[i].g = 0x80;
+                        ctx->clut[i].b = 0x80;
+                    }
+                    break;
+                }
+                case 10: { // Use luminance (a.k.a. setGray)
+                    slog("nubus_magic: use_luminance = %u\n", data);
+                    // FIXME: not implemented
+                    break;
+                }
+                    
             }
         }
         

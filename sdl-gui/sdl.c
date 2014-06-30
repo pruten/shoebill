@@ -27,9 +27,16 @@
 #include <assert.h>
 #include <string.h>
 #include <pthread.h>
+#include <unistd.h>
+#include <errno.h>
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_opengl.h>
 #include "../core/shoebill.h"
+
+static void _print_vers(void)
+{
+    printf("Shoebill v0.0.4 - http://github.com/pruten/shoebill - Peter Rutenbar (c) 2014\n\n");
+}
 
 rb_tree *keymap;
 static void _init_keyboard_map (void)
@@ -188,17 +195,113 @@ static void _display_frame (SDL_Window *win)
     SDL_GL_SwapWindow(win);
 }
 
+struct shoe_app_pram_data_t {
+    uint8_t pram[256];
+    FILE *f;
+    pthread_t threadid;
+    volatile _Bool updated, tear_down_thread;
+};
+
 struct {
     const char *scsi_path[8];
     const char *rom_path;
     const char *relative_unix_path;
+    const char *pram_path;
     
     uint32_t height, width;
     uint32_t ram_megabytes;
     _Bool verbose, use_tfb;
+    
+    struct shoe_app_pram_data_t pram_data;
 } user_params;
 
 #define equals_arg(name) keylen = strlen(name); value = argv[i]+keylen; if (strncmp((name), argv[i], keylen) == 0)
+
+#if !((defined WIN32) || (defined _WIN64))
+#include <sys/types.h>
+#include <pwd.h>
+#include <uuid/uuid.h>
+#endif
+
+static char* _get_home_dir (const char *terminal_element)
+{
+    char *result = NULL;
+    
+#if (defined WIN32) || (defined _WIN64)
+    if (getenv("USERPROFILE") != NULL) {
+        result = malloc(strlen(getenv("USERPROFILE")) + strlen(terminal_element) + 32);
+        sprintf(result, "%s\\%s", getenv("USERPROFILE"), terminal_element);
+        goto done;
+    }
+    
+    if (getenv("HOMEDRIVE") && getenv("HOMEPATH")) {
+        result = malloc(strlen(getenv("HOMEDRIVE")) + strlen(getenv("HOMEPATH")) + strlen(terminal_element) + 32);
+        sprintf(result, "%s\\%s\\%s", getenv("HOMEDRIVE"), getenv("HOMEPATH"), terminal_element);
+        goto done;
+    }
+    
+#else
+    
+    if (getenv("HOME") != NULL)  {
+        result = malloc(strlen(getenv("HOME")) + strlen(terminal_element) + 32);
+        sprintf(result, "%s/%s", getenv("HOME"), terminal_element);
+        goto done;
+    }
+    
+    struct passwd *pwd = getpwuid(getuid());
+    if (pwd) {
+        result = malloc(strlen(pwd->pw_dir) + strlen(terminal_element) + 32);
+        sprintf(result, "%s/%s", pwd->pw_dir, terminal_element);
+        goto done;
+    }
+    
+#endif
+    
+done:
+    
+    // printf("_get_home_dir: debug: %s\n", result);
+    
+    return result;
+}
+
+static void _print_help (void)
+{
+    printf("Arguments have the form name=value.\n");
+    printf("\n");
+    printf("rom=<path to Mac II ROM>\n");
+    printf("Specifies the path to a Macintosh II ROM.\n");
+    printf("E.g. rom=/home/foo/macii.rom\n");
+    printf("\n");
+    printf("disk0..disk6=<path to disk image>\n");
+    printf("Specifies the path to a disk image for the given SCSI ID. Shoebill will always boot from disk0, so make sure disk0 points to a bootable A/UX image.\n");
+    printf("E.g. disk0=/home/foo/aux3.img disk1=/blah.img\n");
+    printf("\n");
+    printf("ram=<megabytes of memory>\n");
+    printf("E.g. ram=16\n");
+    printf("\n");
+    printf("height=<num pixels>\n");
+    printf("Specifies the height of the screen in pixels.\n");
+    printf("\n");
+    printf("width=<num pixels>\n");
+    printf("Specifies the width of the screen in pixels.\n");
+    printf("\n");
+    printf("pram-path=<path to PRAM file>\n");
+    printf("Defaults to ~/.shoebill_pram\n");
+    printf("\n");
+    printf("verbose=<1 or 0>\n");
+    printf("Whether to boot A/UX in verbose mode. Best to leave it at default (1).\n");
+    printf("\n");
+    printf("unix-path=<path to kernel on disk0>\n");
+    printf("Path to the kernel file on the root disk image. Best to leave it at default (/unix).\n");
+    printf("\n");
+    printf("\n");
+    printf("Examples:\n");
+    printf("\n");
+    printf("shoebill.exe disk0=C:\\aux3.img rom=C:\\macii.rom width=1024 height=768 ram=64\n");
+    printf("\n");
+    printf("./shoebill disk0=/aux3.img rom=/macii.rom width=1024 height=768 ram=64\n");
+    printf("\n");
+}
 
 static void _init_user_params (int argc, char **argv)
 {
@@ -216,8 +319,26 @@ static void _init_user_params (int argc, char **argv)
     user_params.verbose = 1;
     user_params.use_tfb = 0;
     
+    user_params.pram_path = _get_home_dir(".shoebill_pram");
+    
+    if (argc < 2) {
+        _print_help();
+        exit(0);
+    }
     
     for (i=1; i<argc; i++) {
+        key = "-h";
+        if (strncmp(key, argv[i], strlen(key)) == 0) {
+            _print_help();
+            exit(0);
+        }
+        
+        key = "help";
+        if (strncmp(key, argv[i], strlen(key)) == 0) {
+            _print_help();
+            exit(0);
+        }
+        
         key = "toby"; // Whether to use the "toby frame buffer" card, instead of the regular shoebill video card
         if(strncmp(key, argv[i], strlen(key)) == 0) {
             user_params.use_tfb = 1;
@@ -260,6 +381,12 @@ static void _init_user_params (int argc, char **argv)
             continue;
         }
         
+        key = "pram-path=";
+        if (strncmp(key, argv[i], strlen(key)) == 0) {
+            user_params.pram_path = argv[i] + strlen(key);
+            continue;
+        }
+        
         if ((strncmp("disk", argv[i], 4) == 0) && (isdigit(argv[i][4])) && (argv[i][5] == '=')) {
             uint8_t scsi_num = argv[i][4] - '0';
             if (scsi_num < 7) {
@@ -270,6 +397,32 @@ static void _init_user_params (int argc, char **argv)
     }
     
 }
+
+void _pram_callback (void *param, const uint8_t addr, const uint8_t byte)
+{
+    struct shoe_app_pram_data_t *pram_data = (struct shoe_app_pram_data_t*)param;
+    pram_data->pram[addr] = byte;
+    pram_data->updated = 1;
+}
+
+
+void* _pram_writer_thread (void *param)
+{
+    struct shoe_app_pram_data_t *pram_data = (struct shoe_app_pram_data_t*)param;
+    while (!pram_data->tear_down_thread) {
+        if (pram_data->updated) {
+            pram_data->updated = 0;
+            rewind(pram_data->f);
+            assert(fwrite(pram_data->pram, 256, 1, pram_data->f) == 1);
+            fflush(stdout);
+            pram_data->tear_down_thread = 0;
+        }
+        sleep(1);
+    }
+    
+    return NULL;
+}
+
 
 static _Bool _setup_shoebill (void)
 {
@@ -282,6 +435,9 @@ static _Bool _setup_shoebill (void)
     config.ram_size = user_params.ram_megabytes * 1024 * 1024;
     config.aux_kernel_path = user_params.relative_unix_path;
     config.rom_path = user_params.rom_path;
+    config.pram_callback = _pram_callback;
+    config.pram_callback_param = (void*)&user_params.pram_data;
+    memcpy(config.pram, user_params.pram_data.pram, 256);
     
     for (i=0; i<7; i++)
         config.scsi_devices[i].path = user_params.scsi_path[i];
@@ -326,16 +482,54 @@ static void _handle_key_event (SDL_Event *event)
     }
 }
 
+static _Bool _init_pram (void)
+{
+    FILE *f = fopen(user_params.pram_path, "r+b");
+    memset(&user_params.pram_data, 0, sizeof(struct shoe_app_pram_data_t));
+    
+    if ((f == NULL) || (fread(user_params.pram_data.pram, 256, 1, f) != 1)) {
+        if (f == NULL)
+            f = fopen(user_params.pram_path, "w+b");
+        if (f == NULL) {
+            printf("Can't open pram_path! [%s] [errno=%s]\n",
+                   user_params.pram_path,
+                   sys_errlist[errno]);
+            return 0;
+        }
+        rewind(f);
+        shoebill_validate_or_zap_pram(user_params.pram_data.pram, 1);
+        
+        assert(fwrite(user_params.pram_data.pram, 256, 1, f) == 1);
+        fflush(f);
+    }
+    
+    user_params.pram_data.f = f;
+    shoebill_validate_or_zap_pram(user_params.pram_data.pram, 0);
+    
+    pthread_create(&user_params.pram_data.threadid,
+                   NULL,
+                   _pram_writer_thread,
+                   &user_params.pram_data);
+    
+    return 1;
+}
+
 int main (int argc, char **argv)
 {
     const uint32_t frame_ticks = 1000 / 60;
     uint32_t last_frame_ticks;
     _Bool capture_cursor;
     
+    _print_vers();
+    
     _init_keyboard_map();
     _init_user_params(argc, argv);
-    if (!_setup_shoebill())
+    if (!_init_pram())
         return 0;
+    else if (!_setup_shoebill())
+        return 0;
+    
+    
     
     shoebill_video_frame_info_t frame = shoebill_get_video_frame(9, 1);
     
@@ -365,6 +559,8 @@ int main (int argc, char **argv)
     SDL_ShowCursor(0);
     SDL_SetRelativeMouseMode(1);
     
+    SDL_GL_SetSwapInterval(1);
+    
     last_frame_ticks = SDL_GetTicks();
     while (1) {
         const uint32_t now = SDL_GetTicks();
@@ -384,7 +580,7 @@ int main (int argc, char **argv)
         
         switch (event.type) {
             case SDL_QUIT:
-                exit(0);
+                goto quit;
                 
             case SDL_MOUSEBUTTONDOWN: {
                 if ((event.button.button == SDL_BUTTON_LEFT) && capture_cursor)
@@ -430,6 +626,10 @@ int main (int argc, char **argv)
             SDL_SetRelativeMouseMode(0);
         }
     }
+    
+quit:
+    
+    // FIXME: tear down the pram thread and flush pram
     
     return 0;
 }

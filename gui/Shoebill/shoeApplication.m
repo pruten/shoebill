@@ -301,15 +301,7 @@
 {
     uint8_t init[256];
     
-    memset(init, 0, 256);
-    
-    /* Mark PRAM as "valid" */
-    memcpy(init+0xc, "NuMc", 4);
-    /*
-     * Set text box I-beam blink speed and mouse acceleration
-     * to something reasonable
-     */
-    init[9] = 0x88;
+    shoebill_validate_or_zap_pram(init, 1);
     
     if (ptr)
         memcpy(ptr, init, 256);

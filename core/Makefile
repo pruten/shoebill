@@ -7,7 +7,7 @@ CFLAGS = -O3 -ggdb -flto -Wno-deprecated-declarations
 DEPS = mc68851.h shoebill.h Makefile macro.pl
 NEED_DECODER = cpu dis
 NEED_PREPROCESSING = adb fpu mc68851 mem via floppy core_api
-NEED_NOTHING = atrap_tab coff exception macii_symbols redblack scsi video filesystem alloc_pool toby_frame_buffer
+NEED_NOTHING = atrap_tab coff exception macii_symbols redblack scsi video filesystem alloc_pool toby_frame_buffer sound ethernet
 
 # Object files that can be compiled directly from the source
 OBJ_NEED_NOTHING = $(patsubst %,$(TEMP)/%.o,$(NEED_NOTHING))

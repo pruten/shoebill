@@ -17,6 +17,6 @@ $CC -O1 ../core/decoder_gen.c -o decoder_gen
 ./decoder_gen dis .
 
 
-cmd="$CC -O3 -ggdb -flto $files sdl.c -lpthread -lm -lSDL2 -lGL -o shoebill"
+cmd="$CC -O3 -ggdb -flto $files sdl.c -framework OpenGL -framework SDL2 -o shoebill"
 echo $cmd
 $cmd
