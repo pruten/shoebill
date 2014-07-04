@@ -9,7 +9,7 @@ Shoebill requires a Macintosh II, IIx or IIcx ROM, and a disk image with A/UX in
 [Download the latest release], and then see the [getting started] wiki.  
 Also check out [screenshots].
 
-__Update (June 30, 2014): [Shoebill 0.0.4 is available] (Now with Windows & Linux ports)__
+__Update (June 30, 2014): [Shoebill 0.0.4 is available (Now with Windows & Linux ports)]__
 
 ####Supports
 * A/UX 1.1.1 through 3.1
@@ -34,5 +34,5 @@ __Update (June 30, 2014): [Shoebill 0.0.4 is available] (Now with Windows & Linu
 [Download the latest release]:https://github.com/pruten/Shoebill/releases
 [getting started]:https://github.com/pruten/Shoebill/wiki/Getting-Started
 [screenshots]:https://github.com/pruten/Shoebill/wiki/Screenshots
-[Shoebill 0.0.4 is available]:https://github.com/pruten/Shoebill/releases
+[Shoebill 0.0.4 is available (Now with Windows & Linux ports)]:https://github.com/pruten/Shoebill/releases
 
