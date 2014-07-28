@@ -310,45 +310,21 @@ static void scsi_buf_set (uint8_t byte)
                 switch_status_phase(0); // switch to the status phase, with a status byte of 0
                 break;
                 
-            case 0x15: // mode select (6)
-                slog("scsi_buf_set: responding to mode-select\n");
-                switch_status_phase(0);
-                break;
-                
-            case 0x25: // read capacity (10)
-                slog("scsi_buf_set: responding to read-capacity\n");
-                // bytes [0,3] -> BE number of blocks
-                shoe.scsi.buf[0] = (dev->num_blocks >> 24) & 0xff;
-                shoe.scsi.buf[1] = (dev->num_blocks >> 16) & 0xff;
-                shoe.scsi.buf[2] = (dev->num_blocks >> 8) & 0xff;
-                shoe.scsi.buf[3] = (dev->num_blocks) & 0xff;
-                
-                // bytes [4,7] -> BE block size (needs to be 512)
-                
-                shoe.scsi.buf[4] = (dev->block_size >> 24) & 0xff;
-                shoe.scsi.buf[5] = (dev->block_size >> 16) & 0xff;
-                shoe.scsi.buf[6] = (dev->block_size >> 8) & 0xff;
-                shoe.scsi.buf[7] = (dev->block_size) & 0xff;
-                
-                shoe.scsi.in_i = 0;
-                shoe.scsi.in_len = 8;
-                
-                switch_data_in_phase();
-                break;
-                
-            case 0x12: { // inquiry command (6)
-                slog("scsi_buf_set: responding to inquiry\n");
+            case 0x3: { // request sense (6)
                 const uint8_t alloc_len = shoe.scsi.buf[4];
+                const uint8_t control = shoe.scsi.buf[5];
+                const _Bool desc = shoe.scsi.buf[1] & 1;
                 
-                scsi_handle_inquiry_command(alloc_len);
+                switch_status_phase(2); // CHECK_CONDITION
+                
                 break;
             }
                 
             case 0x8: { // read (6)
                 const uint32_t offset =
-                    (shoe.scsi.buf[1] << 16) |
-                    (shoe.scsi.buf[2] << 8 ) |
-                    (shoe.scsi.buf[3]);
+                (shoe.scsi.buf[1] << 16) |
+                (shoe.scsi.buf[2] << 8 ) |
+                (shoe.scsi.buf[3]);
                 const uint16_t len = (shoe.scsi.buf[4]==0) ? 0x100 : shoe.scsi.buf[4]; // len==0 -> 256 sectors
                 
                 assert(dev->f);
@@ -374,12 +350,12 @@ static void scsi_buf_set (uint8_t byte)
                 switch_data_in_phase();
                 break;
             }
-            
+                
             case 0xa: { // write (6)
                 const uint32_t offset =
-                    (shoe.scsi.buf[1] << 16) |
-                    (shoe.scsi.buf[2] << 8 ) |
-                    (shoe.scsi.buf[3]);
+                (shoe.scsi.buf[1] << 16) |
+                (shoe.scsi.buf[2] << 8 ) |
+                (shoe.scsi.buf[3]);
                 const uint16_t len = (shoe.scsi.buf[4]==0) ? 0x100 : shoe.scsi.buf[4]; // len==0 -> 256 sectors
                 
                 slog("scsi_buf_set: Responding to write at off=%u len=%u\n", offset, len);
@@ -394,9 +370,70 @@ static void scsi_buf_set (uint8_t byte)
                 switch_data_out_phase();
                 break;
             }
+            
+            case 0x12: { // inquiry command (6)
+                slog("scsi_buf_set: responding to inquiry\n");
+                const uint8_t alloc_len = shoe.scsi.buf[4];
+                
+                scsi_handle_inquiry_command(alloc_len);
+                break;
+            }
+                
+            case 0x15: // mode select (6)
+                slog("scsi_buf_set: responding to mode-select\n");
+                switch_status_phase(0);
+                break;
+                
+            case 0x1a: { // mode sense (6)
+                const _Bool dbd = (shoe.scsi.buf[1] >> 3) & 1;
+                const uint8_t pc = (shoe.scsi.buf[2] >> 6) & 3;
+                const uint8_t page_code = shoe.scsi.buf[2] & 0x3f;
+                const uint8_t subpage_code = shoe.scsi.buf[3];
+                const uint8_t alloc_len = shoe.scsi.buf[4];
+                const uint8_t control = shoe.scsi.buf[6];
+                
+                slog("scsi_bug_set: responding to mode-sense\n");
+                slog("dbd=%u pc=%u page_code=%u subpage_code=%u alloc_len=%u control=%u\n",
+                     dbd, pc, page_code, subpage_code, alloc_len, control);
+                
+                
+                // FIXME: set sense code!
+                switch_status_phase(2); // CHECK_CONDITION
+            }
+                
+            case 0x25: // read capacity (10)
+                slog("scsi_buf_set: responding to read-capacity\n");
+                // bytes [0,3] -> BE number of blocks
+                shoe.scsi.buf[0] = (dev->num_blocks >> 24) & 0xff;
+                shoe.scsi.buf[1] = (dev->num_blocks >> 16) & 0xff;
+                shoe.scsi.buf[2] = (dev->num_blocks >> 8) & 0xff;
+                shoe.scsi.buf[3] = (dev->num_blocks) & 0xff;
+                
+                // bytes [4,7] -> BE block size (needs to be 512)
+                
+                shoe.scsi.buf[4] = (dev->block_size >> 24) & 0xff;
+                shoe.scsi.buf[5] = (dev->block_size >> 16) & 0xff;
+                shoe.scsi.buf[6] = (dev->block_size >> 8) & 0xff;
+                shoe.scsi.buf[7] = (dev->block_size) & 0xff;
+                
+                shoe.scsi.in_i = 0;
+                shoe.scsi.in_len = 8;
+                
+                switch_data_in_phase();
+                break;
+                
+            case 0x28: { // read (10)
+                
+                // FIXME: set sense code!
+                switch_status_phase(2); // CHECK_CONDITION
+                
+                break;
+            }
                 
             default:
-                assert(!"unknown commmand!");
+                printf("unknown scsi command (0x%02x)\n", shoe.scsi.buf[0]);
+                // FIXME: set sense code
+                switch_status_phase(2); // CHECK_CONDITION
                 break;
         }
         
@@ -548,8 +585,14 @@ void scsi_reg_write ()
                 assert(id != 8);
                 shoe.scsi.target_id = id;
                 slog("scsi_reg_write: selected target id %u\n", id);
-                shoe.scsi.target_bsy = 1; // target asserts BSY to acknowledge being selected
-                shoe.scsi.phase = SELECTION;
+                
+                if (shoe.scsi_devices[shoe.scsi.target_id].f == NULL) {
+                    shoe.scsi.phase = BUS_FREE;
+                }
+                else {
+                    shoe.scsi.target_bsy = 1; // target asserts BSY to acknowledge being selected
+                    shoe.scsi.phase = SELECTION;
+                }
                 break;
             }
             
