@@ -1,0 +1,1 @@
+#   File:       shoebill_ether.make#   Target:     shoebill_ether#   Sources:    shoebill_ether_rom.aOBJECTS = shoebill_ether_rom.a.oshoebill_ether ÄÄ shoebill_ether.make {OBJECTS}	Link ¶		{OBJECTS} ¶		-o shoebill_ethershoebill_ether_rom.a.o Ä shoebill_ether.make shoebill_ether_rom.a	 Asm  shoebill_ether_rom.a

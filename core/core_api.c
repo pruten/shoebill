@@ -575,6 +575,27 @@ uint32_t shoebill_install_tfb_card(shoebill_config_t *config, uint8_t slotnum)
     return 1;
 }
 
+uint32_t shoebill_install_ethernet_card(shoebill_config_t *config, uint8_t slotnum, uint8_t ethernet_addr[6])
+{
+    shoebill_card_ethernet_t *ctx;
+    
+    if (shoe.slots[slotnum].card_type != card_none) {
+        sprintf(config->error_msg, "This slot (%u) already has a card\n", slotnum);
+        return 0;
+    }
+    
+    ctx = p_alloc(shoe.pool, sizeof(shoebill_card_ethernet_t));
+    shoe.slots[slotnum].ctx = ctx;
+    
+    shoe.slots[slotnum].card_type = card_shoebill_ethernet;
+    shoe.slots[slotnum].connected = 1;
+    shoe.slots[slotnum].read_func = nubus_ethernet_read_func;
+    shoe.slots[slotnum].write_func = nubus_ethernet_write_func;
+    shoe.slots[slotnum].interrupts_enabled = 1;
+    nubus_ethernet_init(ctx, slotnum, ethernet_addr);
+    return 1;
+}
+
 shoebill_video_frame_info_t shoebill_get_video_frame(uint8_t slotnum,
                                                      _Bool just_params)
 {

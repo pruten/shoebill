@@ -10,16 +10,16 @@ int main (int argc, char **argv)
     uint32_t i;
     
     if (argc != 3) {
-        printf("usage ./rom_to_c video_rom.bin video_rom.c\n");
+        printf("usage ./rom_to_c video|ethernet rom.bin rom.c\n");
         return 0;
     }
     
-    assert(in = fopen(argv[1], "rb"));
-    assert(out = fopen(argv[2], "w"));
+    assert(in = fopen(argv[2], "rb"));
+    assert(out = fopen(argv[3], "w"));
     
     assert(fread(rom, 4096, 1, in) == 1);
     
-    fprintf(out, "static uint8_t _video_rom[4096] = {\n\t");
+    fprintf(out, "static uint8_t _%s_rom[4096] = {\n\t", argv[1]);
     for (i=0; i<4095; i++) {
         fprintf(out, "0x%02x, ", rom[i]);
         if ((i % 8) == 7)

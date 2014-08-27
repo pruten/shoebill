@@ -373,6 +373,9 @@ void pram_callback (void *param, const uint8_t addr, const uint8_t byte)
     
     [self createScreenWindow:9 height:height width:width];
     
+    uint8_t ethernet_addr[6] = {0x22, 0x33, 0x55, 0x77, 0xbb, 0xdd};
+    shoebill_install_ethernet_card(&config, 13, ethernet_addr);
+    
     shoebill_start();
     
     isRunning = true;

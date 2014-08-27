@@ -133,6 +133,9 @@ uint32_t shoebill_install_video_card(shoebill_config_t *config, uint8_t slotnum,
 
 uint32_t shoebill_install_tfb_card(shoebill_config_t *config, uint8_t slotnum);
 
+/* Call this after shoebill_initialize() to add an ethernet card */
+uint32_t shoebill_install_ethernet_card(shoebill_config_t *config, uint8_t slotnum, uint8_t ethernet_addr[6]);
+
 /* Get a video frame from a particular video card */
 shoebill_video_frame_info_t shoebill_get_video_frame(uint8_t slotnum, _Bool just_params);
 
@@ -593,14 +596,37 @@ typedef struct {
 } shoebill_card_tfb_t;
 
 typedef struct {
-    // Doesn't exist yet
+    uint8_t rom[4096];
+    uint8_t ram[4096];
+    uint8_t ethernet_addr[6];
+    
+    uint8_t cr; // command register, all pages, read/write
+    
+    // Page 0 registers
+    uint8_t isr; // interrupt status register, read/write
+    uint8_t dcr; // data configuration register (write)
+    uint8_t tcr; // transmit configuration register (write)
+    uint8_t rcr; // receive configuration register (write)
+    uint8_t pstart; // receive buffer start pointer (write)
+    uint8_t pstop; // receive buffer boundary (write)
+    uint8_t bnry; // a different kind of receive buffer boundary (read/write)
+    
+    uint8_t tpsr; // transmit page start pointer (write)
+    uint16_t tbcr; // transmit buffer count register (write)
+    
+    
+    // Page 1 registers (read/write)
+    uint8_t mar[8]; // multicast address
+    uint8_t par[6]; // physical address
+    uint8_t curr; // current page
+    
 } shoebill_card_ethernet_t;
 
 typedef enum {
     card_none = 0, // Empty slot
     card_toby_frame_buffer, // Original Macintosh II video card
     card_shoebill_video, // Fancy 21st-century Shoebill video card
-    card_shoebill_ethernet // FIXME: doesn't exist yet
+    card_shoebill_ethernet // "Register-compatible" Apple EtherTalk card
 } card_names_t;
 
 typedef struct {
@@ -1023,6 +1049,11 @@ void nubus_video_write_func(const uint32_t rawaddr, const uint32_t size,
                             const uint32_t data, const uint8_t slotnum);
 shoebill_video_frame_info_t nubus_video_get_frame(shoebill_card_video_t *ctx,
                                                   _Bool just_params);
+
+// Apple EtherTalk
+void nubus_ethernet_init(void *_ctx, uint8_t slotnum, uint8_t ethernet_addr[6]);
+uint32_t nubus_ethernet_read_func(uint32_t, uint32_t, uint8_t);
+void nubus_ethernet_write_func(uint32_t, uint32_t, uint32_t, uint8_t);
 
 // Sound (Apple Sound Chip)
 void sound_dma_write_raw(uint16_t addr, uint8_t sz, uint32_t data);
