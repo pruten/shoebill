@@ -2208,7 +2208,45 @@ static void inst_eori_to_sr (void) {
 }
 
 static void inst_movep (void) {
-    assert(!"inst_movep: fixme: I'm not implemented!\n");
+    ~decompose(shoe.op, 0000 ddd 1mm 001 aaa);
+    
+    /*
+     * 68kprm thoughtfully doesn't clarify whether the
+     * displacement is sign-extended or not. (It is.)
+     */
+    const int16_t disp = nextword();
+    const uint32_t addr = shoe.a[a] + disp;
+    
+    switch (m) {
+        case 0: { // word, mem->reg
+            uint16_t val = lget(addr, 1);
+            val = (val << 8) | lget(addr + 2, 1);
+            set_d(d, val, 2);
+            break;
+        }
+        case 1: { // long, mem->reg
+            uint32_t val = lget(addr, 1);
+            val = (val << 8) | lget(addr + 2, 1);
+            val = (val << 8) | lget(addr + 4, 1);
+            val = (val << 8) | lget(addr + 6, 1);
+            shoe.d[d] = val;
+            break;
+        }
+        case 2: { // word, reg->mem
+            const uint16_t val = shoe.d[d];
+            lset(addr + 0, 1, (val >> 8) & 0xff);
+            lset(addr + 2, 1, (val >> 0) & 0xff);
+            break;
+        }
+        case 3: { // long, reg->mem
+            const uint32_t val = shoe.d[d];
+            lset(addr + 0, 1, (val >> 24) & 0xff);
+            lset(addr + 2, 1, (val >> 16) & 0xff);
+            lset(addr + 4, 1, (val >>  8) & 0xff);
+            lset(addr + 6, 1, (val >>  0) & 0xff);
+            break;
+        }
+    }
 }
 
 

@@ -537,7 +537,18 @@ void dis_eori_to_sr() {
 }
 
 void dis_movep() {
-    sprintf(dis.str, "movep???");
+    const int16_t disp = dis_next_word();
+    ~decompose(dis_op, 0000 ddd 1 s r 001 aaa);
+    
+    if (r) { // reg -> mem
+        sprintf(dis.str, "movep.%c d%u,%s0x%x(a%u)", "wl"[s], d,
+                (disp >= 0) ? "" : "-", abs(disp), a);
+    }
+    else { // mem -> reg
+        sprintf(dis.str, "movep.%c %s0x%x(a%u),d%u", "wl"[s],
+                (disp >= 0) ? "" : "-", abs(disp), a, d);
+    }
+    
 }
 
 void dis_bfextu() {
