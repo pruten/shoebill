@@ -1104,11 +1104,16 @@ void dis_pea() {
 }
 
 void dis_nbcd() {
-    sprintf(dis.str, "nbcd???");
+    ~decompose(dis_op, 0100 1000 00 MMMMMM);
+    sprintf(dis.str, "nbcd %s", decode_ea_rw(M, 1));
 }
 
 void dis_sbcd() {
-    sprintf(dis.str, "sbcd???");
+    ~decompose(dis_op, 1000 yyy 10000 r xxx);
+    if (r)
+        sprintf(dis.str, "sbcd d%u,d%u", x, y);
+    else
+        sprintf(dis.str, "sbcd -(a%u),-(a%u)", x, y);
 }
 
 void dis_pack() {
@@ -1130,7 +1135,8 @@ void dis_divs() {
 }
 
 void dis_bkpt() {
-    sprintf(dis.str, "bkpt???");
+    ~decompose(dis_op, 0100 1000 0100 1 vvv);
+    sprintf(dis.str, "bkpt %u", v);
 }
 
 void dis_swap() {
@@ -1411,22 +1417,37 @@ void dis_move16 () {
 }
 
 void dis_rtm () {
-    sprintf(dis.str, "rtm???");
+    ~decompose(dis_op, 0000 0110 1100 d rrr);
+    sprintf(dis.str, "rtm %c%u", "da"[d], r);
 }
 
 void dis_tas () {
-    sprintf(dis.str, "tas???");
+    ~decompose(dis_op, 1000 rrr 011 MMMMMM);
+    sprintf(dis.str, "tas.b %s", decode_ea_rw(M, 1));
 }
 
 void dis_trapcc() {
-    sprintf(dis.str, "trapcc???");
+    ~decompose(dis_op, 0101 cccc 11111 ooo);
+    uint32_t data;
+    switch (c) {
+        case 2:
+            data = dis_next_word();
+            sprintf(dis.str, "trapcc.w 0x%04x", data);
+            break;
+        case 3:
+            data = dis_next_word();
+            data = (data << 16) | dis_next_word();
+            sprintf(dis.str, "trapcc.w 0x%08x", data);
+            break;
+        case 4:
+            sprintf(dis.str, "trapcc");
+            break;
+    }
 }
 
 void dis_trapv() {
-    sprintf(dis.str, "trapv???");
+    sprintf(dis.str, "trapv");
 }
-
-
 
 void dis_mc68851_decode() {
     ~decompose(dis_op, 1111 000 a b c MMMMMM);

@@ -845,7 +845,7 @@ int main (int argc, char **argv)
     config.rom_path = "../priv/macii.rom";
     
 
-    config.scsi_devices[0].path = "../priv/aux3.0.1.img";
+    config.scsi_devices[0].path = "../priv/root3.img";
     //config.scsi_devices[1].path = "../priv/marathon.img";
     
     /*dbg_state.ring_len = 256 * 1024 * 1024;
@@ -863,6 +863,9 @@ int main (int argc, char **argv)
                                 9, // slotnum
                                 640, // 1024,
                                 480); // 768,
+    
+    uint8_t ethernet_addr[6] = {0x22, 0x33, 0x55, 0x77, 0xbb, 0xdd};
+    shoebill_install_ethernet_card(&config, 13, ethernet_addr);
     
     // Start the VIA timer thread
     shoebill_start();

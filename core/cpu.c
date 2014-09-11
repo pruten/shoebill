@@ -69,7 +69,7 @@ static void inst_chk2_cmp2 (void) {
 }
 
 static void inst_illegal (void) {
-    assert(!"illegal: error: not implemented\n");
+    throw_illegal_instruction();
 }
 
 static void inst_move16 (void) {
@@ -81,7 +81,19 @@ static void inst_rtm (void) {
 }
 
 static void inst_tas (void) {
-    assert(!"tas: error: not implemented\n");
+    ~decompose(shoe.op, 0100 1010 11 MMMMMM);
+    
+    call_ea_read(M, 1);
+    const uint8_t byte = shoe.dat;
+    
+    set_sr_c(0);
+    set_sr_v(0);
+    set_sr_z(byte == 0);
+    set_sr_n(byte >> 7);
+    
+    shoe.dat = byte | 0x80;
+    
+    call_ea_write(M, 1);
 }
 
 static void inst_trapcc (void) {
@@ -550,14 +562,10 @@ static void inst_exg (void) {
         shoe.a[x] = shoe.a[y];
         shoe.a[y] = tmp;
     }
-    else if (p == ~b(10001)) { // addr/reg mode
+    else /* if (p == ~b(10001)) */ { // addr/reg mode
         const uint32_t tmp = shoe.d[x];
         shoe.d[x] = shoe.a[y];
         shoe.a[y] = tmp;
-    }
-    else {
-        // I'm not sure whether decode.c will map opcodes with other modes here
-        assert(!"inst_exg: bad op mode");
     }
 }
 
@@ -1071,16 +1079,8 @@ static void inst_long_div (void) {
 static void inst_addq (void) {
     ~decompose(shoe.op, 0101 ddd 0 ss MMMMMM);
     const uint8_t dat = d + ((!d)<<3);
-    if ((s==0) && ((M>>3) == 1)) {
-        // There's a very subtle distinciton in the M68000 Family Programmer's Reference Manual,
-        // "Only word and long operations can be used with address registers" with subq, but
-        // "Word and long operations are also allowed on the address registers" with addq.
-        // Hmm...
-        // What it actually means is "If size==byte, illegal instruction. If size==word -> pretend size is long."
-        throw_illegal_instruction();
-        return ;
-    }
-    else if ((M>>3) == 1) { // size is always long if using addr register, CCodes aren't set.
+    
+    if ((M>>3) == 1) { // size is always long if using addr register, CCodes aren't set.
         shoe.a[M&7] += dat;
         return ;
     }
@@ -1103,11 +1103,7 @@ static void inst_subq (void) {
     ~decompose(shoe.op, 0101 ddd 1 ss MMMMMM);
     const uint8_t dat = d + ((!d)<<3);
     
-    if ((s==0) && ((M>>3) == 1)) { // Reject byte-size for addr registers
-        throw_illegal_instruction();
-        return ;
-    }
-    else if ((M>>3) == 1) { // Use long-size for addr registers
+    if ((M>>3) == 1) { // Use long-size for addr registers
         shoe.a[M&7] -= dat;
         return ;
     }
@@ -1314,12 +1310,6 @@ static void inst_moves (void) {
     ~decompose(shoe.op, 0000 1110 ss MMMMMM);
     ~decompose(ext, a rrr d 00000000000);
     
-    if ((M>>3) < 2) {
-        // Dn and An addressing modes not supported
-        throw_illegal_instruction();
-        return ;
-    }
-    
     const uint8_t fc = d ? shoe.dfc : shoe.sfc;
     const uint8_t sz = 1<<s;
     
@@ -1451,11 +1441,6 @@ static void inst_negx (void) {
     ~decompose(shoe.op, 0100 0000 ss MMMMMM);
     
     const uint8_t x = (sr_x() != 0);
-    
-    if (s == 3) { // is it possible for the decoder to send s==3 here?
-        throw_illegal_instruction();
-        return ;
-    }
     
     const uint8_t sz = 1<<s;
     call_ea_read(M, sz);
@@ -2055,10 +2040,6 @@ static void inst_movem (void) {
     uint32_t i;
     
     if (d) { // memory->register
-        if (~bmatch(M, xx100xxx)) { // predecrement isn't allowed for mem->reg
-            throw_illegal_instruction();
-            return ;
-        }
         if (~bmatch(M, xx011xxx)) // if postincrement,
             shoe.dat = shoe.a[M&7]; // hand-parse this address mode
         else
@@ -2101,10 +2082,6 @@ static void inst_movem (void) {
             shoe.a[M&7] = shoe.dat;
     }
     else { // register->memory
-        if (~bmatch(M, xx011xxx)) { // postincrement isn't allowed for reg->mem
-            throw_illegal_instruction();
-            return ;
-        }
         uint32_t addr;
         uint16_t newmask = mask; // if predecrement-mode, bit-reversed mask. Regular mask otherwise.
         uint16_t numbits = 0; // the number of set bits in mask
@@ -2220,30 +2197,54 @@ static void inst_movep (void) {
     switch (m) {
         case 0: { // word, mem->reg
             uint16_t val = lget(addr, 1);
+            if (shoe.abort) return;
+            
             val = (val << 8) | lget(addr + 2, 1);
+            if (shoe.abort) return;
+            
             set_d(d, val, 2);
             break;
         }
         case 1: { // long, mem->reg
             uint32_t val = lget(addr, 1);
+            if (shoe.abort) return;
+            
             val = (val << 8) | lget(addr + 2, 1);
+            if (shoe.abort) return;
+            
             val = (val << 8) | lget(addr + 4, 1);
+            if (shoe.abort) return;
+            
             val = (val << 8) | lget(addr + 6, 1);
+            if (shoe.abort) return;
+            
             shoe.d[d] = val;
             break;
         }
         case 2: { // word, reg->mem
             const uint16_t val = shoe.d[d];
             lset(addr + 0, 1, (val >> 8) & 0xff);
+            if (shoe.abort) return;
+            
             lset(addr + 2, 1, (val >> 0) & 0xff);
+            if (shoe.abort) return;
+            
             break;
         }
         case 3: { // long, reg->mem
             const uint32_t val = shoe.d[d];
             lset(addr + 0, 1, (val >> 24) & 0xff);
+            if (shoe.abort) return;
+            
             lset(addr + 2, 1, (val >> 16) & 0xff);
+            if (shoe.abort) return;
+            
             lset(addr + 4, 1, (val >>  8) & 0xff);
+            if (shoe.abort) return;
+            
             lset(addr + 6, 1, (val >>  0) & 0xff);
+            if (shoe.abort) return;
+            
             break;
         }
     }
@@ -2723,9 +2724,7 @@ static void inst_ext (void) {
             uint32_t val = (int8_t)get_d(r, 1);
             set_d(r, val, 4);
             break;
-        } default:
-            throw_illegal_instruction();
-            return ;
+        }
     }
     set_sr_v(0);
     set_sr_c(0);
@@ -2971,7 +2970,7 @@ void cpu_step()
     if (shoe.pc & 1) {
         // throw_address_error(shoe.pc, 0);
         // I'm leaving this assert in here for now because it almost always indicates a bug in the emulator when it fires
-        assert(!"What do I do here?");
+        assert(!"odd PC address (probably a bug)");
         return ;
     }
     

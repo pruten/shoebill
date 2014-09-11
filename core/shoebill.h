@@ -596,17 +596,39 @@ typedef struct {
 } shoebill_card_tfb_t;
 
 typedef struct {
-    uint8_t rom[4096];
-    uint8_t ram[4096];
+    // Card ROM (4kb)
+    uint8_t rom[0x1000];
+    
+    // Card RAM (16kb buffer, apparently)
+    uint8_t ram[0x4000];
+    
+    // Card MAC address
     uint8_t ethernet_addr[6];
+    
+    // Card slot number
+    uint8_t slotnum;
+    
+    // -- thread state --
+    uint8_t recv_buf[4096], send_buf[4096];
+    uint16_t recv_len, send_len;
+    _Bool teardown, send_ready;
+    
+    pthread_t sender_pid, receiver_pid;
+    pthread_mutex_t lock, sender_cond_mutex;
+    pthread_cond_t sender_cond;
+    
+    // -- registers --
     
     uint8_t cr; // command register, all pages, read/write
     
     // Page 0 registers
     uint8_t isr; // interrupt status register, read/write
+    uint8_t imr; // interrupt mask register, write
+    
     uint8_t dcr; // data configuration register (write)
     uint8_t tcr; // transmit configuration register (write)
     uint8_t rcr; // receive configuration register (write)
+    
     uint8_t pstart; // receive buffer start pointer (write)
     uint8_t pstop; // receive buffer boundary (write)
     uint8_t bnry; // a different kind of receive buffer boundary (read/write)
@@ -614,12 +636,16 @@ typedef struct {
     uint8_t tpsr; // transmit page start pointer (write)
     uint16_t tbcr; // transmit buffer count register (write)
     
+    uint8_t rsr; // receive status register (read)
+    
     
     // Page 1 registers (read/write)
     uint8_t mar[8]; // multicast address
     uint8_t par[6]; // physical address
     uint8_t curr; // current page
     
+    
+    int tap_fd;
 } shoebill_card_ethernet_t;
 
 typedef enum {
@@ -632,6 +658,7 @@ typedef enum {
 typedef struct {
     uint32_t (*read_func)(uint32_t, uint32_t, uint8_t);
     void (*write_func)(uint32_t, uint32_t, uint32_t, uint8_t);
+    void (*destroy_func)(uint8_t);
 
     uint8_t slotnum;
     _Bool connected;
@@ -1054,6 +1081,7 @@ shoebill_video_frame_info_t nubus_video_get_frame(shoebill_card_video_t *ctx,
 void nubus_ethernet_init(void *_ctx, uint8_t slotnum, uint8_t ethernet_addr[6]);
 uint32_t nubus_ethernet_read_func(uint32_t, uint32_t, uint8_t);
 void nubus_ethernet_write_func(uint32_t, uint32_t, uint32_t, uint8_t);
+void nubus_ethernet_destroy_func(uint8_t);
 
 // Sound (Apple Sound Chip)
 void sound_dma_write_raw(uint16_t addr, uint8_t sz, uint32_t data);

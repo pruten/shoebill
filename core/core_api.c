@@ -56,7 +56,8 @@ void shoebill_stop()
     pthread_join(shoe.via_thread_pid, NULL);
     pthread_mutex_destroy(&shoe.via_clock_thread_lock);
     
-    unstop_cpu_thread(); // wake up the CPU thread if it was STOPPED
+    // wake up the CPU thread if it was STOPPED
+    unstop_cpu_thread();
     
     pthread_join(shoe.cpu_thread_pid, NULL);
     pthread_mutex_destroy(&shoe.cpu_thread_lock);
@@ -67,6 +68,11 @@ void shoebill_stop()
     pthread_cond_destroy(&shoe.cpu_stop_cond);
     
     shoe.running = 0;
+    
+    // Destroy all the nubus cards
+    for (i=0; i<15; i++)
+        if (shoe.slots[i].destroy_func)
+            shoe.slots[i].destroy_func(i);
     
     // Close all the SCSI disk images
     for (i=0; i<8; i++) {
@@ -165,7 +171,7 @@ struct __attribute__ ((__packed__)) kernel_info {
     // A series of DrvQEl (drive queue elements) follow this structure
 };
 
-/* Inside Macintosh: Files 2-85 throughtfully provides this information
+/* Inside Macintosh: Files 2-85 thoughtfully provides this information
  * on the secret internal flags:
  * 
  * The File Manager also maintains four flag bytes preceding each drive queue element.
@@ -548,6 +554,7 @@ uint32_t shoebill_install_video_card(shoebill_config_t *config, uint8_t slotnum,
     shoe.slots[slotnum].connected = 1;
     shoe.slots[slotnum].read_func = nubus_video_read_func;
     shoe.slots[slotnum].write_func = nubus_video_write_func;
+    shoe.slots[slotnum].destroy_func = NULL;
     shoe.slots[slotnum].interrupts_enabled = 1;
     nubus_video_init(ctx, slotnum, width, height, scanline_width);
     return 1;
@@ -570,6 +577,7 @@ uint32_t shoebill_install_tfb_card(shoebill_config_t *config, uint8_t slotnum)
     shoe.slots[slotnum].connected = 1;
     shoe.slots[slotnum].read_func = nubus_tfb_read_func;
     shoe.slots[slotnum].write_func = nubus_tfb_write_func;
+    shoe.slots[slotnum].destroy_func = NULL;
     shoe.slots[slotnum].interrupts_enabled = 1;
     nubus_tfb_init(ctx, slotnum);
     return 1;
@@ -591,6 +599,7 @@ uint32_t shoebill_install_ethernet_card(shoebill_config_t *config, uint8_t slotn
     shoe.slots[slotnum].connected = 1;
     shoe.slots[slotnum].read_func = nubus_ethernet_read_func;
     shoe.slots[slotnum].write_func = nubus_ethernet_write_func;
+    shoe.slots[slotnum].destroy_func = nubus_ethernet_destroy_func;
     shoe.slots[slotnum].interrupts_enabled = 1;
     nubus_ethernet_init(ctx, slotnum, ethernet_addr);
     return 1;
@@ -1013,6 +1022,8 @@ void slog(const char *fmt, ...)
     va_start(args, fmt);
     vprintf(fmt, args);
     va_end(args);
+    
+    fflush(stdout);
 }
 
 
