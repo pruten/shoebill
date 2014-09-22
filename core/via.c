@@ -31,6 +31,7 @@
 #include <unistd.h>
 #include <string.h>
 #include <signal.h>
+#include <stdlib.h>
 #include "../core/shoebill.h"
 
 char *via_reg_str[16] = {
@@ -471,14 +472,20 @@ void init_via_state (uint8_t pram_data[256], shoebill_pram_callback_t callback, 
      * Bit 5 - input  - v2TM0A (nubus transfer what??)
      * Bit 4 - input  - v2TM1A
      * Bit 3 - output - AMU/PMMU control
-     * Bit 2 - output - v2PowerOff
+     * Bit 2 - output - v2PowerOff (but leave this in input mode)
      * Bit 1 - output - v2BusLk
      * Bit 0 - output - v2cdis
      */
-    shoe.via[1].ddrb = ~b(10001111);
+    shoe.via[1].ddrb = 0x00;
+    shoe.via[1].ddrb = ~b(10001011);
     // FIXME: apparently via2/regb bit 7 is tied to VIA1, and driven by timer T1, to
     //        generate 60.15hz (really 60.0hz) interrupts on VIA1
     //        emulate this more accurately!
+    
+    // The power unit is wired to bit 2, waiting for it to be set 0.
+    // I guess we're supposed to leave it as an input, because the shutdown
+    // routine first sets the bit to 0, *then* switches the direction to output.
+    // FIXME: verify that this is correct
     
     /* -- Initialize PRAM -- */
     
@@ -498,6 +505,7 @@ void init_via_state (uint8_t pram_data[256], shoebill_pram_callback_t callback, 
 }
 
 #define E_CLOCK 783360
+#define V2POWEROFF_MASK 0x04
 
 #define _via_get_delta_counter(last_set) ({ \
     const long double delta_t = now - (last_set); \
@@ -513,6 +521,12 @@ void init_via_state (uint8_t pram_data[256], shoebill_pram_callback_t callback, 
 
 #define VIA_REGB_PINS(n) ((shoe.via[(n)-1].regb_output & shoe.via[(n)-1].ddrb) | \
                           (shoe.via[(n)-1].regb_input & (~~shoe.via[(n)-1].ddrb)))
+
+static void _via_poweroff(void)
+{
+    slog("Poweroff!\n");
+    // exit(0);
+}
 
 static uint8_t via_read_reg(const uint8_t vianum, const uint8_t reg, const long double now)
 {
@@ -641,6 +655,11 @@ static void via_write_reg(const uint8_t vianum, const uint8_t reg, const uint8_t
                 handle_pram_state_change();
             }
             
+            if ((vianum == 2) &&
+                (via->ddrb & V2POWEROFF_MASK) &&
+                !(via->regb_output & V2POWEROFF_MASK))
+                _via_poweroff();
+            
             break;
         }
             
@@ -652,9 +671,14 @@ static void via_write_reg(const uint8_t vianum, const uint8_t reg, const uint8_t
             break;
         }
             
-        case VIA_DDRB:
+        case VIA_DDRB: {
             via->ddrb = data;
+            if ((vianum == 2) &&
+                (via->ddrb & V2POWEROFF_MASK) &&
+                !(via->regb_output & V2POWEROFF_MASK))
+                _via_poweroff();
             break;
+        }
             
         case VIA_DDRA:
             via->ddra = data;
