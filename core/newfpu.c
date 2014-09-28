@@ -131,6 +131,40 @@ typedef struct {
     
 } fpu_state_t;
 
+enum rounding_precision_t {
+    prec_extended = 0,
+    prec_single = 1,
+    prec_double = 2,
+};
+
+enum rounding_mode_t {
+    mode_nearest = 0,
+    mode_zero = 1,
+    mode_neg = 2,
+    mode_pos = 3
+};
+
+/*
+ * 0 L     long word integer
+ * 1 S     single precision real
+ * 2 X     extended precision real
+ * 3 P{#k} packed decimal real with static k factor
+ * 4 W     word integer
+ * 5 D     double precision real
+ * 6 B     byte integer
+ * 7 P{Dn} packed decimal real with dynamic k factor
+ */
+static const uint8_t _format_sizes[8] = {4, 4, 12, 12, 2, 8, 1, 12};
+enum {
+    format_L = 0,
+    format_S = 1,
+    format_X = 2,
+    format_Ps = 3,
+    format_W = 4,
+    format_D = 5,
+    format_B = 6,
+    format_Pd = 7
+} fpu_formats;
 
 #define fpu_get_state_ptr() fpu_state_t *fpu = (fpu_state_t*)shoe.fpu_state
 #define nextword() ({const uint16_t w=lget(shoe.pc,2); if (shoe.abort) {return;}; shoe.pc+=2; w;})
@@ -189,10 +223,215 @@ static _Bool _bsun_test()
     return 1;
 }
 
+#pragma mark Float format translators
+
+static float128 _int8_to_intermediate(int8_t byte)
+{
+    return int32_to_float128((int32_t)byte);
+}
+
+static float128 _int16_to_intermediate(int16_t sh)
+{
+    return int32_to_float128((int32_t)sh);
+}
+
+static float128 _int32_to_intermediate(int32_t in)
+{
+    return int32_to_float128(in);
+}
+
+static float128 _float_to_intermediate(uint32_t f)
+{
+    assert(sizeof(uint32_t) == sizeof(float32));
+    return float32_to_float128((float32)f);
+}
+
+/*
+ * _double_to_intermediate(d): d needs to be 68k-native order (8 bytes)
+ */
+static float128 _double_to_intermediate(uint8_t *d)
+{
+    assert(sizeof(uint64_t) == sizeof(float64));
+    
+    return float64_to_float128((float64) ntohll(*(uint64_t*)d));
+}
+
+/*
+ * _extended_to_intermediate(e): e needs to be 68k-native order (12 bytes)
+ */
+static float128 _extended_to_intermediate(uint8_t *e)
+{
+    /*
+     * softfloat floatx80 format:
+     * uint64_t low; // the low part of the extended float (significand, low exponent bits)
+     * uint16_t high; // the high part, sign, high exponent bits
+     */
+    floatx80 x80 = {
+        .high = (e[0] << 8) | e[1],
+        .low = ntohll(*(uint64_t*)&e[4])
+    };
+    return floatx80_to_float128(x80);
+}
+
+/*
+ * Set softfloat's rounding mode
+ * (fpcr.mc_rnd and softfloat use different values for these modes)
+ */
+static void _set_rounding_mode(enum rounding_mode_t mode)
+{
+    const int8 rounding_map[4] = {
+        float_round_nearest_even, float_round_to_zero,
+        float_round_up, float_round_down
+    };
+    
+    float_rounding_mode = rounding_map[mode];
+}
+
+#pragma mark EA routines
+
+/*
+ * Note: fpu_read_ea modifies shoe.pc, and fpu_read_ea_commit
+ *        modifies shoe.a[x] for pre/post-inc/decrement
+ * Returns false if we're aborting
+ */
+static _Bool _fpu_read_ea(const uint8_t format, float128 *result)
+{
+    fpu_get_state_ptr();
+    
+    ~decompose(shoe.op, 0000 0000 00 mmmrrr);
+    
+    const uint8_t size = _format_sizes[format];
+    uint32_t addr = 0;
+    
+    /*
+     * Step 1: find the effective address, store it in addr
+     *         (or the actual data, if unavailable)
+     */
+    
+    switch (m) {
+        case 0:
+            if (format == format_S)
+                *result = _float_to_intermediate(shoe.d[r]);
+            else if (format == format_B)
+                *result = _int8_to_intermediate(shoe.d[r] & 0xff);
+            else if (format == format_W)
+                *result = _int16_to_intermediate(shoe.d[r] & 0xffff);
+            else if (format == format_L)
+                *result = int32_to_float128(shoe.d[r]);
+            else {
+                /*
+                 * No other format can be used with a data register
+                 * (because they require >4 bytes)
+                 */
+                throw_illegal_instruction();
+                return 0;
+            }
+            goto got_data;
+            
+        case 1:
+            /* Address regisers can't be used */
+            throw_illegal_instruction();
+            return 0;
+        
+        case 3:
+            addr = shoe.a[r];
+            assert(!( r==7 && size==1));
+            goto got_address;
+            
+        case 4:
+            addr = shoe.a[r] - size;
+            assert(!( r==7 && size==1));
+            goto got_address;
+            
+        case 7:
+            if (r == 4) {
+                addr = shoe.pc;
+                shoe.pc += size;
+                goto got_address;
+            }
+            
+            // fall through to default:
+            
+        default: {
+            ~decompose(shoe.op, 0000 0000 00 MMMMMM);
+            shoe.mr = M;
+            ea_addr();
+            if (shoe.abort)
+                return 0;
+            
+            addr = (uint32_t)shoe.dat;
+            goto got_address;
+        }
+
+    }
+    
+got_address:
+    
+    /*
+     * Step 2: Load the data from the effective address
+     */
+    
+    if (size <= 4) {
+        const uint32_t raw = lget(addr, size);
+        if (shoe.abort)
+            return 0;
+        
+        switch (format) {
+            case format_B:
+                *result = _int8_to_intermediate(raw & 0xff);
+                break;
+            case format_W:
+                *result = _int16_to_intermediate(raw & 0xffff);
+                break;
+            case format_L:
+                *result = _int32_to_intermediate(raw);
+                break;
+            case format_S:
+                *result = _int32_to_intermediate(raw);
+                break;
+            default:
+                assert(0); /* never get here */
+        }
+    }
+    else { // if (size > 4) -> if format is double, extended, or packed
+        uint8_t buf[12];
+        uint32_t i;
+        
+        for (i = 0; i < size; i++) {
+            buf[i] = lget(addr + i, 1);
+            if (shoe.abort)
+                return 0;
+        }
+        
+        switch (format) {
+            case format_D:
+                *result = _double_to_intermediate(buf);
+                break;
+            case format_X:
+                *result = _extended_to_intermediate(buf);
+                break;
+            case format_Ps:
+            case format_Pd:
+                // FIXME: implement packed formats
+                assert(!"Somebody tried to use a packed format!\n");
+                // throw_illegal_instruction();
+                // return 0;
+            default:
+                assert(0); // never get here
+        }
+    }
+    
+got_data:
+    
+    return 1;
+}
+
 #pragma mark Second-hop instructions
 
 static void inst_fmath (const uint16_t ext)
 {
+    fpu_get_state_ptr();
+    
     ~decompose(shoe.op, 1111 001 000 MMMMMM);
     ~decompose(ext, 0 a 0 sss ddd eeeeeee);
     
@@ -206,8 +445,7 @@ static void inst_fmath (const uint16_t ext)
     float128 source, result;
     
     if (src_in_ea) {
-        source = _fpu_read_ea(M, source_specifier);
-        if (shoe.abort)
+        if (!_fpu_read_ea(source_specifier, &source))
             return ;
     }
     else
@@ -215,22 +453,328 @@ static void inst_fmath (const uint16_t ext)
     
     float128 dest = floatx80_to_float128(fpu->fp[dest_register]);
     
+    /*
+     * Thoughts on the meaning of the bits in the fmath opcode
+     * Bits 6543210
+     *
+     * The 6th bit (Bxxxxx) is only implemented on 68040,
+     * and it is only used to force the rounding mode.
+     * If bit 6 is set, then bit 2 controls whether it rounds to
+     * single or double. (Bit 2 is unchanged from the extended version
+     * for single-rounding, and flipped for double-rounding)
+     *
+     * Wait no, this doesn't work for fsqrt.
+     * Maybe the bits don't have any specific meaning...
+     */
+    
+    /*
+     * We'll shrink the precision and perform rounding
+     * just prior to writing back the result.
+     * Certain instructions override the precision
+     * in fpcr, so keep track of the prefered prec here.
+     */
+    enum rounding_precision_t rounding_prec = mc_prec;
+    
+    /*
+     * For all the intermediate calculations, we
+     * probably want to use nearest-rounding mode.
+     */
+    _set_rounding_mode(mode_nearest);
+    
+    /* Reset softfloat's exception flags */
+    float_exception_flags = 0;
+    
+    /* Reset fpsr's exception flags */
+    es_inex1 = 0; // this is only set for imprecisely-rounded packed inputs (not implemented)
+    es_inex2 = 0; // set if we ever lose precision (during the op or during rounding)
+    es_dz = 0;    // set if we divided by zero
+    es_unfl = 0;  // set if we underflowed (inex2 should be set too, I think)
+    es_ovfl = 0;  // set if we overflowed (inex2 should be set too, I think)
+    es_operr = 0; // ?
+    es_snan = 0;  // Set if one of the inputs was a signaling NaN
+    es_bsun = 0;  // never set here
+    
+    
+    switch (e) {
+        case ~b(1000000): // fsmove
+        case ~b(1000100): // fdmove
+            /* These are only legal on 68040 */
+            throw_illegal_instruction();
+            return ;
+            
+            if (e == ~b(1000000)) rounding_prec = prec_single;
+            else if (e == ~b(1000100)) rounding_prec = prec_double;
+            else assert(0);
+        case ~b(0000000): // fmove
+            result = source;
+            
+            break;
+            
+        case ~b(0000001): // fint
+            break;
+            
+        case ~b(0000010): // fsinh
+            break;
+            
+        case ~b(0000011): // fintrz
+            break;
+            
+        case ~b(1000001): // fssqrt
+        case ~b(1000101): // fdsqrt
+            /* These are only legal on 68040 */
+            throw_illegal_instruction();
+            return ;
+            
+            if (e == ~b(1000001)) rounding_prec = prec_single;
+            else if (e == ~b(1000101)) rounding_prec = prec_double;
+            else assert(0);
+        case ~b(0000100): // fsqrt;
+            
+            break;
+            
+        case ~b(0000110): // flognp1
+            break;
+            
+        case ~b(0001000): // fetoxm1
+            break;
+            
+        case ~b(0001001): // ftanh
+            break;
+            
+        case ~b(0001010): // fatan
+            break;
+            
+        case ~b(0001100): // fasin
+            break;
+            
+        case ~b(0001101): // fatanh
+            break;
+            
+        case ~b(0001110): // fsin
+            break;
+            
+        case ~b(0001111): // ftan
+            break;
+            
+        case ~b(0010000): // fetox
+            break;
+            
+        case ~b(0010001): // ftwotox
+            break;
+            
+        case ~b(0010010): // ftentox
+            break;
+            
+        case ~b(0010100): // flogn
+            break;
+            
+        case ~b(0010101): // flog10
+            break;
+            
+        case ~b(0010110): // flog2
+            break;
+            
+        case ~b(1011000): // fsabs
+        case ~b(1011100): // fdabs
+            /* These are only legal on 68040 */
+            throw_illegal_instruction();
+            return ;
+            
+            if (e == ~b(1011000)) rounding_prec = prec_single;
+            else if (e == ~b(1011100)) rounding_prec = prec_double;
+            else assert(0);
+        case ~b(0011000): // fabs
+            
+            break;
+            
+        case ~b(0011001): // fcosh
+            break;
+            
+        case ~b(1011010): // fsneg
+        case ~b(1011110): // fdneg
+            /* These are only legal on 68040 */
+            throw_illegal_instruction();
+            return ;
+            
+            if (e == ~b(1011010)) rounding_prec = prec_single;
+            else if (e == ~b(1011110)) rounding_prec = prec_double;
+            else assert(0);
+        case ~b(0011010): // fneg
+            
+            break;
+            
+        case ~b(0011100): // facos
+            break;
+            
+        case ~b(0011101): // fcos
+            break;
+            
+        case ~b(0011110): // fgetexp
+            break;
+            
+        case ~b(0011111): // fgetman
+            break;
+            
+        case ~b(0100001): // fmod
+            break;
+            
+        case ~b(1100010): // fsadd
+        case ~b(1100110): // fdadd
+            /* These are only legal on 68040 */
+            throw_illegal_instruction();
+            return ;
+            
+            if (e == ~b(1100010)) rounding_prec = prec_single;
+            else if (e == ~b(1100110)) rounding_prec = prec_double;
+            else assert(0);
+        case ~b(0100010): // fadd
+            
+            break;
+            
+        case ~b(0100100): // fsgldiv
+            break;
+            
+        case ~b(0100111): // fsglmul
+            break;
+            
+        case ~b(0100101): // frem
+            break;
+            
+        case ~b(0100110): // fscale
+            break;
+            
+        case ~b(0111000): // fcmp
+            break;
+            
+        case ~b(0111010): // ftst
+            break;
+            
+        case ~b(1100000): // fsdiv
+        case ~b(1100100): // fddiv
+            /* These are only legal on 68040 */
+            throw_illegal_instruction();
+            return ;
+            
+            if (e == ~b(1100000)) rounding_prec = prec_single;
+            else if (e == ~b(1100100)) rounding_prec = prec_double;
+            else assert(0);
+        case ~b(0100000): // fdiv
+            
+            break;
+            
+        case ~b(1100011): // fsmul
+        case ~b(1100111): // fdmul
+            /* These are only legal on 68040 */
+            throw_illegal_instruction();
+            return ;
+            
+            if (e == ~b(1100011)) rounding_prec = prec_single;
+            else if (e == ~b(1100111)) rounding_prec = prec_double;
+            else assert(0);
+        case ~b(0100011): // fmul
+            
+            break;
+            
+        case ~b(1101000): // fssub
+        case ~b(1101100): // fdsub
+            /* These are only legal on 68040 */
+            throw_illegal_instruction();
+            return ;
+            
+            if (e == ~b(1101000)) rounding_prec = prec_single;
+            else if (e == ~b(1101100)) rounding_prec = prec_double;
+            else assert(0);
+        case ~b(0101000): // fsub
+
+            break;
+    }
+    
+    /*
+     * Now update all the exception flags,
+     * and determine whether we want to
+     * actually throw an exception.
+     */
+    
+    /*
+     es_inex1 = 0;
+     es_inex2 = 0;
+     es_dz = 0;
+     es_unfl = 0;
+     es_ovfl = 0;
+     es_operr = 0;
+     es_snan = 0;
+     es_bsun = 0;
+     */
+    if (float_exception_flags & float_flag_divbyzero)
+        es_dz = 1;
+    if (float_exception_flags & float_flag_overflow)
+        es_ovfl = 1;
+    if (float_exception_flags & float_flag_underflow) {
+        /* Wait... this might not be right */
+        es_unfl = 1;
+        es_inex2 = 1;
+    }
+         
+    /*
+     Accrued    -iff-     exception
+     
+     invalid              bsun or snan or operr
+     overflow             overflow
+     underflow            (underflow AND inex2)
+     divzero              divzero
+     inexact              inex1 or inex2 or overflow
+     */
+    
+    /*
+     Exception  -> Accrued
+     
+     bsun       -> invalid (can't happen here)
+     snan       -> invalid (we can check for this manually)
+     operr      -> invalid
+     overflow   -> overflow
+     underflow...
+     divzero    -> divzero
+     inex1      -> inexact
+     inex2      -> inexact
+     overflow   -> inexact
+     */
+    
+    /*
+     bsun     -> only set for f*cc* instructions
+     snan     -> was one of the operands a signaling NaN?
+     operr    -> 
+     overflow -> The result didn't fit, rounded to +/- infinity
+     underflow-> The result didn't fit, rounded to +/- 0
+     divzero  -> divided by zero
+     inex1    -> The input (packed) format was imprecisely converted
+     inex2    -> The resulting output couldn't be precisely represented
+     */
+    
+    // Presumably if overflow or underflow happen, inex2 must be set?
+    // Underflow and overflow can't be set at the same time?
+     
     
     assert(!"fmath");
 }
 
 static void inst_fmove (const uint16_t ext)
 {
+    fpu_get_state_ptr();
+    
     assert(!"fmove");
 }
 
 static void inst_fmovem_control (const uint16_t ext)
 {
+    fpu_get_state_ptr();
+    
     assert(!"fmovem_control");
 }
 
 static void inst_fmovem (const uint16_t ext)
 {
+    fpu_get_state_ptr();
+    
     assert(!"fmovem");
 }
 
@@ -472,8 +1016,8 @@ void inst_ftrapcc () {
 }
 
 void inst_fnop() {
-    // This is technically fbcc, so we should set fpiar too
-    fpu->fpiar = shoe.orig_pc;
+    // This is technically fbcc
+    inst_fbcc();
 }
 
 void inst_fpu_other () {
