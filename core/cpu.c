@@ -1393,7 +1393,43 @@ static void inst_moves (void) {
 }
 
 static void inst_cas (void) {
-    assert(!"inst_cas: error: not implemented!");
+    const uint16_t ext = nextword();
+    ~decompose(shoe.op, 0000 1ss0 11 MMMMMM);
+    ~decompose(ext, 0000 000 uuu 000 ccc);
+    
+    const uint8_t sz = (1 << s) >> 1; // (01 -> byte, 10 -> word, 11 -> long)
+    
+    call_ea_read(M, sz);
+    
+    /* The dest/source/result operands are reversed here from inst_cmp */
+    
+    // EA = destination
+    // Rc = source
+    // EA = result
+    const uint32_t chopped_source = get_d(c, sz);
+    const uint32_t R = shoe.dat - chopped_source;
+    const _Bool Sm = mib(get_d(c, sz), sz);
+    const _Bool Dm = ea_n(sz);
+    const _Bool Rm = mib(R, sz);
+    const _Bool z = (chop(R, sz) == 0);
+    
+    if (z) {
+        // "If the operands are equal, the instruction writes the
+        //  update operand (Du) to the effective address operand"
+        shoe.dat = get_d(u, sz);
+        call_ea_write(M, sz);
+    }
+    else {
+        // "otherwise, the instruction writes the effective
+        //  address operand to the compare operand"
+        call_ea_read_commit(M, sz);
+        set_d(c, shoe.dat, sz);
+    }
+    
+    set_sr_z(z);
+    set_sr_n(Rm);
+    set_sr_v((!Sm && Dm && !Rm) || (Sm && !Dm && Rm));
+    set_sr_c((Sm && !Dm) || (Rm && !Dm) || (Sm && Rm));
 }
 
 static void inst_cas2 (void) {
