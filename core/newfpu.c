@@ -279,7 +279,7 @@ static float128 _extended_to_intermediate(uint8_t *e)
  */
 static void _set_rounding_mode(enum rounding_mode_t mode)
 {
-    const int8 rounding_map[4] = {
+    const int8_t rounding_map[4] = {
         float_round_nearest_even, float_round_to_zero,
         float_round_up, float_round_down
     };
@@ -411,7 +411,7 @@ got_address:
                 *result = _extended_to_intermediate(buf);
                 break;
             case format_Ps:
-            case format_Pd:
+            // case format_Pd: // not possible as a src specifier
                 // FIXME: implement packed formats
                 assert(!"Somebody tried to use a packed format!\n");
                 // throw_illegal_instruction();
@@ -427,6 +427,79 @@ got_data:
 }
 
 #pragma mark Second-hop instructions
+
+
+static float128 _get_fmovecr_constant(const uint8_t offset)
+{
+    float128 foo;
+    
+    /*
+     * FYI: these constants are stored in the "intermediate" 85-bit
+     *      format in the 6888x rom. This has the side effect that
+     *      they are rounded according to fpcr.mc_rnd.
+     *      We emulate the 85-bit format with float128.
+     */
+    
+    switch (offset) {
+        case 0x00: // pi
+            break;
+        case 0x0b: // log_10(2)
+            break;
+        case 0x0c: // e
+            break;
+        case 0x0d: // log_2(e)
+            break;
+        case 0x0e: // log_10(e)
+            break;
+        case 0x0f: // 0.0
+            break;
+        case 0x30: // ln(2)
+            break;
+        case 0x31: // ln(10)
+            break;
+        case 0x32: // 1 (68kprm has typesetting issues everywhere. This one says 100, but means 10^0.)
+            break;
+        case 0x33: // 10
+            break;
+        case 0x34: // 10^2
+            break;
+        case 0x35: // 10^4
+            break;
+        case 0x36: // 10^8
+            break;
+        case 0x37: // 10^16
+            break;
+        case 0x38: // 10^32
+            break;
+        case 0x39: // 10^64
+            break;
+        case 0x3a: // 10^128
+            break;
+        case 0x3b: // 10^256
+            break;
+        case 0x3c: // 10^512
+            break;
+        case 0x3d: // 10^1024
+            break;
+        case 0x3e: // 10^2048
+            break;
+        case 0x3f: // 10^4096
+            break;
+        default:
+            /*
+             * I wanted to include the actual values for the other ROM offsets,
+             * but they might be proprietary. Most of them are 0 anyways, and some
+             * cause FPU exceptions, even with all exceptions disabled... (?)
+             * (Also, looking at the micro/nanocode on a high res 68881/2 die pic,
+             *  I can't figure out where these constants are stored.)
+             */
+            // result = 0.0;
+            break;
+    }
+    
+    return foo;
+}
+
 
 static void inst_fmath (const uint16_t ext)
 {
@@ -494,14 +567,30 @@ static void inst_fmath (const uint16_t ext)
     es_snan = 0;  // Set if one of the inputs was a signaling NaN
     es_bsun = 0;  // never set here
     
+    /*
+     * All instructions with bit #6 set are illegal on
+     * 6888x. No other opcodes seem to be illegal.
+     */
+    if (extension & ~b(1000000)) {
+        throw_illegal_instruction();
+        return ;
+    }
+    
+    /* Handle fmovecr */
+    if (src_in_ea && (source_specifier == 7)) { // fmovecr
+        /* 
+         * 68kprm says M should be ~b(000000), but apparently
+         * any value will work for fmovecr
+         */
+        result = _get_fmovecr_constant(extension);
+        
+        goto finalize;
+    }
     
     switch (e) {
         case ~b(1000000): // fsmove
         case ~b(1000100): // fdmove
             /* These are only legal on 68040 */
-            throw_illegal_instruction();
-            return ;
-            
             if (e == ~b(1000000)) rounding_prec = prec_single;
             else if (e == ~b(1000100)) rounding_prec = prec_double;
             else assert(0);
@@ -522,15 +611,14 @@ static void inst_fmath (const uint16_t ext)
         case ~b(1000001): // fssqrt
         case ~b(1000101): // fdsqrt
             /* These are only legal on 68040 */
-            throw_illegal_instruction();
-            return ;
-            
             if (e == ~b(1000001)) rounding_prec = prec_single;
             else if (e == ~b(1000101)) rounding_prec = prec_double;
             else assert(0);
         case ~b(0000100): // fsqrt;
             
             break;
+            
+        /* case ~b(0000101): // not documented, seems to be fsqrt again */
             
         case ~b(0000110): // flognp1
             break;
@@ -543,6 +631,8 @@ static void inst_fmath (const uint16_t ext)
             
         case ~b(0001010): // fatan
             break;
+            
+        /* case ~b(0001011): // not documented, seems to be fatan again */
             
         case ~b(0001100): // fasin
             break;
@@ -565,6 +655,8 @@ static void inst_fmath (const uint16_t ext)
         case ~b(0010010): // ftentox
             break;
             
+        /* case ~b(0010011): // not documented, seems to be ftentox again */
+            
         case ~b(0010100): // flogn
             break;
             
@@ -573,13 +665,12 @@ static void inst_fmath (const uint16_t ext)
             
         case ~b(0010110): // flog2
             break;
+        
+        /* case ~b(0010111): // not documented, seems to be flog2 again */
             
         case ~b(1011000): // fsabs
         case ~b(1011100): // fdabs
             /* These are only legal on 68040 */
-            throw_illegal_instruction();
-            return ;
-            
             if (e == ~b(1011000)) rounding_prec = prec_single;
             else if (e == ~b(1011100)) rounding_prec = prec_double;
             else assert(0);
@@ -593,15 +684,13 @@ static void inst_fmath (const uint16_t ext)
         case ~b(1011010): // fsneg
         case ~b(1011110): // fdneg
             /* These are only legal on 68040 */
-            throw_illegal_instruction();
-            return ;
-            
             if (e == ~b(1011010)) rounding_prec = prec_single;
             else if (e == ~b(1011110)) rounding_prec = prec_double;
             else assert(0);
         case ~b(0011010): // fneg
-            
             break;
+            
+        /* case ~b(0011010): // not documented, seems to be fneg again */
             
         case ~b(0011100): // facos
             break;
@@ -615,26 +704,39 @@ static void inst_fmath (const uint16_t ext)
         case ~b(0011111): // fgetman
             break;
             
+        case ~b(1100000): // fsdiv
+        case ~b(1100100): // fddiv
+            /* These are only legal on 68040 */
+            if (e == ~b(1100000)) rounding_prec = prec_single;
+            else if (e == ~b(1100100)) rounding_prec = prec_double;
+            else assert(0);
+        case ~b(0100000): // fdiv
+            break;
+            
         case ~b(0100001): // fmod
             break;
+           
+        /* case ~b(0100000): // not documented, seems to be fmod again */
             
         case ~b(1100010): // fsadd
         case ~b(1100110): // fdadd
             /* These are only legal on 68040 */
-            throw_illegal_instruction();
-            return ;
-            
             if (e == ~b(1100010)) rounding_prec = prec_single;
             else if (e == ~b(1100110)) rounding_prec = prec_double;
             else assert(0);
         case ~b(0100010): // fadd
+            break;
             
+        case ~b(1100011): // fsmul
+        case ~b(1100111): // fdmul
+            /* These are only legal on 68040 */
+            if (e == ~b(1100011)) rounding_prec = prec_single;
+            else if (e == ~b(1100111)) rounding_prec = prec_double;
+            else assert(0);
+        case ~b(0100011): // fmul
             break;
             
         case ~b(0100100): // fsgldiv
-            break;
-            
-        case ~b(0100111): // fsglmul
             break;
             
         case ~b(0100101): // frem
@@ -643,56 +745,52 @@ static void inst_fmath (const uint16_t ext)
         case ~b(0100110): // fscale
             break;
             
-        case ~b(0111000): // fcmp
-            break;
-            
-        case ~b(0111010): // ftst
-            break;
-            
-        case ~b(1100000): // fsdiv
-        case ~b(1100100): // fddiv
-            /* These are only legal on 68040 */
-            throw_illegal_instruction();
-            return ;
-            
-            if (e == ~b(1100000)) rounding_prec = prec_single;
-            else if (e == ~b(1100100)) rounding_prec = prec_double;
-            else assert(0);
-        case ~b(0100000): // fdiv
-            
-            break;
-            
-        case ~b(1100011): // fsmul
-        case ~b(1100111): // fdmul
-            /* These are only legal on 68040 */
-            throw_illegal_instruction();
-            return ;
-            
-            if (e == ~b(1100011)) rounding_prec = prec_single;
-            else if (e == ~b(1100111)) rounding_prec = prec_double;
-            else assert(0);
-        case ~b(0100011): // fmul
-            
+        case ~b(0100111): // fsglmul
             break;
             
         case ~b(1101000): // fssub
         case ~b(1101100): // fdsub
             /* These are only legal on 68040 */
-            throw_illegal_instruction();
-            return ;
-            
             if (e == ~b(1101000)) rounding_prec = prec_single;
             else if (e == ~b(1101100)) rounding_prec = prec_double;
             else assert(0);
         case ~b(0101000): // fsub
-
             break;
+            
+        /* case ~b(0101000) through ~b(0101111): // not documented, seems to be fsub again */
+         
+        case ~b(0110000):
+        case ~b(0110001):
+        case ~b(0110010):
+        case ~b(0110011):
+        case ~b(0110100):
+        case ~b(0110101):
+        case ~b(0110110):
+        case ~b(0110111): // fsincos
+            break;
+            
+        case ~b(0111000): // fcmp
+            break;
+            
+        case ~b(0111010): // ftst
+            break;
+        
+        /* 
+         * All the rest of these 0xxxxxx opcodes seem to be either fcmp or ftst.
+         * That's why the new 68040 opcodes have to use that high bit (1xxxxxx),
+         * none of the other ones throw illegal-instruction on 6888x.
+         */
+        default:
+            /* Nonetheless, I'm just going to throw an f-trap. */
+            throw_illegal_instruction();
+            return;
     }
+
+finalize:
     
     /*
-     * Now update all the exception flags,
-     * and determine whether we want to
-     * actually throw an exception.
+     * Now update all the exception flags, and determine
+     * whether we want to actually throw an exception.
      */
     
     /*
