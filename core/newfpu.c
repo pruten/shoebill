@@ -129,6 +129,10 @@ typedef struct {
     
     floatx80 fp[8]; // 80 bit floating point general registers
     
+    // State for the static fmath instruction implementations
+    float128 source, dest, result;
+    _Bool write_back;
+    uint8_t fmath_op;
 } fpu_state_t;
 
 enum rounding_precision_t {
@@ -171,7 +175,7 @@ enum {
 #define nextlong() ({const uint32_t L=lget(shoe.pc,4); if (shoe.abort) {return;}; shoe.pc+=4; L;})
 #define verify_supervisor() {if (!sr_s()) {throw_privilege_violation(); return;}}
 
-#pragma mark FPU exception throwers
+#pragma mark FPU exception stuff
 enum fpu_vector_t {
     fpu_vector_ftrapcc = 7,
     fpu_vector_fline = 11,
@@ -185,19 +189,29 @@ enum fpu_vector_t {
     fpu_vector_snan = 54
 };
 
-#define expush(_dat, _sz) {\
-    const uint32_t sz = (_sz); \
-    lset(shoe.a[7] - sz, sz, (_dat)); \
-    if (shoe.abort) assert(!"fpu: expush: double fault during lset!"); \
-    shoe.a[7] -= sz; \
-}
+/*
+ * Map the exception bit positions (in fpsr and fpcr)
+ * to their corresponding exception vector numbers.
+ */
+const uint8_t _exception_bit_to_vector[8] = {
+    48, // bsun
+    54, // snan
+    52, // operr
+    53, // ovfl
+    51, // unfl
+    50, // dz
+    49, // inex2
+    49, // inex1
+};
 
 static void throw_fpu_pre_instruction_exception(enum fpu_vector_t vector)
 {
     throw_frame_zero(shoe.orig_sr, shoe.orig_pc, vector);
 }
-// Note: I may be able to get away without implementing the
-//       mid-instruction exception.
+/*
+ * Note: I may be able to get away without implementing the
+ *       mid-instruction exception.
+ */
 
 /*
  * _bsun_test() is called by every inst_f*cc instruction
@@ -288,6 +302,28 @@ static void _set_rounding_mode(enum rounding_mode_t mode)
 }
 
 #pragma mark EA routines
+
+/*
+ * Read-commit merely updates the address register
+ * for pre/post-inc/decrement
+ */
+static void _fpu_read_ea_commit(const uint8_t format)
+{
+    ~decompose(shoe.op, 0000 0000 00 mmmrrr);
+    
+    if (m == 3) // post-increment
+        shoe.a[r] += _format_sizes[format];
+    else if (m == 4) // pre-decrement
+        shoe.a[r] -= _format_sizes[format];
+    
+    /* 
+     * Note: still unsure about what happens when
+     *       mode=pre/postincdecrement, size==1, and register==a7
+     *       (is the change +-2 bytes? or 1?)
+     */
+    if (((m == 3) || (m == 4)) && (_format_sizes[format] == 1) && (r == 7))
+        assert(!"size==1, reg==a7");
+}
 
 /*
  * Note: fpu_read_ea modifies shoe.pc, and fpu_read_ea_commit
@@ -426,13 +462,21 @@ got_data:
     return 1;
 }
 
-#pragma mark Second-hop instructions
+#pragma mark FMATH! and all its helpers
+
+/* Function prototypes from SoftFloat/softfloat-specialize.h */
+char float128_is_nan(float128 a);
+char float128_is_signaling_nan (float128 a);
 
 
-static float128 _get_fmovecr_constant(const uint8_t offset)
+// 80-bit macros, (should be 128 bit!)
+// #define is_nan(f) (((f).low << 1) && (((f).high << 1) == 0xfffe))
+// #define is_signal_nan(f) (is_nan((f)) && ((((f).low >> 62) & 1) == 0))
+
+static void inst_fmath_fmovecr (void)
 {
-    float128 foo;
-    
+    fpu_get_state_ptr();
+
     /*
      * FYI: these constants are stored in the "intermediate" 85-bit
      *      format in the 6888x rom. This has the side effect that
@@ -440,7 +484,7 @@ static float128 _get_fmovecr_constant(const uint8_t offset)
      *      We emulate the 85-bit format with float128.
      */
     
-    switch (offset) {
+    switch (fpu->fmath_op) {
         case 0x00: // pi
             break;
         case 0x0b: // log_10(2)
@@ -493,17 +537,525 @@ static float128 _get_fmovecr_constant(const uint8_t offset)
              * (Also, looking at the micro/nanocode on a high res 68881/2 die pic,
              *  I can't figure out where these constants are stored.)
              */
-            // result = 0.0;
-            break;
+            // FIXME: 0.0 -> result
+            return ;
     }
-    
-    return foo;
 }
 
+/*
+ * This is quick macro.pl macro to build a jump table
+ * for fmath instructions. It is probably slightly slower 
+ * to use a jump table rather than a big switch statement,
+ * but I think it looks cleaner.
+ */
+~newmacro(create_fmath_jump_table, 0, {
+    my $name_map = {};
+    my $op_map = {};
+    my $add = sub {
+        my $op = shift;
+        my $name = lc(shift);
+        my $mode = 'foo';
+        my $arch = 68881;
+        
+        foreach my $arg (@_) {
+            if (($arg eq 'monadic') or ($arg eq 'dyadic')) {
+                $mode = $arg;
+            }
+            elsif ($arg == 68040) {
+                $arch = $arg;
+            }
+            else {
+                croak("bad arg $arg");
+            }
+        }
+        
+        croak("didn't specify mode") if ($mode eq "foo");
+        croak("dup $op $name") if exists $op_map->{$op};
+        croak("bogus") if ($op > 127);
+        
+        $op_map->{$op} = {op => $op, name => $name, mode => $mode, arch => $arch};
+        $name_map->{$name} = $op_map->{$op};
+    };
+    
+    $add->(~b(1000000), 'fmove',    'monadic', 68040);
+    $add->(~b(1000100), 'fmove',    'monadic', 68040);
+    $add->(~b(0000000), 'fmove',    'monadic');
+    
+    $add->(~b(0000001), 'fint',     'monadic');
+    $add->(~b(0000010), 'fsinh',    'monadic');
+    $add->(~b(0000011), 'fintrz',   'monadic');
+    
+    $add->(~b(1000001), 'fsqrt',    'monadic', 68040);
+    $add->(~b(1000101), 'fsqrt',    'monadic', 68040);
+    $add->(~b(0000100), 'fsqrt',    'monadic');
+    
+    $add->(~b(0000110), 'flognp1',  'monadic');
+    $add->(~b(0001000), 'fetoxm1',  'monadic');
+    $add->(~b(0001001), 'ftanh',    'monadic');
+    $add->(~b(0001010), 'fatan',    'monadic');
+    $add->(~b(0001100), 'fasin',    'monadic');
+    $add->(~b(0001101), 'fatanh',   'monadic');
+    $add->(~b(0001110), 'fsin',     'monadic');
+    $add->(~b(0001111), 'ftan',     'monadic');
+    $add->(~b(0010000), 'fetox',    'monadic');
+    $add->(~b(0010001), 'ftwotox',  'monadic');
+    $add->(~b(0010010), 'ftentox',  'monadic');
+    $add->(~b(0010100), 'flogn',    'monadic');
+    $add->(~b(0010101), 'flog10',   'monadic');
+    $add->(~b(0010110), 'flog2',    'monadic');
+    
+    $add->(~b(1011000), 'fabs',     'monadic', 68040);
+    $add->(~b(1011100), 'fabs',     'monadic', 68040);
+    $add->(~b(0011000), 'fabs',     'monadic');
+    
+    $add->(~b(0011001), 'fcosh',    'monadic');
+    
+    $add->(~b(1011010), 'fneg',     'monadic', 68040);
+    $add->(~b(1011110), 'fneg',     'monadic', 68040);
+    $add->(~b(0011010), 'fneg',     'monadic');
+    
+    $add->(~b(0011100), 'facos',    'monadic');
+    $add->(~b(0011101), 'fcos',     'monadic');
+    $add->(~b(0011110), 'fgetexp',  'monadic');
+    $add->(~b(0011111), 'fgetman',  'monadic');
+    
+    $add->(~b(1100000), 'fdiv',     'dyadic', 68040);
+    $add->(~b(1100100), 'fdiv',     'dyadic', 68040);
+    $add->(~b(0100000), 'fdiv',     'dyadic');
+    
+    $add->(~b(0100001), 'fmod',     'dyadic');
+    
+    $add->(~b(1100010), 'fadd',     'dyadic', 68040);
+    $add->(~b(1100110), 'fadd',     'dyadic', 68040);
+    $add->(~b(0100010), 'fadd',     'dyadic');
+    
+    $add->(~b(1100011), 'fmul',     'dyadic', 68040);
+    $add->(~b(1100111), 'fmul',     'dyadic', 68040);
+    $add->(~b(0100011), 'fmul',     'dyadic');
+    
+    $add->(~b(0100100), 'fsgldiv',  'dyadic');
+    $add->(~b(0100101), 'frem',     'dyadic');
+    $add->(~b(0100110), 'fscale',   'dyadic');
+    $add->(~b(0100111), 'fsglmul',  'dyadic');
+    
+    $add->(~b(1101000), 'fsub',     'dyadic', 68040);
+    $add->(~b(1101100), 'fsub',     'dyadic', 68040);
+    $add->(~b(0101000), 'fsub',     'dyadic');
+    
+    $add->(~b(0110000), 'fsincos',  'monadic');
+    $add->(~b(0110001), 'fsincos',  'monadic');
+    $add->(~b(0110010), 'fsincos',  'monadic');
+    $add->(~b(0110011), 'fsincos',  'monadic');
+    $add->(~b(0110100), 'fsincos',  'monadic');
+    $add->(~b(0110101), 'fsincos',  'monadic');
+    $add->(~b(0110110), 'fsincos',  'monadic');
+    $add->(~b(0110111), 'fsincos',  'monadic');
+    
+    
+    $add->(~b(0111000), 'fcmp',     'dyadic');
+    $add->(~b(0111010), 'ftst',     'monadic');
+    
+    my $map_str = "fmath_impl_t *_fmath_map[128] = {\n";
+    my @inst_flags = (0) x 128;
+    
+    for (my $i=0; $i < 128; $i++) {
+        my $func_ptr = "NULL";
+        if (exists $op_map->{$i}) {
+            $func_ptr = 'inst_fmath_' . $op_map->{$i}->{name};
+            if ($op_map->{$i}->{mode} eq 'dyadic') {
+                $inst_flags[$i] |= 1;
+            }
+            if ($op_map->{$i}->{arch} == 68040) {
+                $inst_flags[$i] |= 2;
+            }
+        }
+
+        $map_str .= "\t" . $func_ptr . ",\n";
+    }
+    $map_str .= "};\n\nuint8_t _fmath_flags[128] = {\n";
+    
+    for (my $i=0; $i < 128; $i++) {
+        $map_str .= "\t" . sprintf('0x%02x', $inst_flags[$i]) . ",\n";
+    }
+    $map_str .= "};\n";
+    
+    return $map_str;
+})
+
+static void inst_fmath_fabs ()
+{
+    fpu_get_state_ptr();
+    
+    assert(!"fmath: fabs not implemented");
+}
+
+static void inst_fmath_facos ()
+{
+    fpu_get_state_ptr();
+    
+    assert(!"fmath: facos not implemented");
+}
+
+static void inst_fmath_fadd ()
+{
+    fpu_get_state_ptr();
+    
+    assert(!"fmath: fadd not implemented");
+}
+
+static void inst_fmath_fasin ()
+{
+    fpu_get_state_ptr();
+    
+    assert(!"fmath: fasin not implemented");
+}
+
+static void inst_fmath_fatan ()
+{
+    fpu_get_state_ptr();
+    
+    assert(!"fmath: fatan not implemented");
+}
+
+static void inst_fmath_fatanh ()
+{
+    fpu_get_state_ptr();
+    
+    assert(!"fmath: fatanh not implemented");
+}
+
+static void inst_fmath_fcmp ()
+{
+    fpu_get_state_ptr();
+    
+    assert(!"fmath: fcmp not implemented");
+}
+
+static void inst_fmath_fcos ()
+{
+    fpu_get_state_ptr();
+    
+    assert(!"fmath: fcos not implemented");
+}
+
+static void inst_fmath_fcosh ()
+{
+    fpu_get_state_ptr();
+    
+    assert(!"fmath: fcosh not implemented");
+}
+
+static void inst_fmath_fdiv ()
+{
+    fpu_get_state_ptr();
+    
+    assert(!"fmath: fdiv not implemented");
+}
+
+static void inst_fmath_fetox ()
+{
+    fpu_get_state_ptr();
+    
+    assert(!"fmath: fetox not implemented");
+}
+
+static void inst_fmath_fetoxm1 ()
+{
+    fpu_get_state_ptr();
+    
+    assert(!"fmath: fetoxm1 not implemented");
+}
+
+static void inst_fmath_fgetexp ()
+{
+    fpu_get_state_ptr();
+    
+    assert(!"fmath: fgetexp not implemented");
+}
+
+static void inst_fmath_fgetman ()
+{
+    fpu_get_state_ptr();
+    
+    assert(!"fmath: fgetman not implemented");
+}
+
+static void inst_fmath_fint ()
+{
+    fpu_get_state_ptr();
+    
+    assert(!"fmath: fint not implemented");
+}
+
+static void inst_fmath_fintrz ()
+{
+    fpu_get_state_ptr();
+    
+    assert(!"fmath: fintrz not implemented");
+}
+
+static void inst_fmath_flog10 ()
+{
+    fpu_get_state_ptr();
+    
+    assert(!"fmath: flog10 not implemented");
+}
+
+static void inst_fmath_flog2 ()
+{
+    fpu_get_state_ptr();
+    
+    assert(!"fmath: flog2 not implemented");
+}
+
+static void inst_fmath_flogn ()
+{
+    fpu_get_state_ptr();
+    
+    assert(!"fmath: flogn not implemented");
+}
+
+static void inst_fmath_flognp1 ()
+{
+    fpu_get_state_ptr();
+    
+    assert(!"fmath: flognp1 not implemented");
+}
+
+static void inst_fmath_fmod ()
+{
+    fpu_get_state_ptr();
+    
+    assert(!"fmath: fmod not implemented");
+}
+
+static void inst_fmath_fmove ()
+{
+    fpu_get_state_ptr();
+    
+    
+    
+
+    
+    assert(!"fmath: fmove not implemented");
+}
+
+static void inst_fmath_fmul ()
+{
+    fpu_get_state_ptr();
+    
+    assert(!"fmath: fmul not implemented");
+}
+
+static void inst_fmath_fneg ()
+{
+    fpu_get_state_ptr();
+    
+    assert(!"fmath: fneg not implemented");
+}
+
+static void inst_fmath_frem ()
+{
+    fpu_get_state_ptr();
+    
+    assert(!"fmath: frem not implemented");
+}
+
+static void inst_fmath_fscale ()
+{
+    fpu_get_state_ptr();
+    
+    assert(!"fmath: fscale not implemented");
+}
+
+static void inst_fmath_fsgldiv ()
+{
+    fpu_get_state_ptr();
+    
+    assert(!"fmath: fsgldiv not implemented");
+}
+
+static void inst_fmath_fsglmul ()
+{
+    fpu_get_state_ptr();
+    
+    assert(!"fmath: fsglmul not implemented");
+}
+
+static void inst_fmath_fsin ()
+{
+    fpu_get_state_ptr();
+    
+    assert(!"fmath: fsin not implemented");
+}
+
+static void inst_fmath_fsincos ()
+{
+    fpu_get_state_ptr();
+    
+    assert(!"fmath: fsincos not implemented");
+}
+
+static void inst_fmath_fsinh ()
+{
+    fpu_get_state_ptr();
+    
+    assert(!"fmath: fsinh not implemented");
+}
+
+static void inst_fmath_fsqrt ()
+{
+    fpu_get_state_ptr();
+    
+    assert(!"fmath: fsqrt not implemented");
+}
+
+static void inst_fmath_fsub ()
+{
+    fpu_get_state_ptr();
+    
+    assert(!"fmath: fsub not implemented");
+}
+
+static void inst_fmath_ftan ()
+{
+    fpu_get_state_ptr();
+    
+    assert(!"fmath: ftan not implemented");
+}
+
+static void inst_fmath_ftanh ()
+{
+    fpu_get_state_ptr();
+    
+    assert(!"fmath: ftanh not implemented");
+}
+
+static void inst_fmath_ftentox ()
+{
+    fpu_get_state_ptr();
+    
+    assert(!"fmath: ftentox not implemented");
+}
+
+static void inst_fmath_ftst ()
+{
+    fpu_get_state_ptr();
+    
+    assert(!"fmath: ftst not implemented");
+}
+
+static void inst_fmath_ftwotox ()
+{
+    fpu_get_state_ptr();
+    
+    assert(!"fmath: ftwotox not implemented");
+}
+
+typedef void (fmath_impl_t)(void);
+#define FMATH_TYPE_DYADIC 1
+#define FMATH_TYPE_68040 2
+~create_fmath_jump_table()
+
+
+/*
+ * Take fpu->result, and round and crop it to the
+ * preferred precision, then return the result as
+ * a floatx80. (Set all the appropriate exception bits
+ * too)
+ */
+static floatx80 _fmath_round_intermediate_result ()
+{
+    fpu_get_state_ptr();
+    floatx80 final;
+    
+    float_exception_flags = 0; // (so we can know if the result is inexact)
+    _set_rounding_mode(mc_rnd); // Set the preferred rounding mode
+    
+    if (mc_prec == prec_extended) { // extended precision
+        final = float128_to_floatx80(fpu->result);
+        es_inex2 |= ((float_exception_flags & float_flag_inexact) != 0);
+        es_unfl |= ((float_exception_flags & float_flag_underflow) != 0);
+        es_ovfl |= ((float_exception_flags & float_flag_overflow) != 0);
+    }
+    else if (mc_prec == prec_double) { // double precision
+        float64 tmp = float128_to_float64(fpu->result);
+        es_inex2 |= ((float_exception_flags & float_flag_inexact) != 0);
+        es_unfl |= ((float_exception_flags & float_flag_underflow) != 0);
+        es_ovfl |= ((float_exception_flags & float_flag_overflow) != 0);
+        final = float64_to_floatx80(tmp);
+    }
+    else if (mc_prec == prec_single) { // single precision
+        float32 tmp = float128_to_float32(fpu->result);
+        es_inex2 |= ((float_exception_flags & float_flag_inexact) != 0);
+        es_unfl |= ((float_exception_flags & float_flag_underflow) != 0);
+        es_ovfl |= ((float_exception_flags & float_flag_overflow) != 0);
+        final = float32_to_floatx80(tmp);
+    }
+    else
+        assert(!"bogus precision mode???");
+    
+    return final;
+}
+
+static void _fmath_set_condition_codes (floatx80 val)
+{
+    fpu_get_state_ptr();
+    const uint64_t frac = val.low;
+    const uint32_t exp = val.high & 0x7fff;
+    const _Bool sign = val.high >> 15;
+    
+    /* Clear the whole CC register byte */
+    fpu->fpsr.raw &= 0x00ffffff;
+    
+    /* Check for zero */
+    cc_z = ((exp == 0) && (frac == 0));
+    
+    /* Check for negative */
+    cc_n = sign;
+    
+    /* Check for NaN */
+    cc_nan = ((exp == 0x7fff) && ((frac << 1) != 0));
+    
+    /* Check for infinity */
+    cc_i = ((exp == 0x7fff) && ((frac << 1) == 0));
+}
+
+static void _fmath_handle_nans ()
+{
+    fpu_get_state_ptr();
+    
+    const _Bool is_dyadic = _fmath_flags[fpu->fmath_op] & FMATH_TYPE_DYADIC;
+    const _Bool is_signaling = float128_is_signaling_nan(fpu->source) ||
+                                (is_dyadic && float128_is_signaling_nan(fpu->dest));
+    const _Bool is_source_nan = float128_is_nan(fpu->source);
+    const _Bool is_dest_nan = is_dyadic && float128_is_nan(fpu->dest);
+    
+    /*
+     * If the dest is NaN, or both are NaN, let the result be set to dest.
+     * (with signaling disabled)
+     */
+    if (is_dest_nan)
+        fpu->result = fpu->dest;
+    else {
+        assert(is_source_nan);
+        fpu->result = fpu->source;
+    }
+    
+    /* Set the snan exception status bit */
+    es_snan = is_signaling;
+    
+    /* Silence the result */
+    // Signaling -> 0
+    // Non-signaling -> 1
+    fpu->result.high |= 0x800000000000;
+}
 
 static void inst_fmath (const uint16_t ext)
 {
     fpu_get_state_ptr();
+    
+    floatx80 rounded_result;
     
     ~decompose(shoe.op, 1111 001 000 MMMMMM);
     ~decompose(ext, 0 a 0 sss ddd eeeeeee);
@@ -513,32 +1065,45 @@ static void inst_fmath (const uint16_t ext)
     const uint8_t dest_register = d;
     const uint8_t extension = e;
     
-    _Bool do_write_back_result = 1;
+    /* Throw illegal instruction for 040-only ops */
+    if (_fmath_flags[e] & FMATH_TYPE_68040) {
+        throw_illegal_instruction();
+        return;
+    }
     
-    float128 source, result;
-    
+    /*
+     * All the documented fmath ops have an implementation in
+     * _fmath_map[]. If it's NULL, it's not documented; throw
+     * an exception.
+     * This probably matches what the 68040's behavior (I haven't
+     * checked), but the 68881 doesn't do this.
+     * 68881 throws an illegal instruction exception for all
+     * opcodes where the high (6th) bit of e is set.
+     * All other instructions seem to short circuit to the 
+     * nearest documented instruction.
+     * FIXME: consider implementing this behavior.
+     */
+    if (_fmath_map[e] == NULL) {
+        throw_illegal_instruction();
+        return ;
+    }
+
+    /* 
+     * Read in the source from the EA or from a register.
+     * In either case, convert the value to a float128,
+     * (that's our version of the 85-bit "intermediate" format)
+     */
     if (src_in_ea) {
-        if (!_fpu_read_ea(source_specifier, &source))
+        if (!_fpu_read_ea(source_specifier, &fpu->source))
             return ;
     }
     else
-        source = floatx80_to_float128(fpu->fp[source_specifier]);
+        fpu->source = floatx80_to_float128(fpu->fp[source_specifier]);
     
-    float128 dest = floatx80_to_float128(fpu->fp[dest_register]);
     
-    /*
-     * Thoughts on the meaning of the bits in the fmath opcode
-     * Bits 6543210
-     *
-     * The 6th bit (Bxxxxx) is only implemented on 68040,
-     * and it is only used to force the rounding mode.
-     * If bit 6 is set, then bit 2 controls whether it rounds to
-     * single or double. (Bit 2 is unchanged from the extended version
-     * for single-rounding, and flipped for double-rounding)
-     *
-     * Wait no, this doesn't work for fsqrt.
-     * Maybe the bits don't have any specific meaning...
-     */
+    /* We only need to load the dest reg for dyadic ops */
+    if (_fmath_flags[e] & FMATH_TYPE_DYADIC)
+        fpu->dest = floatx80_to_float128(fpu->fp[dest_register]);
     
     /*
      * We'll shrink the precision and perform rounding
@@ -563,18 +1128,12 @@ static void inst_fmath (const uint16_t ext)
     es_dz = 0;    // set if we divided by zero
     es_unfl = 0;  // set if we underflowed (inex2 should be set too, I think)
     es_ovfl = 0;  // set if we overflowed (inex2 should be set too, I think)
-    es_operr = 0; // ?
+    es_operr = 0; // set if there was an instruction specific operand error
     es_snan = 0;  // Set if one of the inputs was a signaling NaN
     es_bsun = 0;  // never set here
     
-    /*
-     * All instructions with bit #6 set are illegal on
-     * 6888x. No other opcodes seem to be illegal.
-     */
-    if (extension & ~b(1000000)) {
-        throw_illegal_instruction();
-        return ;
-    }
+    fpu->write_back = 1; // let "do-write-back" be the default behavior
+    fpu->fmath_op = e;
     
     /* Handle fmovecr */
     if (src_in_ea && (source_specifier == 7)) { // fmovecr
@@ -582,278 +1141,93 @@ static void inst_fmath (const uint16_t ext)
          * 68kprm says M should be ~b(000000), but apparently
          * any value will work for fmovecr
          */
-        result = _get_fmovecr_constant(extension);
-        
-        goto finalize;
+        inst_fmath_fmovecr();
+        goto computation_done;
     }
     
-    switch (e) {
-        case ~b(1000000): // fsmove
-        case ~b(1000100): // fdmove
-            /* These are only legal on 68040 */
-            if (e == ~b(1000000)) rounding_prec = prec_single;
-            else if (e == ~b(1000100)) rounding_prec = prec_double;
-            else assert(0);
-        case ~b(0000000): // fmove
-            result = source;
-            
-            break;
-            
-        case ~b(0000001): // fint
-            break;
-            
-        case ~b(0000010): // fsinh
-            break;
-            
-        case ~b(0000011): // fintrz
-            break;
-            
-        case ~b(1000001): // fssqrt
-        case ~b(1000101): // fdsqrt
-            /* These are only legal on 68040 */
-            if (e == ~b(1000001)) rounding_prec = prec_single;
-            else if (e == ~b(1000101)) rounding_prec = prec_double;
-            else assert(0);
-        case ~b(0000100): // fsqrt;
-            
-            break;
-            
-        /* case ~b(0000101): // not documented, seems to be fsqrt again */
-            
-        case ~b(0000110): // flognp1
-            break;
-            
-        case ~b(0001000): // fetoxm1
-            break;
-            
-        case ~b(0001001): // ftanh
-            break;
-            
-        case ~b(0001010): // fatan
-            break;
-            
-        /* case ~b(0001011): // not documented, seems to be fatan again */
-            
-        case ~b(0001100): // fasin
-            break;
-            
-        case ~b(0001101): // fatanh
-            break;
-            
-        case ~b(0001110): // fsin
-            break;
-            
-        case ~b(0001111): // ftan
-            break;
-            
-        case ~b(0010000): // fetox
-            break;
-            
-        case ~b(0010001): // ftwotox
-            break;
-            
-        case ~b(0010010): // ftentox
-            break;
-            
-        /* case ~b(0010011): // not documented, seems to be ftentox again */
-            
-        case ~b(0010100): // flogn
-            break;
-            
-        case ~b(0010101): // flog10
-            break;
-            
-        case ~b(0010110): // flog2
-            break;
-        
-        /* case ~b(0010111): // not documented, seems to be flog2 again */
-            
-        case ~b(1011000): // fsabs
-        case ~b(1011100): // fdabs
-            /* These are only legal on 68040 */
-            if (e == ~b(1011000)) rounding_prec = prec_single;
-            else if (e == ~b(1011100)) rounding_prec = prec_double;
-            else assert(0);
-        case ~b(0011000): // fabs
-            
-            break;
-            
-        case ~b(0011001): // fcosh
-            break;
-            
-        case ~b(1011010): // fsneg
-        case ~b(1011110): // fdneg
-            /* These are only legal on 68040 */
-            if (e == ~b(1011010)) rounding_prec = prec_single;
-            else if (e == ~b(1011110)) rounding_prec = prec_double;
-            else assert(0);
-        case ~b(0011010): // fneg
-            break;
-            
-        /* case ~b(0011010): // not documented, seems to be fneg again */
-            
-        case ~b(0011100): // facos
-            break;
-            
-        case ~b(0011101): // fcos
-            break;
-            
-        case ~b(0011110): // fgetexp
-            break;
-            
-        case ~b(0011111): // fgetman
-            break;
-            
-        case ~b(1100000): // fsdiv
-        case ~b(1100100): // fddiv
-            /* These are only legal on 68040 */
-            if (e == ~b(1100000)) rounding_prec = prec_single;
-            else if (e == ~b(1100100)) rounding_prec = prec_double;
-            else assert(0);
-        case ~b(0100000): // fdiv
-            break;
-            
-        case ~b(0100001): // fmod
-            break;
-           
-        /* case ~b(0100000): // not documented, seems to be fmod again */
-            
-        case ~b(1100010): // fsadd
-        case ~b(1100110): // fdadd
-            /* These are only legal on 68040 */
-            if (e == ~b(1100010)) rounding_prec = prec_single;
-            else if (e == ~b(1100110)) rounding_prec = prec_double;
-            else assert(0);
-        case ~b(0100010): // fadd
-            break;
-            
-        case ~b(1100011): // fsmul
-        case ~b(1100111): // fdmul
-            /* These are only legal on 68040 */
-            if (e == ~b(1100011)) rounding_prec = prec_single;
-            else if (e == ~b(1100111)) rounding_prec = prec_double;
-            else assert(0);
-        case ~b(0100011): // fmul
-            break;
-            
-        case ~b(0100100): // fsgldiv
-            break;
-            
-        case ~b(0100101): // frem
-            break;
-            
-        case ~b(0100110): // fscale
-            break;
-            
-        case ~b(0100111): // fsglmul
-            break;
-            
-        case ~b(1101000): // fssub
-        case ~b(1101100): // fdsub
-            /* These are only legal on 68040 */
-            if (e == ~b(1101000)) rounding_prec = prec_single;
-            else if (e == ~b(1101100)) rounding_prec = prec_double;
-            else assert(0);
-        case ~b(0101000): // fsub
-            break;
-            
-        /* case ~b(0101000) through ~b(0101111): // not documented, seems to be fsub again */
-         
-        case ~b(0110000):
-        case ~b(0110001):
-        case ~b(0110010):
-        case ~b(0110011):
-        case ~b(0110100):
-        case ~b(0110101):
-        case ~b(0110110):
-        case ~b(0110111): // fsincos
-            break;
-            
-        case ~b(0111000): // fcmp
-            break;
-            
-        case ~b(0111010): // ftst
-            break;
-        
+    /*
+     * If the source is NaN, or this is a dyadic (two-operand)
+     * instruction, and the second operand (fpu->dest) is NaN,
+     * then the result is predetermined: NaN
+     */
+    if (float128_is_nan(fpu->source) ||
+             (((_fmath_flags[e] & FMATH_TYPE_DYADIC) &&
+               float128_is_nan(fpu->dest)))) {
+        _fmath_handle_nans();
+        goto computation_done;
+    }
+    
+    /* Otherwise, call the extension-specific helper function */
+    _fmath_map[e]();
+    
+    /* 
+     * At this point, the "computation"-phase (I forget what the correct
+     * 6888x term is) is over. Now we check exception bits, throw exceptions,
+     * compute condition codes, and round and store the result.
+     */
+computation_done:
+    
+    /* Convert the 128-bit result to the specified precision */
+    
+    rounded_result = _fmath_round_intermediate_result();
+    
+    /* Update the accrued exception bits */
+    
+    assert(!es_bsun); // no fmath op can throw es_bsun
+    
+    ae_iop |= es_bsun | es_snan | es_operr;
+    ae_ovfl |= es_ovfl;
+    ae_unfl |= (es_unfl & es_inex2); // yes, &
+    ae_dz |= es_dz;
+    ae_inex |= es_inex1 | es_inex2 | es_ovfl;
+    
+    /* Are any exceptions both set and enabled? */
+    if (fpu->fpsr.raw & fpu->fpcr.raw & 0x0000ff00) {
         /* 
-         * All the rest of these 0xxxxxx opcodes seem to be either fcmp or ftst.
-         * That's why the new 68040 opcodes have to use that high bit (1xxxxxx),
-         * none of the other ones throw illegal-instruction on 6888x.
+         * Then we need to throw an exception.
+         * The exception is sent to the vector for
+         * the high priority exception, and the priority
+         * order is (high->low) bsan, snan, operr, ovfl, unfl, dz, inex2/1
+         * (which is the order of the bits in fpsr/fpcr).
+         * Iterate over the bits in order, and throw the
+         * exception to whichever bit is set first.
          */
-        default:
-            /* Nonetheless, I'm just going to throw an f-trap. */
-            throw_illegal_instruction();
-            return;
+        uint8_t i, throwable = (fpu->fpsr.raw & fpu->fpcr.raw) >> 8;
+        
+        assert(throwable);
+        for (i=0; 1; i++) {
+            if (throwable & 0x80)
+                break;
+            throwable <<= 1;
+        }
+        
+        /*
+         * Convert the exception bit position
+         * to the correct vector number, and throw
+         * a (pre-instruction) exception.
+         */
+        throw_fpu_pre_instruction_exception(_exception_bit_to_vector[i]);
+        
+        return ;
     }
-
-finalize:
     
     /*
-     * Now update all the exception flags, and determine
-     * whether we want to actually throw an exception.
+     * Otherwise, no exceptions to throw!
+     * Calculate the condition codes from the result.
      */
+    _fmath_set_condition_codes(rounded_result);
     
     /*
-     es_inex1 = 0;
-     es_inex2 = 0;
-     es_dz = 0;
-     es_unfl = 0;
-     es_ovfl = 0;
-     es_operr = 0;
-     es_snan = 0;
-     es_bsun = 0;
+     * We're definitely running to completion now,
+     * so commit ea-read changes
      */
-    if (float_exception_flags & float_flag_divbyzero)
-        es_dz = 1;
-    if (float_exception_flags & float_flag_overflow)
-        es_ovfl = 1;
-    if (float_exception_flags & float_flag_underflow) {
-        /* Wait... this might not be right */
-        es_unfl = 1;
-        es_inex2 = 1;
-    }
-         
-    /*
-     Accrued    -iff-     exception
-     
-     invalid              bsun or snan or operr
-     overflow             overflow
-     underflow            (underflow AND inex2)
-     divzero              divzero
-     inexact              inex1 or inex2 or overflow
-     */
+    _fpu_read_ea_commit(source_specifier);
     
-    /*
-     Exception  -> Accrued
-     
-     bsun       -> invalid (can't happen here)
-     snan       -> invalid (we can check for this manually)
-     operr      -> invalid
-     overflow   -> overflow
-     underflow...
-     divzero    -> divzero
-     inex1      -> inexact
-     inex2      -> inexact
-     overflow   -> inexact
-     */
-    
-    /*
-     bsun     -> only set for f*cc* instructions
-     snan     -> was one of the operands a signaling NaN?
-     operr    -> 
-     overflow -> The result didn't fit, rounded to +/- infinity
-     underflow-> The result didn't fit, rounded to +/- 0
-     divzero  -> divided by zero
-     inex1    -> The input (packed) format was imprecisely converted
-     inex2    -> The resulting output couldn't be precisely represented
-     */
-    
-    // Presumably if overflow or underflow happen, inex2 must be set?
-    // Underflow and overflow can't be set at the same time?
-     
-    
-    assert(!"fmath");
+    /* Write back the result, and we're done! */
+    fpu->fp[dest_register] = rounded_result;
 }
+
+#pragma mark Second-hop non-fmath instructions
 
 static void inst_fmove (const uint16_t ext)
 {
