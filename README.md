@@ -9,7 +9,7 @@ Shoebill requires a Macintosh II, IIx or IIcx ROM, and a disk image with A/UX in
 [Download the latest release], and then see the [getting started] wiki.  
 Also check out [screenshots].
 
-__Update (June 30, 2014): [Shoebill 0.0.4 is available (Now with Windows & Linux ports)]__
+__Update (Oct 15, 2014): Sorry there hasn't been a new release in a while. Ethernet is mostly-working in the latest source tree, and I'm currently working on a total FPU rewrite. I'll release 0.0.5 when the new FPU is mostly-working__
 
 ####Supports
 * A/UX 1.1.1 through 3.1
