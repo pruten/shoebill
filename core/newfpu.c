@@ -686,7 +686,10 @@ static void inst_fmath_fabs ()
 {
     fpu_get_state_ptr();
     
-    assert(!"fmath: fabs not implemented");
+    /* Clear the sign bit */
+    fpu->result = fpu->source;
+    fpu->result.high <<= 1;
+    fpu->result.high >>= 1;
 }
 
 static void inst_fmath_facos ()
@@ -700,7 +703,19 @@ static void inst_fmath_fadd ()
 {
     fpu_get_state_ptr();
     
-    assert(!"fmath: fadd not implemented");
+    fpu->result = float128_add(fpu->dest, fpu->source);
+    
+    /* 
+     * Throw operr (and return NaN) if operands are infinities
+     * with opposite signs. (I *think* softfloat is doing this
+     * corectly - the code's hard to read.)
+     */
+    if (float_exception_flags & float_flag_invalid)
+        es_operr = 1;
+    
+    /* Throw inex2 if the result is inexact */
+    if (float_exception_flags & float_flag_inexact)
+        es_inex2 = 1;
 }
 
 static void inst_fmath_fasin ()
@@ -728,7 +743,21 @@ static void inst_fmath_fcmp ()
 {
     fpu_get_state_ptr();
     
-    assert(!"fmath: fcmp not implemented");
+    /* Don't write the result back to the register */
+    fpu->write_back = 0;
+    
+    fpu->result = float128_sub(fpu->dest, fpu->source);
+    
+    /*
+     * The 68881 docs say fcmp doesn't throw any exceptions
+     * based on the result, but I'm not sure I believe it.
+     
+     if (float_exception_flags & float_flag_invalid)
+        es_operr = 1;
+     
+     if (float_exception_flags & float_flag_inexact)
+        es_inex2 = 1;
+     */
 }
 
 static void inst_fmath_fcos ()
@@ -749,7 +778,19 @@ static void inst_fmath_fdiv ()
 {
     fpu_get_state_ptr();
     
-    assert(!"fmath: fdiv not implemented");
+    fpu->result = float128_div(fpu->dest, fpu->source);
+    
+    /* Throw operr (and return NaN) if both operands are zero */
+    if (float_exception_flags & float_flag_invalid)
+        es_operr = 1;
+    
+    /* Throw divide-by-zero if dividend is zero */
+    if (float_exception_flags & float_flag_divbyzero)
+        es_dz = 1;
+    
+    /* Throw inex2 if the result is inexact */
+    if (float_exception_flags & float_flag_inexact)
+        es_inex2 = 1;
 }
 
 static void inst_fmath_fetox ()
@@ -770,7 +811,31 @@ static void inst_fmath_fgetexp ()
 {
     fpu_get_state_ptr();
     
-    assert(!"fmath: fgetexp not implemented");
+    /* If source is INF, set operr and return NaN */
+    if (((fpu->source.high << 1) == 0xfffe000000000000ULL) && (fpu->source.low == 0)) {
+        es_operr = 1;
+        fpu->result.high = 0xffff000000000000ULL;
+        fpu->result.low = 0xc000000000000000ULL;
+        return ;
+    }
+    
+    /*
+     * If source is 0, return source.
+     * According to 68881 docs, the result needs to have 
+     * the same sign as the source (why?)
+     */
+    if (((fpu->source.high << 1) == 0) && (fpu->source.low == 0)) {
+        fpu->result = fpu->source;
+        return ;
+    }
+    
+    /*
+     * Otherwise, extract the biased exponent, convert it
+     * to a two's complement integer, and store that value
+     * as a float.
+     */
+    const uint32_t biased = (fpu->source.high << 1) >> 49;
+    fpu->result = int32_to_float128(((int32_t)biased) - 16383);
 }
 
 static void inst_fmath_fgetman ()
@@ -784,14 +849,28 @@ static void inst_fmath_fint ()
 {
     fpu_get_state_ptr();
     
-    assert(!"fmath: fint not implemented");
+    fpu->result = float128_round_to_int(fpu->source);
+    
+    /* Throw inex2 if the result is inexact */
+    if (float_exception_flags & float_flag_inexact)
+        es_inex2 = 1;
 }
 
 static void inst_fmath_fintrz ()
 {
     fpu_get_state_ptr();
     
-    assert(!"fmath: fintrz not implemented");
+    /* Same as fint, but force the round-to-zero mode */
+    
+    const signed char old_round_mode = float_rounding_mode;
+    float_rounding_mode = float_round_to_zero;
+    fpu->result = float128_round_to_int(fpu->source);
+    float_rounding_mode = old_round_mode;
+    
+    /* Throw inex2 if the result is inexact */
+    if (float_exception_flags & float_flag_inexact)
+        es_inex2 = 1;
+    
 }
 
 static void inst_fmath_flog10 ()
@@ -833,32 +912,60 @@ static void inst_fmath_fmove ()
 {
     fpu_get_state_ptr();
     
-    
-    
-
-    
-    assert(!"fmath: fmove not implemented");
+    fpu->result = fpu->source;
 }
 
 static void inst_fmath_fmul ()
 {
     fpu_get_state_ptr();
     
-    assert(!"fmath: fmul not implemented");
+    fpu->result = float128_mul(fpu->dest, fpu->source);
+    
+    /*
+     * Throw operr (and return NaN) if one operand is infinity
+     * and the other is zero.
+     */
+    if (float_exception_flags & float_flag_invalid)
+        es_operr = 1;
+    
+    /* Throw inex2 if the result is inexact */
+    if (float_exception_flags & float_flag_inexact)
+        es_inex2 = 1;
 }
 
 static void inst_fmath_fneg ()
 {
     fpu_get_state_ptr();
     
-    assert(!"fmath: fneg not implemented");
+    /* Flip the sign bit */
+    fpu->result = fpu->dest;
+    fpu->result.high ^= (1ULL << 63);
 }
 
 static void inst_fmath_frem ()
 {
     fpu_get_state_ptr();
+    float128 tmp;
     
-    assert(!"fmath: frem not implemented");
+    fpu->result = float128_rem(fpu->dest, fpu->source);
+    
+    /*
+     * Throw operr (and return NaN) if source is zero,
+     * or if dest is infinity.
+     */
+    if (float_exception_flags & float_flag_invalid)
+        es_operr = 1;
+    
+    // FIXME: !! set quotient byte!
+    // you may be able to use the local "q" bits64 in
+    // float128_rem()
+    
+    
+    /*
+     * errata: 68kprm has typesetting issues (or typos?)
+     *         if source==inf, don't set operr!
+     */
+    
 }
 
 static void inst_fmath_fscale ()
@@ -907,14 +1014,37 @@ static void inst_fmath_fsqrt ()
 {
     fpu_get_state_ptr();
     
-    assert(!"fmath: fsqrt not implemented");
+    fpu->result = float128_sqrt(fpu->source);
+    
+    /* Throw operr (and return NaN) if the operand is < 0 */
+    if (float_exception_flags & float_flag_invalid)
+        es_operr = 1;
+    
+    /* Throw inex2 if the result is inexact */
+    if (float_exception_flags & float_flag_inexact)
+        es_inex2 = 1;
 }
 
 static void inst_fmath_fsub ()
 {
     fpu_get_state_ptr();
     
-    assert(!"fmath: fsub not implemented");
+    fpu->result = float128_sub(fpu->dest, fpu->source);
+    
+    /*
+     * Throw operr (and return NaN) if operands are infinities
+     * with equal signs. (I *think* softfloat is doing this
+     * corectly - the code's hard to read.)
+     *
+     * Both 68kprm and 68881 docs say that (+inf) - (-inf) = (-inf)
+     * but I presume that's a typo, and it's supposed to be (+inf)
+     */
+    if (float_exception_flags & float_flag_invalid)
+        es_operr = 1;
+    
+    /* Throw inex2 if the result is inexact */
+    if (float_exception_flags & float_flag_inexact)
+        es_inex2 = 1;
 }
 
 static void inst_fmath_ftan ()
@@ -942,7 +1072,11 @@ static void inst_fmath_ftst ()
 {
     fpu_get_state_ptr();
     
-    assert(!"fmath: ftst not implemented");
+    /* Don't write the result back to the register */
+    fpu->write_back = 0;
+    
+    /* ftst just sets the cond codes according to the source */
+    fpu->result = fpu->source;
 }
 
 static void inst_fmath_ftwotox ()
@@ -963,6 +1097,8 @@ typedef void (fmath_impl_t)(void);
  * preferred precision, then return the result as
  * a floatx80. (Set all the appropriate exception bits
  * too)
+ *
+ * ALSO!! This checks and sets underflow/overflow
  */
 static floatx80 _fmath_round_intermediate_result ()
 {
@@ -1157,7 +1293,11 @@ static void inst_fmath (const uint16_t ext)
         goto computation_done;
     }
     
-    /* Otherwise, call the extension-specific helper function */
+    /* 
+     * Otherwise, call the extension-specific helper function.
+     * Guarantees: Neither source nor dest are NaN
+     *             SoftFloat's exception flags have been cleared
+     */
     _fmath_map[e]();
     
     /* 
@@ -1168,8 +1308,13 @@ static void inst_fmath (const uint16_t ext)
 computation_done:
     
     /* Convert the 128-bit result to the specified precision */
-    
+    /*
+     * FIXME: If fpu->write_back==0, should we still go through rounding?
+     *        The condition codes will still need to be set. Should they
+     *        be set based on the intermediate result or rounded result?
+     */
     rounded_result = _fmath_round_intermediate_result();
+    
     
     /* Update the accrued exception bits */
     
@@ -1186,7 +1331,7 @@ computation_done:
         /* 
          * Then we need to throw an exception.
          * The exception is sent to the vector for
-         * the high priority exception, and the priority
+         * the highest priority exception, and the priority
          * order is (high->low) bsan, snan, operr, ovfl, unfl, dz, inex2/1
          * (which is the order of the bits in fpsr/fpcr).
          * Iterate over the bits in order, and throw the
@@ -1224,7 +1369,8 @@ computation_done:
     _fpu_read_ea_commit(source_specifier);
     
     /* Write back the result, and we're done! */
-    fpu->fp[dest_register] = rounded_result;
+    if (fpu->write_back)
+        fpu->fp[dest_register] = rounded_result;
 }
 
 #pragma mark Second-hop non-fmath instructions
