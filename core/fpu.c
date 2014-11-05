@@ -157,6 +157,7 @@ static fpu_inst_name_t fpu_decode_op(uint16_t op, uint16_t ext)
         case ~b(0011111): return fpu_inst_fgetman;
         case ~b(0100001): return fpu_inst_fmod;
         case ~b(0100100): return fpu_inst_fsgldiv;
+        case ~b(0100111): return fpu_inst_fsglmul;
         case ~b(0100101): return fpu_inst_frem;
         case ~b(0100110): return fpu_inst_fscale;
         case ~b(0111000): return fpu_inst_fcmp;
@@ -1346,8 +1347,9 @@ void inst_fmath(uint16_t op, uint16_t ext)
         case ~b(0100001):
             // don't forget to set fpu_set_fpsr_quotient();
             assert(!"fpu_inst_fmod;");
+        
+        case ~b(0100100): assert(!"fpu_inst_fsgldiv");
             
-        case ~b(0100100): assert(!"fpu_inst_fsgldiv;");
         case ~b(0100101): { // fpu_inst_frem
             assert(source != 0.0);
             result = remainderl(dest, source);
@@ -1513,6 +1515,7 @@ void fpu_setup_jump_table()
         fpu_inst_fgetman,
         fpu_inst_fmod,
         fpu_inst_fsgldiv,
+        fpu_inst_fsglmul,
         fpu_inst_frem,
         fpu_inst_fscale,
         fpu_inst_fcmp,

@@ -6,8 +6,8 @@ CFLAGS = -O3 -ggdb -flto -Wno-deprecated-declarations
 
 DEPS = mc68851.h shoebill.h Makefile macro.pl
 NEED_DECODER = cpu dis
-NEED_PREPROCESSING = adb fpu mc68851 mem via floppy core_api
-NEED_NOTHING = atrap_tab coff exception macii_symbols redblack scsi video filesystem alloc_pool toby_frame_buffer sound ethernet
+NEED_PREPROCESSING = adb mc68851 mem via floppy core_api newfpu
+NEED_NOTHING = atrap_tab coff exception macii_symbols redblack scsi video filesystem alloc_pool toby_frame_buffer sound ethernet SoftFloat/softfloat
 
 # Object files that can be compiled directly from the source
 OBJ_NEED_NOTHING = $(patsubst %,$(TEMP)/%.o,$(NEED_NOTHING))
@@ -78,6 +78,7 @@ $(TEMP)/decoder_gen: decoder_gen.c $(DEPS)
 
 $(TEMP):
 	mkdir -p $(TEMP)
+	mkdir -p $(TEMP)/SoftFloat
 
 clean:
 	rm -rf $(TEMP)

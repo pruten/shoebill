@@ -373,8 +373,10 @@ void pram_callback (void *param, const uint8_t addr, const uint8_t byte)
     
     [self createScreenWindow:9 height:height width:width];
     
-    uint8_t ethernet_addr[6] = {0x00, 0x24, 0x7e, 0x14, 0xd7, 0xff};
-    shoebill_install_ethernet_card(&config, 13, ethernet_addr);
+    // If you feel the cravin' for TAP-based ethernet, uncomment these lines
+    // 
+    // uint8_t ethernet_addr[6] = {0x00, 0x24, 0x7e, 0x14, 0xd7, 0xff};
+    // shoebill_install_ethernet_card(&config, 13, ethernet_addr);
     
     shoebill_start();
     

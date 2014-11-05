@@ -1493,14 +1493,8 @@ void begin_definitions()
     
     /* --- FPU (68881) instructions --- */
     
-    {
-        inst_t *inst = new_inst("fpu_decode", "2", 1);
-        add_range(inst, "1111 001 xxx xxxxxx");
-        no_ea(inst);
-    }
-    
-   /* { // all other fpu ops
-        inst_t *inst = new_inst("fpu_decode", "2", 1);
+    { // all other fpu ops
+        inst_t *inst = new_inst("fpu_other", "2", 1);
         add_range(inst, "1111 001 000 MMMMMM");
         ea_all(inst);
     }
@@ -1511,9 +1505,30 @@ void begin_definitions()
         ea_data_alterable(inst);
     }
     
+    { // FDBcc
+        inst_t *inst = new_inst("fdbcc", "2", 1);
+        add_range(inst, "1111 001 001 001xxx");
+        no_ea(inst);
+    }
+    
+    { // FTRAPcc
+        inst_t *inst = new_inst("ftrapcc", "2", 1);
+        add_range(inst, "1111 001 001 111 010");
+        add_range(inst, "1111 001 001 111 011");
+        add_range(inst, "1111 001 001 111 100");
+        no_ea(inst);
+    }
+    
     { // FBcc
         inst_t *inst = new_inst("fbcc", "2", 1);
         add_range(inst, "1111 001 01x xxxxxx");
+        sub_range(inst, "1111 001 010 000000"); // fnop
+        no_ea(inst);
+    }
+    
+    { // fnop
+        inst_t *inst = new_inst("fnop", "2", 1);
+        add_range(inst, "1111 001 010 000000");
         no_ea(inst);
     }
     
@@ -1529,7 +1544,7 @@ void begin_definitions()
         add_range(inst, "1111 001 101 MMMMMM");
         ea_control(inst);
         ea_add_mode(inst, EA_011);
-    }*/
+    }
     
 }
  

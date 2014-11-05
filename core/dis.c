@@ -1516,6 +1516,39 @@ void dis_mc68851_decode() {
     assert(!"never get here");
 }
 
+void dis_fscc () {
+    sprintf(dis.str, "fscc??");
+}
+
+void dis_fbcc () {
+    sprintf(dis.str, "fbcc??");
+}
+
+void dis_fsave () {
+    sprintf(dis.str, "fsave??");
+}
+
+void dis_frestore () {
+    sprintf(dis.str, "frestore??");
+}
+
+void dis_fpu_other () {
+    sprintf(dis.str, "fpu_other??");
+}
+
+void dis_fdbcc () {
+    sprintf(dis.str, "fdbcc??");
+}
+
+void dis_ftrapcc () {
+    sprintf(dis.str, "ftrapcc??");
+}
+
+void dis_fnop () {
+    const uint16_t ext = dis_next_word();
+    sprintf(dis.str, "fnop");
+}
+
 #include "dis_decoder_guts.c"
 
 /*

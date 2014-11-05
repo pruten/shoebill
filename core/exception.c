@@ -172,7 +172,7 @@ void throw_address_error()
     shoe.abort = 1;
 }
 
-static void throw_frame_zero(uint16_t sr, uint32_t pc, uint16_t vector_num)
+void throw_frame_zero(uint16_t sr, uint32_t pc, uint16_t vector_num)
 {
     // set supervisor bit
     set_sr_s(1);

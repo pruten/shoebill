@@ -468,10 +468,21 @@ got_data:
 char float128_is_nan(float128 a);
 char float128_is_signaling_nan (float128 a);
 
+/*
+ * s -> sign, e -> biased exponent
+ * ma -> 48 high bits of the mantissa
+ * mb -> 64 low bits of the mantissa
+ */
+#define _assemble_float128(s, e, ma, mb) ({ \
+    const uint64_t _ma = (ma), _mb = (mb); \
+    float128 f = { \
+        .high = (((s) != 0) << 16) | ((e) & 0x7fff), \
+        .low = _mb \
+    }; \
+    f.high = ((f.high) << 48) | _ma; \
+    f; \
+})
 
-// 80-bit macros, (should be 128 bit!)
-// #define is_nan(f) (((f).low << 1) && (((f).high << 1) == 0xfffe))
-// #define is_signal_nan(f) (is_nan((f)) && ((((f).low >> 62) & 1) == 0))
 
 static void inst_fmath_fmovecr (void)
 {
@@ -481,63 +492,86 @@ static void inst_fmath_fmovecr (void)
      * FYI: these constants are stored in the "intermediate" 85-bit
      *      format in the 6888x rom. This has the side effect that
      *      they are rounded according to fpcr.mc_rnd.
-     *      We emulate the 85-bit format with float128.
+     *      We emulate the intermediate 85-bit format with float128.
      */
     
     switch (fpu->fmath_op) {
         case 0x00: // pi
+            fpu->result = _assemble_float128(0, 0x4000, 0x921fb54442d1, 0x8469898cc51701b8);
             break;
         case 0x0b: // log_10(2)
+            fpu->result = _assemble_float128(0, 0x3ffd, 0x34413509f79f, 0xef311f12b35816f9);
             break;
         case 0x0c: // e
+            fpu->result = _assemble_float128(0, 0x4000, 0x5bf0a8b14576, 0x95355fb8ac404e7a);
             break;
         case 0x0d: // log_2(e)
+            // FIXME: 68881 doesn't set inex2 for this one
+            // (are the three intermediate bits zeros? I didn't check)
+            fpu->result = _assemble_float128(0, 0x3fff, 0x71547652b82f, 0xe1777d0ffda0d23a);
             break;
         case 0x0e: // log_10(e)
+            fpu->result = _assemble_float128(0, 0x3ffd, 0xbcb7b1526e50, 0xe32a6ab7555f5a67);
             break;
         case 0x0f: // 0.0
+            fpu->result = _assemble_float128(0, 0, 0, 0);
             break;
         case 0x30: // ln(2)
+            fpu->result = _assemble_float128(0, 0x3ffe, 0x62e42fefa39e, 0xf35793c7673007e5);
             break;
         case 0x31: // ln(10)
+            fpu->result = _assemble_float128(0, 0x4000, 0x26bb1bbb5551, 0x582dd4adac5705a6);
             break;
         case 0x32: // 1 (68kprm has typesetting issues everywhere. This one says 100, but means 10^0.)
+            fpu->result = _assemble_float128(0, 0x3fff, 0x0, 0x0);
             break;
         case 0x33: // 10
+            fpu->result = _assemble_float128(0, 0x4002, 0x400000000000, 0x0);
             break;
         case 0x34: // 10^2
+            fpu->result = _assemble_float128(0, 0x4005, 0x900000000000, 0x0);
             break;
         case 0x35: // 10^4
+            fpu->result = _assemble_float128(0, 0x400c, 0x388000000000, 0x0);
             break;
         case 0x36: // 10^8
+            fpu->result = _assemble_float128(0, 0x4019, 0x7d7840000000, 0x0);
             break;
         case 0x37: // 10^16
+            fpu->result = _assemble_float128(0, 0x4034, 0x1c37937e0800, 0x0);
             break;
         case 0x38: // 10^32
+            fpu->result = _assemble_float128(0, 0x4069, 0x3b8b5b5056e1, 0x6b3be04000000000);
             break;
         case 0x39: // 10^64
+            fpu->result = _assemble_float128(0, 0x40d3, 0x84f03e93ff9f, 0x4daa797ed6e38ed6);
             break;
         case 0x3a: // 10^128
+            fpu->result = _assemble_float128(0, 0x41a8, 0x27748f9301d3, 0x19bf8cde66d86d62);
             break;
         case 0x3b: // 10^256
+            fpu->result = _assemble_float128(0, 0x4351, 0x54fdd7f73bf3, 0xbd1bbb77203731fd);
             break;
         case 0x3c: // 10^512
+            fpu->result = _assemble_float128(0, 0x46a3, 0xc633415d4c1d, 0x238d98cab8a978a0);
             break;
         case 0x3d: // 10^1024
+            fpu->result = _assemble_float128(0, 0x4d48, 0x92eceb0d02ea, 0x182eca1a7a51e316);
             break;
         case 0x3e: // 10^2048
+            fpu->result = _assemble_float128(0, 0x5a92, 0x3d1676bb8a7a, 0xbbc94e9a519c6535);
             break;
         case 0x3f: // 10^4096
+            fpu->result = _assemble_float128(0, 0x7525, 0x88c0a4051441, 0x2f3592982a7f0094);
             break;
         default:
             /*
              * I wanted to include the actual values for the other ROM offsets,
              * but they might be proprietary. Most of them are 0 anyways, and some
              * cause FPU exceptions, even with all exceptions disabled... (?)
-             * (Also, looking at the micro/nanocode on a high res 68881/2 die pic,
-             *  I can't figure out where these constants are stored.)
+             * 68040 FPSP just returns 0, so we'll do that too.
              */
-            // FIXME: 0.0 -> result
+            fpu->result = _assemble_float128(0, 0, 0, 0);
             return ;
     }
 }

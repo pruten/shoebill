@@ -651,7 +651,7 @@ uint32_t shoebill_initialize(shoebill_config_t *config)
     
     shoe.pool = p_new_pool(NULL);
     
-    fpu_setup_jump_table();
+    fpu_initialize();
     
     // Try to load the ROM
     if (config->rom_path == NULL) {
@@ -823,11 +823,7 @@ void shoebill_restart (void)
     shoe.psr.word = 0;
     
     // Reset all FPU registers
-    shoe.fpiar = 0;
-    shoe.fpcr.raw = 0;
-    shoe.fpsr.raw = 0;
-    memset(shoe.fp, 0, sizeof(shoe.fp));
-    
+    fpu_reset();
     
     // Free the old unix coff_file,
     coff_free(shoe.coff);
@@ -1017,7 +1013,7 @@ void slog(const char *fmt, ...)
 {
     va_list args;
  
-    return ;
+    // return ;
     
     va_start(args, fmt);
     vprintf(fmt, args);

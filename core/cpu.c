@@ -1398,7 +1398,7 @@ static void inst_cas (void) {
     ~decompose(ext, 0000 000 uuu 000 ccc);
     
     const uint8_t sz = (1 << s) >> 1; // (01 -> byte, 10 -> word, 11 -> long)
-    
+
     call_ea_read(M, sz);
     
     /* The dest/source/result operands are reversed here from inst_cmp */
@@ -1412,7 +1412,7 @@ static void inst_cas (void) {
     const _Bool Dm = ea_n(sz);
     const _Bool Rm = mib(R, sz);
     const _Bool z = (chop(R, sz) == 0);
-    
+     
     if (z) {
         // "If the operands are equal, the instruction writes the
         //  update operand (Du) to the effective address operand"

@@ -793,61 +793,11 @@ typedef struct {
         } bits;
     } psr;
     
-    // FPU registers
-    uint32_t fpiar; // FPU iaddr
+    // fpu_state_t pointer
+    // (declared here as a void*, to prevent other files
+    //  from needing to include SoftFloat/softfloat.h)
+    void *fpu_state;
     
-    union { // fpcr, fpu control register
-        struct {
-            // Mode control byte
-            uint16_t mc_zero : 4; // zero/dummy
-            uint16_t mc_rnd  : 2; // rounding mode
-            uint16_t mc_prec : 2; // rounding precision
-            // Exception enable byte
-            uint16_t ee_inex1 : 1; // inexact decimal input
-            uint16_t ee_inex2 : 1; // inxact operation
-            uint16_t ee_dz    : 1; // divide by zero
-            uint16_t ee_unfl  : 1; // underflow
-            uint16_t ee_ovfl  : 1; // overflow
-            uint16_t ee_operr : 1; // operand error
-            uint16_t ee_snan  : 1; // signalling not a number
-            uint16_t ee_bsun  : 1; // branch/set on unordered
-        } b;
-        
-        uint16_t raw;
-    } fpcr;
-    
-    union { // fpsr, fpu status register
-        struct {
-            // Accrued exception byte
-            uint32_t dummy1  : 3; // dummy/zero
-            uint32_t ae_inex : 1; // inexact
-            uint32_t ae_dz   : 1; // divide by zero
-            uint32_t ae_unfl : 1; // underflow
-            uint32_t ae_ovfl : 1; // overflow
-            uint32_t ae_iop  : 1; // invalid operation
-            // Exception status byte
-            uint32_t es_inex1 : 1; // inexact decimal input
-            uint32_t es_inex2 : 1; // inxact operation
-            uint32_t es_dz    : 1; // divide by zero
-            uint32_t es_unfl  : 1; // underflow
-            uint32_t es_ovfl  : 1; // overflow
-            uint32_t es_operr : 1; // operand error
-            uint32_t es_snan  : 1; // signalling not a number
-            uint32_t es_bsun  : 1; // branch/set on unordered
-            // Quotient byte
-            uint32_t qu_quotient : 7;
-            uint32_t qu_s        : 1;
-            // Condition code byte
-            uint32_t cc_nan  : 1; // not a number
-            uint32_t cc_i    : 1; // infinity
-            uint32_t cc_z    : 1; // zero
-            uint32_t cc_n    : 1; // negative
-            uint32_t dummy2  : 4; // dummy/zero
-        } b;
-        uint32_t raw;
-    } fpsr;
-    
-    long double fp[8]; // 80 bit floating point general registers
     
     // -- Interrupts/VIA chips --
     
@@ -878,9 +828,26 @@ typedef struct {
 extern global_shoebill_context_t shoe; // declared in cpu.c
 
 // fpu.c functions
-void inst_fpu_decode(void);
-void dis_fpu_decode(void);
-void fpu_setup_jump_table();
+void inst_fscc();
+void inst_fbcc();
+void inst_fsave();
+void inst_frestore();
+void inst_ftrapcc();
+void inst_fdbcc();
+void inst_fnop();
+void inst_fpu_other();
+
+void dis_fscc();
+void dis_fbcc();
+void dis_fsave();
+void dis_frestore();
+void dis_ftrapcc();
+void dis_fdbcc();
+void dis_fnop();
+void dis_fpu_other();
+
+void fpu_initialize();
+void fpu_reset();
 
 // cpu.c fuctions
 void cpu_step (void);
@@ -895,6 +862,7 @@ void throw_illegal_instruction();
 void throw_privilege_violation();
 void throw_divide_by_zero();
 void throw_frame_two (uint16_t sr, uint32_t next_pc, uint32_t vector_num, uint32_t orig_pc);
+void throw_frame_zero(uint16_t sr, uint32_t pc, uint16_t vector_num);
 
 
 // mem.c functions
