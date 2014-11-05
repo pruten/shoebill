@@ -506,12 +506,17 @@ static void inst_fmath_fmovecr (void)
             fpu->result = _assemble_float128(0, 0x4000, 0x5bf0a8b14576, 0x95355fb8ac404e7a);
             break;
         case 0x0d: // log_2(e)
-            // FIXME: 68881 doesn't set inex2 for this one
-            // (are the three intermediate bits zeros? I didn't check)
             fpu->result = _assemble_float128(0, 0x3fff, 0x71547652b82f, 0xe1777d0ffda0d23a);
             break;
         case 0x0e: // log_10(e)
-            fpu->result = _assemble_float128(0, 0x3ffd, 0xbcb7b1526e50, 0xe32a6ab7555f5a67);
+            // NOTE: 68881 doesn't set inex2 for this one
+            // Also note: that's bogus. 68881 uses 3 trailing mantissa bits to do rounding,
+            // and those bits are non-zero for this number, so it must actually be stored
+            // incorrectly in the ROM.
+            // I'll emulate this by truncating the float128 mantissa.
+            
+            // fpu->result = _assemble_float128(0, 0x3ffd, 0xbcb7b1526e50, 0xe32a6ab7555f5a67);
+            fpu->result = _assemble_float128(0, 0x3ffd, 0xbcb7b1526e50, 0xe32a000000000000);
             break;
         case 0x0f: // 0.0
             fpu->result = _assemble_float128(0, 0, 0, 0);
@@ -710,6 +715,16 @@ static void inst_fmath_fmovecr (void)
     
     for (my $i=0; $i < 128; $i++) {
         $map_str .= "\t" . sprintf('0x%02x', $inst_flags[$i]) . ",\n";
+    }
+    $map_str .= "};\n";
+    
+    $map_str .= "const char *_fmath_names[128] = {\n";
+    for (my $i=0; $i < 128; $i++) {
+        my $name = "f???";
+        if (exists $op_map->{$i}) {
+            $name = $op_map->{$i}->{name};
+        }
+        $map_str .= "\t\"" . $name . "\"\n";
     }
     $map_str .= "};\n";
     
@@ -1221,6 +1236,67 @@ static void _fmath_handle_nans ()
     fpu->result.high |= 0x800000000000;
 }
 
+void dis_fmath (uint16_t op, uint16_t ext, char *output)
+{
+    ~decompose(op, 1111 001 000 MMMMMM);
+    ~decompose(ext, 0 a 0 sss ddd eeeeeee);
+    
+    const uint8_t src_in_ea = a;
+    const uint8_t source_specifier = s;
+    const uint8_t dest_register = d;
+    const uint8_t extension = e;
+    
+    /* If this is fmovecr */
+    if (src_in_ea && (source_specifier == 7)) {
+        const char *name = NULL;
+        switch (extension) {
+            case 0x00: name = "pi"; break;
+            case 0x0b: name = "log_10(2)"; break;
+            case 0x0c: name = "c"; break;
+            case 0x0d: name = "log_2(e)"; break;
+            case 0x0e: name = "log_10(e)"; break;
+            case 0x0f: name = "0.0"; break;
+            case 0x30: name = "ln(2)"; break;
+            case 0x31: name = "ln(10)"; break;
+            case 0x32: name = "1.0"; break;
+            case 0x33: name = "10.0"; break;
+            case 0x34: name = "10.0^2"; break;
+            case 0x35: name = "10.0^4"; break;
+            case 0x36: name = "10.0^8"; break;
+            case 0x37: name = "10.0^16"; break;
+            case 0x38: name = "10.0^32"; break;
+            case 0x39: name = "10.0^64"; break;
+            case 0x3a: name = "10.0^128"; break;
+            case 0x3b: name = "10.0^256"; break;
+            case 0x3c: name = "10.0^512"; break;
+            case 0x3d: name = "10.0^1024"; break;
+            case 0x3e: name = "10.0^2048"; break;
+            case 0x3f: name = "10.0^4096"; break;
+        }
+        if (name == NULL)
+            sprintf(output, "fmovecr.x #%u,fp%u", extension, dest_register);
+        else
+            sprintf(output, "fmovecr.x %s,fp%u", name, dest_register);
+        return;
+    }
+    
+    if (_fmath_map[e] == NULL) {
+        sprintf(output, "fmath???");
+        return;
+    }
+    
+    if (src_in_ea) {
+        sprintf(output, "%s.%c %s,fp%u", _fmath_names[e], "lsxpwdb?"[source_specifier],
+                decode_ea_rw(M, _format_sizes[source_specifier]), dest_register);
+        return;
+    }
+    else {
+        sprintf(output, "%s.x fp%u,fp%u", _fmath_names[e],
+                source_specifier, dest_register);
+        return;
+    }
+}
+
 static void inst_fmath (const uint16_t ext)
 {
     fpu_get_state_ptr();
@@ -1254,8 +1330,11 @@ static void inst_fmath (const uint16_t ext)
      * FIXME: consider implementing this behavior.
      */
     if (_fmath_map[e] == NULL) {
-        throw_illegal_instruction();
-        return ;
+        /* Unless this is fmovecr, where the extension doesn't matter */
+        if (!(src_in_ea && (source_specifier == 7))) {
+            throw_illegal_instruction();
+            return ;
+        }
     }
 
     /* 

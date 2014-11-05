@@ -840,7 +840,7 @@ int main (int argc, char **argv)
     config.debug_mode = 1;
      
     config.aux_verbose = 1;
-    config.ram_size = 16 * 1024 * 1024;
+    config.ram_size = 4 * 1024 * 1024;
     config.aux_kernel_path = "/unix";
     config.rom_path = "../priv/macii.rom";
     
@@ -864,8 +864,8 @@ int main (int argc, char **argv)
                                 640, // 1024,
                                 480); // 768,
     
-    uint8_t ethernet_addr[6] = {0x22, 0x33, 0x55, 0x77, 0xbb, 0xdd};
-    shoebill_install_ethernet_card(&config, 13, ethernet_addr);
+    // uint8_t ethernet_addr[6] = {0x22, 0x33, 0x55, 0x77, 0xbb, 0xdd};
+    // shoebill_install_ethernet_card(&config, 13, ethernet_addr);
     
     // Start the VIA timer thread
     shoebill_start();

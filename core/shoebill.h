@@ -51,8 +51,9 @@
 
 #include <machine/endian.h>
 #include <libkern/OSByteOrder.h>
+#ifndef ntohll
 #define ntohll(x) OSSwapBigToHostInt64(x)
-
+#endif
 #else /* #if (defined __APPLE__) */
 
 #if __BYTE_ORDER  == __LITTLE_ENDIAN
@@ -845,6 +846,7 @@ void dis_ftrapcc();
 void dis_fdbcc();
 void dis_fnop();
 void dis_fpu_other();
+void dis_fmath (uint16_t op, uint16_t ext, char *output);
 
 void fpu_initialize();
 void fpu_reset();

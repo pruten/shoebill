@@ -47,6 +47,12 @@ uint16_t dis_next_word (void)
     return next;
 }
 
+uint32_t dis_next_long (void)
+{
+    uint32_t next = dis_next_word();
+    return (next << 16) | dis_next_word();
+}
+
 //
 // EA decoder routines
 //
@@ -269,8 +275,13 @@ char* decode_ea_rw (uint8_t mr, uint8_t sz)
                     } else if (sz == 2) {
                         sprintf(str, "0x%04x", ext);
                     } else {
-                        const uint16_t ext2 = dis_next_word();
-                        sprintf(str, "0x%04x%04x", ext, ext2);
+                        uint32_t i;
+                        assert((sz & 1) == 0);
+                        sprintf(str, "0x%04x", ext);
+                        for (i=2; i<sz; i+=2) {
+                            const uint16_t ext2 = dis_next_word();
+                            sprintf(str + strlen(str), "%04x", ext2);
+                        }
                     }
                     return str;
                 }
@@ -290,7 +301,8 @@ char* decode_ea_addr (uint8_t mr)
     char *str = dis.ea_str_internal + dis.ea_last_pos_internal;
     dis.ea_last_pos_internal = (dis.ea_last_pos_internal+256) % 1024;
     switch (mode) {
-        case 0 ... 1: { // Data/address register direct mode
+        case 0:
+        case 1: { // Data/address register direct mode
             sprintf(str, "???");
             return str;
         }
@@ -299,11 +311,11 @@ char* decode_ea_addr (uint8_t mr)
             return str;
         }
         case 3: { // address register indirect with postincrement mode
-            sprintf(str, "???");
+            sprintf(str, "(a%u)+", reg);
             return str;
         }
         case 4: { // address register indirect with predecrement mode
-            sprintf(str, "???");
+            sprintf(str, "-(a%u)", reg);
             return str;
         }
         case 5: { // address register indirect with displacement mode
@@ -1428,19 +1440,24 @@ void dis_tas () {
 
 void dis_trapcc() {
     ~decompose(dis_op, 0101 cccc 11111 ooo);
+    
+    const char *condition_names[16] = {
+        "t", "ra", "hi", "ls", "cc", "cs", "ne", "eq",
+        "vc", "vs", "pl", "mi", "ge", "lt", "gt", "le"
+    };
+    
     uint32_t data;
-    switch (c) {
+    switch (o) {
         case 2:
             data = dis_next_word();
-            sprintf(dis.str, "trapcc.w 0x%04x", data);
+            sprintf(dis.str, "trap%s.w 0x%04x", condition_names[c], data);
             break;
         case 3:
-            data = dis_next_word();
-            data = (data << 16) | dis_next_word();
-            sprintf(dis.str, "trapcc.w 0x%08x", data);
+            data = dis_next_long();
+            sprintf(dis.str, "trap%s.l 0x%08x", condition_names[c], data);
             break;
         case 4:
-            sprintf(dis.str, "trapcc");
+            sprintf(dis.str, "trap%s", condition_names[c]);
             break;
     }
 }
@@ -1516,33 +1533,197 @@ void dis_mc68851_decode() {
     assert(!"never get here");
 }
 
+const char *_fcc_names[32] = {
+    "f", "eq", "ogt", "oge", "olt", "ole", "ogl", "or",
+    "un", "ueq", "ugt", "uge", "ult", "ule", "ne", "t",
+    "sf", "seq", "gt", "ge", "lt", "le", "gl", "gle",
+    "ngle", "ngl", "nle", "nlt", "nge", "ngt", "sne", "st"
+};
+
+static void dis_fmove_to_mem(uint16_t ext)
+{
+    const uint8_t _format_sizes[8] = {4, 4, 12, 12, 2, 8, 1, 12};
+    ~decompose(dis_op, 1111 001 000 MMMMMM);
+    ~decompose(ext, 011 fff sss kkkkkkk);
+    
+    sprintf(dis.str, "fmove.%c", "lsxpwdbp"[f]);
+    if (f == 3)
+        sprintf(dis.str + strlen(dis.str), "{#%u}", k);
+    else
+        sprintf(dis.str + strlen(dis.str), "{d%u}", k >> 4);
+    
+    sprintf(dis.str + strlen(dis.str), " fp%u,%s", s,
+            decode_ea_rw(M, _format_sizes[f]));
+}
+
+static void dis_fmovem_control(uint16_t ext)
+{
+    ~decompose(dis_op, 1111 001 000 MMMMMM);
+    ~decompose(ext, 10 d CSI 0000 000000);
+    
+    sprintf(dis.str, "fmovem.l ");
+    const uint16_t count = C + S + I;
+    if (count == 0)
+        sprintf(dis.str + strlen(dis.str), "0,");
+    
+    if (C)
+        sprintf(dis.str + strlen(dis.str), "fpcr%s", (count > 1)?"&":",");
+    
+    if (S)
+        sprintf(dis.str + strlen(dis.str), "fpsr%s", ((S+I) > 1)?"&":",");
+    
+    if (I)
+        sprintf(dis.str + strlen(dis.str), "fpiar,");
+    
+    sprintf(dis.str + strlen(dis.str), "%s", decode_ea_rw(M, count * 4));
+}
+
+static void dis_fmovem(uint16_t ext)
+{
+    ~decompose(dis_op, 1111 001 000 mmmrrr);
+    ~decompose(dis_op, 1111 001 000 MMMMMM);
+    ~decompose(ext, 11 d ps 000 LLLLLLLL); // Static register mask
+    ~decompose(ext, 11 0 00 000 0yyy0000); // Register for dynamic mode
+    
+    if (s) { // if dynamic mode
+        if (d) // mem -> reg
+            sprintf(dis.str, "fmovem.x %s,a%u", decode_ea_rw(M, 4), y);
+        else
+            sprintf(dis.str, "fmovem.x a%u,%s", y, decode_ea_rw(M, 4));
+        return;
+    }
+    
+    uint32_t i, count=0;
+    char list[64] = "";
+    uint8_t oldmask = L, mask = L;
+    
+    // for predecrement mode, the mask is reversed
+    if (m == 4) {
+        for (i=0; i<8; i++) {
+            mask <<= 1;
+            mask |= (oldmask & 1);
+            oldmask >>= 1;
+            count++;
+        }
+    }
+    
+    for (i=0; i<8; i++) {
+        if (mask & 0x80)
+            sprintf(list + strlen(list), "fp%u.", i);
+        mask <<= 1;
+    }
+    
+    if (d) // mem -> reg
+        sprintf(dis.str, "fmovem.x %s,%s", decode_ea_rw(M, 4), list);
+    else // reg -> mem
+        sprintf(dis.str, "fmovem.x %s,%s", list, decode_ea_rw(M, 4));
+}
+
 void dis_fscc () {
-    sprintf(dis.str, "fscc??");
+    ~decompose(dis_op, 1111 001 001 MMMMMM);
+    const uint16_t ext = dis_next_word();
+    ~decompose(ext, 0000 0000 00 0ccccc);
+    
+    sprintf(dis.str, "fs%s.b %s", _fcc_names[c], decode_ea_rw(M, 1));
 }
 
 void dis_fbcc () {
-    sprintf(dis.str, "fbcc??");
+    ~decompose(dis_op, 1111 001 01s 0ccccc);
+    
+    uint32_t new_pc = dis.orig_pc + 2;
+    if (s == 0) {
+        const int16_t tmp = dis_next_word();
+        new_pc += tmp;
+    }
+    else
+        new_pc += dis_next_long();
+    
+    sprintf(dis.str, "fb%s.%c *0x%08x", _fcc_names[c], "wl"[s], new_pc);
 }
 
 void dis_fsave () {
-    sprintf(dis.str, "fsave??");
+    ~decompose(dis_op, 1111 001 100 MMMMMM);
+    sprintf(dis.str, "fsave %s", decode_ea_addr(M));
 }
 
 void dis_frestore () {
-    sprintf(dis.str, "frestore??");
+    ~decompose(dis_op, 1111 001 101 MMMMMM);
+    sprintf(dis.str, "frestore %s", decode_ea_addr(M));
 }
 
 void dis_fpu_other () {
-    sprintf(dis.str, "fpu_other??");
+    ~decompose(dis_op, 1111 001 000 MMMMMM);
+    
+    const uint16_t ext = dis_next_word();
+    ~decompose(ext, ccc xxx yyy eeeeeee);
+    
+    switch (c) {
+        case 0: // Reg to reg
+            dis_fmath(dis_op, ext, dis.str);
+            return;
+            
+        case 1: // unused
+            sprintf(dis.str, "f???");
+            return;
+            
+        case 2: // Memory->reg & movec
+            dis_fmath(dis_op, ext, dis.str);
+            return;
+            
+        case 3: // reg->mem
+            dis_fmove_to_mem(ext);
+            return;
+            
+        case 4: // mem -> sys ctl registers
+        case 5: // sys ctl registers -> mem
+            dis_fmovem_control(ext);
+            return;
+            
+        case 6: // movem to fp registers
+        case 7: // movem to memory
+            dis_fmovem(ext);
+            return;
+    }
 }
 
 void dis_fdbcc () {
-    sprintf(dis.str, "fdbcc??");
+    ~decompose(dis_op, 1111 001 001 001 rrr);
+    const uint16_t ext = dis_next_word();
+    ~decompose(ext, 0000 0000 00 0ccccc);
+    const int16_t disp = dis_next_word();
+    
+    // FIXME: 68kprm is helpfully unclear about which address
+    //        to add the displacement. Based on cpDBcc, dbcc, bcc, and fbcc,
+    //        I'm guessing it starts at the address *of* the displacement
+    const uint32_t newpc = dis.orig_pc + 4 + disp;
+    
+    sprintf(dis.str, "fdb%s d%u,0x%08x", _fcc_names[c], r, newpc);
 }
 
 void dis_ftrapcc () {
-    sprintf(dis.str, "ftrapcc??");
+    ~decompose(dis_op, 1111 001 001 111 ooo);
+    const uint16_t ext = dis_next_word();
+    ~decompose(ext, 0000 0000 00 0ccccc);
+    uint32_t data;
+    
+    switch (o) {
+        case 2:
+            data = dis_next_word();
+            sprintf(dis.str, "ftrap%s.w 0x%04x", _fcc_names[c], data);
+            break;
+        case 3:
+            data = dis_next_long();
+            sprintf(dis.str, "ftrap%s.l 0x%08x", _fcc_names[c], data);
+            break;
+        case 4:
+            sprintf(dis.str, "ftrap%s", _fcc_names[c]);
+            break;
+        default:
+            sprintf(dis.str, "ftrap????");
+            break;
+    }
 }
+
 
 void dis_fnop () {
     const uint16_t ext = dis_next_word();
