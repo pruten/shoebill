@@ -237,6 +237,11 @@ static _Bool _bsun_test()
     return 1;
 }
 
+static void _throw_illegal_instruction()
+{
+    assert(!"throw_illegal_instruction!");
+}
+
 #pragma mark Float format translators (to/from big-endian motorola format)
 
 static void _floatx80_to_int8(floatx80 *f, uint8_t *ptr)
@@ -404,12 +409,12 @@ static void _fpu_write_ea(uint8_t mr, uint8_t format, floatx80 *f, uint8_t K)
     if ((m == 1) ||
         ((m == 0) && (size > 4))) {
         /* If mode==a-reg, or mode==data reg and the size is > 4 bytes, no dice */
-        throw_illegal_instruction();
+        _throw_illegal_instruction();
         return ;
     }
     else if ((m == 7) && (r > 1)) {
         /* If this is otherwise an illegal addr mode... */
-        throw_illegal_instruction();
+        _throw_illegal_instruction();
         return ;
     }
     
@@ -623,14 +628,14 @@ static _Bool _fpu_read_ea(const uint8_t format, float128 *result)
                  * No other format can be used with a data register
                  * (because they require >4 bytes)
                  */
-                throw_illegal_instruction();
+                _throw_illegal_instruction();
                 return 0;
             }
             goto got_data;
             
         case 1:
             /* Address regisers can't be used */
-            throw_illegal_instruction();
+            _throw_illegal_instruction();
             return 0;
         
         case 3:
@@ -714,7 +719,7 @@ got_address:
             // case format_Pd: // not possible as a src specifier
                 // FIXME: implement packed formats
                 assert(!"Somebody tried to use a packed format!\n");
-                // throw_illegal_instruction();
+                // _throw_illegal_instruction();
                 // return 0;
             default:
                 assert(0); // never get here
@@ -1577,7 +1582,7 @@ static void inst_fmath (const uint16_t ext)
     
     /* Throw illegal instruction for 040-only ops */
     if (_fmath_flags[e] & FMATH_TYPE_68040) {
-        throw_illegal_instruction();
+        _throw_illegal_instruction();
         return;
     }
     
@@ -1596,23 +1601,10 @@ static void inst_fmath (const uint16_t ext)
     if (_fmath_map[e] == NULL) {
         /* Unless this is fmovecr, where the extension doesn't matter */
         if (!(src_in_ea && (source_specifier == 7))) {
-            throw_illegal_instruction();
+            _throw_illegal_instruction();
             return ;
         }
     }
-
-    /* 
-     * Read in the source from the EA or from a register.
-     * In either case, convert the value to a float128,
-     * (that's our version of the 85-bit "intermediate" format)
-     */
-    if (src_in_ea) {
-        if (!_fpu_read_ea(source_specifier, &fpu->source))
-            return ;
-    }
-    else
-        fpu->source = floatx80_to_float128(fpu->fp[source_specifier]);
-    
     
     /* We only need to load the dest reg for dyadic ops */
     if (_fmath_flags[e] & FMATH_TYPE_DYADIC)
@@ -1657,6 +1649,18 @@ static void inst_fmath (const uint16_t ext)
         inst_fmath_fmovecr();
         goto computation_done;
     }
+    
+    /*
+     * Read in the source from the EA or from a register.
+     * In either case, convert the value to a float128,
+     * (that's our version of the 85-bit "intermediate" format)
+     */
+    if (src_in_ea) {
+        if (!_fpu_read_ea(source_specifier, &fpu->source))
+            return ;
+    }
+    else
+        fpu->source = floatx80_to_float128(fpu->fp[source_specifier]);
     
     /*
      * If the source is NaN, or this is a dyadic (two-operand)
@@ -1785,7 +1789,7 @@ static void inst_fmovem_control (const uint16_t ext)
     
     /* data and addr reg modes are valid, but only if count==1 */
     if ((m == 0 || m == 1) && (count > 1)) {
-        throw_illegal_instruction();
+        _throw_illegal_instruction();
         return ;
     }
     
@@ -1799,14 +1803,14 @@ static void inst_fmovem_control (const uint16_t ext)
             if (count == 1)
                 shoe.d[r] = buf[0];
             else
-                throw_illegal_instruction();
+                _throw_illegal_instruction();
             return ;
         }
         else if (m == 1) {
             if ((count == 1) && I)
                 shoe.a[r] = buf[0];
             else
-                throw_illegal_instruction();
+                _throw_illegal_instruction();
             return ;
         }
         else if (m == 3)
@@ -1816,7 +1820,7 @@ static void inst_fmovem_control (const uint16_t ext)
         else {
             if ((m==7) && (r!=0 || r!=1)) {
                 /* Not allowed for reg->mem */
-                throw_illegal_instruction();
+                _throw_illegal_instruction();
                 return;
             }
             call_ea_addr(M);
@@ -1834,14 +1838,14 @@ static void inst_fmovem_control (const uint16_t ext)
             if (count == 1)
                 buf[0] = shoe.d[r];
             else
-                throw_illegal_instruction();
+                _throw_illegal_instruction();
             return;
         }
         else if (m == 1) {// addr reg
             if ((count == 1) && I)
                 buf[0] = shoe.a[r];
             else
-                throw_illegal_instruction();
+                _throw_illegal_instruction();
             return;
         }
         else {
@@ -2249,7 +2253,7 @@ void inst_fpu_other () {
             return;
             
         case 1: // unused
-            throw_illegal_instruction();
+            _throw_illegal_instruction();
             return;
             
         case 2: // Memory->reg & movec
