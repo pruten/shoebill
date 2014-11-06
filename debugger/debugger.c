@@ -840,7 +840,7 @@ int main (int argc, char **argv)
     config.debug_mode = 1;
      
     config.aux_verbose = 1;
-    config.ram_size = 4 * 1024 * 1024;
+    config.ram_size = 32 * 1024 * 1024;
     config.aux_kernel_path = "/unix";
     config.rom_path = "../priv/macii.rom";
     

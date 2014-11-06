@@ -237,7 +237,67 @@ static _Bool _bsun_test()
     return 1;
 }
 
-#pragma mark Float format translators
+#pragma mark Float format translators (to/from big-endian motorola format)
+
+static void _floatx80_to_int8(floatx80 *f, uint8_t *ptr)
+{
+    uint32_t tmp = floatx80_to_int32(*f);
+    ptr[0] = tmp & 0xff;
+}
+
+static void _floatx80_to_int16(floatx80 *f, uint8_t *ptr)
+{
+    uint32_t tmp = floatx80_to_int32(*f);
+    ptr[0] = (tmp >> 8) & 0xff;
+    ptr[1] = (tmp >> 0) & 0xff;
+}
+
+static void _floatx80_to_int32(floatx80 *f, uint8_t *ptr)
+{
+    uint32_t tmp = floatx80_to_int32(*f);
+    ptr[0] = (tmp >> 24) & 0xff;
+    ptr[1] = (tmp >> 16) & 0xff;
+    ptr[2] = (tmp >> 8) & 0xff;
+    ptr[3] = (tmp >> 0) & 0xff;
+}
+
+static void _floatx80_to_single(floatx80 *f, uint8_t *ptr)
+{
+    const float32 tmp = floatx80_to_float32(*f);
+    ptr[0] = (tmp >> 24) & 0xff;
+    ptr[1] = (tmp >> 16) & 0xff;
+    ptr[2] = (tmp >> 8) & 0xff;
+    ptr[3] = (tmp >> 0) & 0xff;
+}
+
+static void _floatx80_to_double(floatx80 *f, uint8_t *ptr)
+{
+    const float64 tmp = floatx80_to_float32(*f);
+    ptr[0] = (tmp >> 56) & 0xff;
+    ptr[1] = (tmp >> 48) & 0xff;
+    ptr[2] = (tmp >> 40) & 0xff;
+    ptr[3] = (tmp >> 32) & 0xff;
+    ptr[4] = (tmp >> 24) & 0xff;
+    ptr[5] = (tmp >> 16) & 0xff;
+    ptr[6] = (tmp >> 8) & 0xff;
+    ptr[7] = (tmp >> 0) & 0xff;
+}
+
+static void _floatx80_to_extended(floatx80 *f, uint8_t *ptr)
+{
+    ptr[0] = (f->high >> 8) & 0xff;
+    ptr[1] = (f->high >> 0) & 0xff;
+    ptr[2] = 0;
+    ptr[3] = 0;
+    ptr[4] = (f->low >> 56) & 0xff;
+    ptr[5] = (f->low >> 48) & 0xff;
+    ptr[6] = (f->low >> 40) & 0xff;
+    ptr[7] = (f->low >> 32) & 0xff;
+    ptr[8] = (f->low >> 24) & 0xff;
+    ptr[9] = (f->low >> 16) & 0xff;
+    ptr[10] = (f->low >> 8) & 0xff;
+    ptr[11] = (f->low >> 0) & 0xff;
+}
 
 static float128 _int8_to_intermediate(int8_t byte)
 {
@@ -254,7 +314,7 @@ static float128 _int32_to_intermediate(int32_t in)
     return int32_to_float128(in);
 }
 
-static float128 _float_to_intermediate(uint32_t f)
+static float128 _short_to_intermediate(uint32_t f)
 {
     assert(sizeof(uint32_t) == sizeof(float32));
     return float32_to_float128((float32)f);
@@ -285,6 +345,12 @@ static float128 _extended_to_intermediate(uint8_t *e)
         .low = ntohll(*(uint64_t*)&e[4])
     };
     return floatx80_to_float128(x80);
+}
+
+static void _extended_to_floatx80(uint8_t *bytes, floatx80 *f)
+{
+    f->high = (bytes[0] << 8) | bytes[1];
+    f->low = ntohll(*(uint64_t*)&bytes[4]);
 }
 
 /*
@@ -325,6 +391,204 @@ static void _fpu_read_ea_commit(const uint8_t format)
         assert(!"size==1, reg==a7");
 }
 
+static void _fpu_write_ea(uint8_t mr, uint8_t format, floatx80 *f, uint8_t K)
+{
+    fpu_get_state_ptr();
+    
+    const uint8_t m = mr >> 3;
+    const uint8_t r = mr & 7;
+    const uint8_t size = _format_sizes[format];
+    uint8_t buf[12], *ptr = &buf[0];
+    uint32_t addr, i;
+    
+    if ((m == 1) ||
+        ((m == 0) && (size > 4))) {
+        /* If mode==a-reg, or mode==data reg and the size is > 4 bytes, no dice */
+        throw_illegal_instruction();
+        return ;
+    }
+    else if ((m == 7) && (r > 1)) {
+        /* If this is otherwise an illegal addr mode... */
+        throw_illegal_instruction();
+        return ;
+    }
+    
+    const _Bool is_nan = ((f->high << 1) == 0xfffe) && f->low;
+    
+    slog("inst_f fpu_write_ea EA=%u/%u data=%Lf format=%u\n", m, r, 666.0L, format);
+    
+    /* Initialize softfloat's exceptions bits/rounding mode */
+    
+    float_exception_flags = 0;
+    _set_rounding_mode(mc_rnd);
+    
+    /* Convert to the appropriate format */
+    
+    switch (format) {
+        case format_B: {
+            _floatx80_to_int8(f, ptr);
+            break;
+        }
+        case format_W: {
+            _floatx80_to_int16(f, ptr);
+            break;
+        }
+        case format_L: {
+            _floatx80_to_int32(f, ptr);
+            break;
+        }
+        case format_S: {
+            _floatx80_to_single(f, ptr);
+            break;
+        }
+        case format_D: {
+            _floatx80_to_double(f, ptr);
+            break;
+        }
+        case format_X: {
+            _floatx80_to_extended(f, ptr);
+            break;
+        }
+        default: {
+            assert(!"unsupported format (packed something!)");
+        }
+    }
+    
+    /* Write to memory */
+    
+    switch (m) {
+        case 0: {
+            if (format == format_B)
+                set_d(r, ptr[0], 1);
+            else if (format == format_W)
+                set_d(r, ntohs(*(uint16_t*)ptr), 2);
+            else if ((format == format_L) || (format == format_S))
+                set_d(r, ntohl(*(uint32_t*)ptr), 4);
+            else
+                assert(!"how did I get here?");
+            goto done;
+        }
+        case 1:
+            assert(!"how did I get here again!");
+            
+        case 2:
+            addr = shoe.a[r];
+            break;
+        case 3:
+            addr = shoe.a[r];
+            assert(!( r==7 && size==1));
+            break;
+        case 4: // pre-decrement
+            addr = shoe.a[r] - size;
+            assert(!( r==7 && size==1));
+            break;
+        default:
+            call_ea_addr(mr);
+            addr = (uint32_t)shoe.dat;
+            break;
+    }
+    
+    /* Copy the formatted data into *addr */
+    
+    slog("inst_f  fpu_write_ea: addr=0x08x data=0x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x\n",
+         addr,
+         ptr[0], ptr[1], ptr[2], ptr[3],
+         ptr[4], ptr[5], ptr[6], ptr[7],
+         ptr[8], ptr[9], ptr[10], ptr[11]);
+    
+    for (i=0; i<size; i++) {
+        lset(addr + i, 1, buf[i]);
+        if (shoe.abort) return ;
+    }
+    
+    
+done:
+    /* 
+     * Set exception bits and update pre/post/blah registers.
+     * note: condition codes are not modified
+     */
+    
+    es_bsun = 0;
+    es_snan = 0;
+    es_operr = 0;
+    es_ovfl = 0;
+    es_unfl = 0;
+    es_dz = 0;
+    es_inex2 = 0;
+    es_inex1 = 0;
+    
+    switch (format) {
+        format_B:
+        format_W:
+        format_L:
+            /* Set snan, operr, and/or inex2 */
+            es_snan = is_nan;
+            es_operr = ((float_exception_flags & float_flag_invalid) != 0);
+            es_inex2 = ((float_exception_flags & float_flag_inexact) != 0);
+            break;
+        
+        format_S:
+        format_D:
+        format_X:
+            /* Set snan, ovfl, unfl, and/or inex2 */
+            es_snan = is_nan;
+            es_ovfl = ((float_exception_flags & float_flag_overflow) != 0);
+            es_unfl = ((float_exception_flags & float_flag_underflow) != 0);
+            es_inex2 = ((float_exception_flags & float_flag_inexact) != 0);
+            break;
+            
+        format_Pd:
+        format_Ps:
+            /* Set snan, operr, and/or inex2 */
+            assert(!"you better implement packed formats");
+            break;
+    }
+    
+    /* Update the accrued exception bits */
+    ae_iop |= es_bsun | es_snan | es_operr;
+    ae_ovfl |= es_ovfl;
+    ae_unfl |= (es_unfl & es_inex2); // yes, &
+    ae_dz |= es_dz;
+    ae_inex |= es_inex1 | es_inex2 | es_ovfl;
+    
+    /* Are any exceptions both set and enabled? */
+    if (fpu->fpsr.raw & fpu->fpcr.raw & 0x0000ff00) {
+        /*
+         * Then we need to throw an exception.
+         * The exception is sent to the vector for
+         * the highest priority exception, and the priority
+         * order is (high->low) bsan, snan, operr, ovfl, unfl, dz, inex2/1
+         * (which is the order of the bits in fpsr/fpcr).
+         * Iterate over the bits in order, and throw the
+         * exception to whichever bit is set first.
+         */
+        uint8_t i, throwable = (fpu->fpsr.raw & fpu->fpcr.raw) >> 8;
+        
+        assert(throwable);
+        for (i=0; 1; i++) {
+            if (throwable & 0x80)
+                break;
+            throwable <<= 1;
+        }
+        
+        /*
+         * Convert the exception bit position
+         * to the correct vector number, and throw
+         * a (pre-instruction) exception.
+         */
+        throw_fpu_pre_instruction_exception(_exception_bit_to_vector[i]);
+        
+        return ;
+    }
+    
+    /* Finalize registers, and we're done */
+    
+    if (m == 3)
+        shoe.a[r] += size;
+    else if (m == 4)
+        shoe.a[r] -= size;
+}
+
 /*
  * Note: fpu_read_ea modifies shoe.pc, and fpu_read_ea_commit
  *        modifies shoe.a[x] for pre/post-inc/decrement
@@ -347,7 +611,7 @@ static _Bool _fpu_read_ea(const uint8_t format, float128 *result)
     switch (m) {
         case 0:
             if (format == format_S)
-                *result = _float_to_intermediate(shoe.d[r]);
+                *result = _short_to_intermediate(shoe.d[r]);
             else if (format == format_B)
                 *result = _int8_to_intermediate(shoe.d[r] & 0xff);
             else if (format == format_W)
@@ -1488,11 +1752,18 @@ computation_done:
 
 #pragma mark Second-hop non-fmath instructions
 
+/*
+ * reg->mem fmove (fmath handles all other fmoves
+ */
 static void inst_fmove (const uint16_t ext)
 {
     fpu_get_state_ptr();
     
-    assert(!"fmove");
+    ~decompose(shoe.op, 1111 001 000 MMMMMM);
+    ~decompose(shoe.op, 1111 001 000 mmmrrr);
+    ~decompose(ext, 011 fff sss KKKKKKK);
+    
+    _fpu_write_ea(M, f, &fpu->fp[s], K);
 }
 
 static void inst_fmovem_control (const uint16_t ext)
@@ -1629,7 +1900,97 @@ static void inst_fmovem (const uint16_t ext)
 {
     fpu_get_state_ptr();
     
-    assert(!"fmovem");
+    ~decompose(shoe.op,  1111 001 000 mmmrrr);
+    ~decompose(shoe.op,  1111 001 000 MMMMMM);
+    ~decompose(ext, 11 d ps 000 LLLLLLLL); // Static register mask
+    ~decompose(ext, 11 0 00 000 0yyy0000); // Register for dynamic mode
+    
+    const uint8_t pre_mask = s ? shoe.d[y] : L; // pre-adjusted mask
+    
+    // Count the number of bits in the mask
+    uint32_t count, maskcpy = pre_mask;
+    for (count=0; maskcpy; maskcpy >>= 1)
+        count += (maskcpy & 1);
+    
+    const uint32_t size = count * 12;
+    
+    // for predecrement mode, the mask is reversed
+    uint8_t mask = 0;
+    if (m == 4) {
+        uint32_t i;
+        for (i=0; i < 8; i++) {
+            const uint8_t bit = (pre_mask << i) & 0x80;
+            mask = (mask >> 1) | bit;
+        }
+    }
+    else
+        mask = pre_mask;
+    
+    uint32_t i, addr;
+    
+    // Find the EA
+    if (m == 3) {
+        addr = shoe.a[r];
+        assert(p); // assert post-increment mask
+    }
+    else if (m == 4) {
+        addr = shoe.a[r] - size;
+        assert(!p); // assert pre-decrement mask
+    }
+    else {
+        call_ea_addr(M);
+        addr = shoe.dat;
+        assert(p); // assert post-increment mask
+    }
+    
+    slog("inst_fmovem: pre=%08x mask=%08x EA=%u/%u addr=0x%08x size=%u %s\n", pre_mask, mask, m, r, addr, size, d?"to mem":"from mem");
+    
+    if (d) {
+        // Write those registers
+        for (i=0; i<8; i++) {
+            if (!(mask & (0x80 >> i)))
+                continue;
+            
+            uint8_t buf[12];
+            _floatx80_to_extended(&fpu->fp[i], buf);
+            
+            // slog("inst_fmovem: writing %Lf from fp%u", fpu->fp[i], i);
+            uint32_t j;
+            for (j=0; j<12; j++) {
+                slog(" %02x", buf[j]);
+                lset(addr, 1, buf[j]);
+                addr++;
+                if (shoe.abort)
+                    return ;
+            }
+            slog("\n");
+        }
+    }
+    else {
+        // Read those registers
+        for (i=0; i<8; i++) {
+            if (!(mask & (0x80 >> i)))
+                continue;
+            
+            uint8_t buf[12];
+            uint32_t j;
+            for (j=0; j<12; j++) {
+                buf[j] = lget(addr, 1);
+                addr++;
+                if (shoe.abort)
+                    return ;
+            }
+            _extended_to_floatx80(buf, &fpu->fp[i]);
+            
+            // slog("inst_fmovem: read %Lf to fp%u\n", shoe.fp[i], i);
+        }
+    }
+    
+    // Commit the write for pre/post-inc/decrement
+    if (m == 3)
+        shoe.a[r] += size;
+    else if (m == 4)
+        shoe.a[r] -= size;
 }
 
 
