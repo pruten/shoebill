@@ -1499,7 +1499,130 @@ static void inst_fmovem_control (const uint16_t ext)
 {
     fpu_get_state_ptr();
     
-    assert(!"fmovem_control");
+    ~decompose(shoe.op,  1111 001 000 mmmrrr);
+    ~decompose(shoe.op,  1111 001 000 MMMMMM);
+    ~decompose(ext, 10d CSI 0000000000);
+    
+    const uint32_t count = C + S + I;
+    const uint32_t size = count * 4;
+    uint32_t addr, buf[3];
+    uint32_t i;
+    
+    /* I don't know if this is even a valid instruction */
+    if (count == 0)
+        return ;
+    
+    /* data and addr reg modes are valid, but only if count==1 */
+    if ((m == 0 || m == 1) && (count > 1)) {
+        throw_illegal_instruction();
+        return ;
+    }
+    
+    if (d) { // reg to memory
+        i=0;
+        if (C) buf[i++] = fpu->fpcr.raw;
+        if (S) buf[i++] = fpu->fpsr.raw;
+        if (I) buf[i++] = fpu->fpiar;
+        
+        if (m == 0) {
+            if (count == 1)
+                shoe.d[r] = buf[0];
+            else
+                throw_illegal_instruction();
+            return ;
+        }
+        else if (m == 1) {
+            if ((count == 1) && I)
+                shoe.a[r] = buf[0];
+            else
+                throw_illegal_instruction();
+            return ;
+        }
+        else if (m == 3)
+            addr = shoe.a[r];
+        else if (m == 4)
+            addr = shoe.a[r] - size;
+        else {
+            if ((m==7) && (r!=0 || r!=1)) {
+                /* Not allowed for reg->mem */
+                throw_illegal_instruction();
+                return;
+            }
+            call_ea_addr(M);
+            addr = shoe.dat;
+        }
+        
+        for (i=0; i<count; i++) {
+            lset(addr + (i*4), 4, buf[i]);
+            if (shoe.abort)
+                return ;
+        }
+    }
+    else { // mem to reg
+        if (m == 0) {// data reg
+            if (count == 1)
+                buf[0] = shoe.d[r];
+            else
+                throw_illegal_instruction();
+            return;
+        }
+        else if (m == 1) {// addr reg
+            if ((count == 1) && I)
+                buf[0] = shoe.a[r];
+            else
+                throw_illegal_instruction();
+            return;
+        }
+        else {
+            if (m == 3) // post-increment
+                addr = shoe.a[r];
+            else if (m == 4) // pre-decrement
+                addr = shoe.a[r] - size;
+            else if (M == 0x3c) // immediate
+                addr = shoe.pc;
+            else {
+                call_ea_addr(M); // call_ea_addr() should work for all other modes
+                addr = shoe.dat;
+            }
+            
+            for (i=0; i<count; i++) {
+                buf[i] = lget(addr + (i*4), 4);
+                if (shoe.abort)
+                    return ;
+            }
+        }
+        
+        i = 0;
+        
+        if (C) {
+            uint8_t round = fpu->fpcr.b._mc_rnd;
+            fpu->fpcr.raw = buf[i++];
+            uint8_t newround = fpu->fpcr.b._mc_rnd;
+            
+            if (round != newround) {
+                slog("inst_fmovem_control: HEY: round %u -> %u\n", round, newround);
+            }
+        }
+        if (S) fpu->fpsr.raw = buf[i++];
+        if (I) fpu->fpiar = buf[i++];
+        
+        // Commit immediate-EA-mode PC change
+        if (M == 0x3c)
+            shoe.pc += size;
+    }
+    
+    // Commit pre/post-inc/decrement
+    
+    if (m == 3)
+        shoe.a[r] += size;
+    if (m == 4)
+        shoe.a[r] -= size;
+    
+    
+    
+    slog("inst_fmove_control: notice: (EA = %u/%u %08x CSI = %u%u%u)\n", m, r, (uint32_t)shoe.dat, C, S, I);
+    
+    
 }
 
 static void inst_fmovem (const uint16_t ext)
