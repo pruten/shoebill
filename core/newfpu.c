@@ -277,7 +277,7 @@ static void _floatx80_to_single(floatx80 *f, uint8_t *ptr)
 
 static void _floatx80_to_double(floatx80 *f, uint8_t *ptr)
 {
-    const float64 tmp = floatx80_to_float32(*f);
+    const float64 tmp = floatx80_to_float64(*f);
     ptr[0] = (tmp >> 56) & 0xff;
     ptr[1] = (tmp >> 48) & 0xff;
     ptr[2] = (tmp >> 40) & 0xff;
@@ -319,7 +319,7 @@ static float128 _int32_to_intermediate(int32_t in)
     return int32_to_float128(in);
 }
 
-static float128 _short_to_intermediate(uint32_t f)
+static float128 _single_to_intermediate(uint32_t f)
 {
     assert(sizeof(uint32_t) == sizeof(float32));
     return float32_to_float128((float32)f);
@@ -613,10 +613,12 @@ static _Bool _fpu_read_ea(const uint8_t format, float128 *result)
      *         (or the actual data, if unavailable)
      */
     
+    slog("FPU: read_ea: mr=%u%u f=%c ", m, r, "lsxpwdb?"[format]);
+    
     switch (m) {
         case 0:
             if (format == format_S)
-                *result = _short_to_intermediate(shoe.d[r]);
+                *result = _single_to_intermediate(shoe.d[r]);
             else if (format == format_B)
                 *result = _int8_to_intermediate(shoe.d[r] & 0xff);
             else if (format == format_W)
@@ -631,6 +633,7 @@ static _Bool _fpu_read_ea(const uint8_t format, float128 *result)
                 _throw_illegal_instruction();
                 return 0;
             }
+            slog("raw=0x%x", chop(shoe.d[r], size));
             goto got_data;
             
         case 1:
@@ -676,11 +679,12 @@ got_address:
      * Step 2: Load the data from the effective address
      */
     
+    slog("raw=0x");
     if (size <= 4) {
         const uint32_t raw = lget(addr, size);
         if (shoe.abort)
             return 0;
-        
+        printf("%x ", raw);
         switch (format) {
             case format_B:
                 *result = _int8_to_intermediate(raw & 0xff);
@@ -692,7 +696,7 @@ got_address:
                 *result = _int32_to_intermediate(raw);
                 break;
             case format_S:
-                *result = _int32_to_intermediate(raw);
+                *result = _single_to_intermediate(raw);
                 break;
             default:
                 assert(0); /* never get here */
@@ -704,6 +708,7 @@ got_address:
         
         for (i = 0; i < size; i++) {
             buf[i] = lget(addr + i, 1);
+            slog("%02x", buf[i]);
             if (shoe.abort)
                 return 0;
         }
@@ -727,7 +732,7 @@ got_address:
     }
     
 got_data:
-    
+    printf("\n");
     return 1;
 }
 
@@ -993,7 +998,7 @@ static void inst_fmath_fmovecr (void)
         if (exists $op_map->{$i}) {
             $name = $op_map->{$i}->{name};
         }
-        $map_str .= "\t\"" . $name . "\"\n";
+        $map_str .= "\t\"" . $name . "\",\n";
     }
     $map_str .= "};\n";
     
@@ -1260,6 +1265,30 @@ static void inst_fmath_fneg ()
     fpu->result.high ^= (1ULL << 63);
 }
 
+static uint8_t __find_quotient(float128 dest, float128 source, float128 result)
+{
+    int8_t old = float_exception_flags;
+    
+    float128 quo = float128_div(float128_sub(dest, result), source);
+    
+    const signed char old_round_mode = float_rounding_mode;
+    float_rounding_mode = float_round_to_zero;
+    quo = float128_round_to_int(quo);
+    float_rounding_mode = old_round_mode;
+    
+    uint8_t sign = quo.high >> 63;
+    quo.high <<= 1;
+    quo.high >>= 1;
+    uint32_t final = float128_to_int32(quo);
+    
+    final &= 0x7f;
+    final |= (sign?0x80:0);
+    
+    float_exception_flags = old;
+    
+    return (uint8_t)final;
+}
+
 static void inst_fmath_frem ()
 {
     fpu_get_state_ptr();
@@ -1277,8 +1306,12 @@ static void inst_fmath_frem ()
     // FIXME: !! set quotient byte!
     // you may be able to use the local "q" bits64 in
     // float128_rem()
+    uint8_t quo = __find_quotient(fpu->dest, fpu->source, fpu->result);
+    printf("FPU: __find_quotient = 0x%02x\n", quo);
     
     
+    qu_quotient = quo & 0x7f;
+    qu_s = quo >> 7;
     /*
      * errata: 68kprm has typesetting issues (or typos?)
      *         if source==inf, don't set operr!
@@ -1550,20 +1583,76 @@ void dis_fmath (uint16_t op, uint16_t ext, char *output)
     }
     
     if (_fmath_map[e] == NULL) {
-        sprintf(output, "fmath???");
-        return;
+            /* This instruction isn't defined */
+            sprintf(output, "fmath???");
     }
-    
-    if (src_in_ea) {
-        sprintf(output, "%s.%c %s,fp%u", _fmath_names[e], "lsxpwdb?"[source_specifier],
-                decode_ea_rw(M, _format_sizes[source_specifier]), dest_register);
-        return;
+    else if (_fmath_map[e] == inst_fmath_fsincos) {
+        /* fsincos.<fmt> <ea>,FPc:FPs */
+        if (src_in_ea)
+            sprintf(output, "fsincos.%c %s,fp%u:fp%u", "lsxpwdb?"[source_specifier],
+                    decode_ea_rw(M, _format_sizes[source_specifier]), e & 7, dest_register);
+        else
+            sprintf(output, "fsincos.x fp%u,fp%u:fp%u", source_specifier, e & 7, dest_register);
+    }
+    else if (_fmath_map[e] == inst_fmath_ftst) {
+        /* ftst.<fmt> <source> */
+        if (src_in_ea)
+            sprintf(output, "ftst.%c %s", "lsxpwdb?"[source_specifier],
+                    decode_ea_rw(M, _format_sizes[source_specifier]));
+        else
+            sprintf(output, "ftst.x fp%u", dest_register);
     }
     else {
-        sprintf(output, "%s.x fp%u,fp%u", _fmath_names[e],
-                source_specifier, dest_register);
-        return;
+        /* f<inst>.<fmt> <source>,<dest> */
+        if (src_in_ea)
+            sprintf(output, "%s.%c %s,fp%u", _fmath_names[e], "lsxpwdb?"[source_specifier],
+                    decode_ea_rw(M, _format_sizes[source_specifier]), dest_register);
+        else
+            sprintf(output, "%s.x fp%u,fp%u", _fmath_names[e],
+                    source_specifier, dest_register);
     }
+}
+
+static long double _float128_to_long_double(float128 f128)
+{
+    long double result;
+    uint8_t *ptr = (uint8_t*)&result;
+    
+    int8_t old = float_exception_flags;
+    floatx80 f80 = float128_to_floatx80(f128);
+    float_exception_flags = old;
+    
+    ptr[9] = (f80.high >> 8) & 0xff;
+    ptr[8] = (f80.high >> 0) & 0xff;
+    ptr[7] = (f80.low >> 56) & 0xff;
+    ptr[6] = (f80.low >> 48) & 0xff;
+    ptr[5] = (f80.low >> 40) & 0xff;
+    ptr[4] = (f80.low >> 32) & 0xff;
+    ptr[3] = (f80.low >> 24) & 0xff;
+    ptr[2] = (f80.low >> 16) & 0xff;
+    ptr[1] = (f80.low >> 8) & 0xff;
+    ptr[0] = (f80.low >> 0) & 0xff;
+    
+    return result;
+}
+
+static long double _floatx80_to_long_double(floatx80 f80)
+{
+    long double result;
+    uint8_t *ptr = (uint8_t*)&result;
+    
+    ptr[9] = (f80.high >> 8) & 0xff;
+    ptr[8] = (f80.high >> 0) & 0xff;
+    ptr[7] = (f80.low >> 56) & 0xff;
+    ptr[6] = (f80.low >> 48) & 0xff;
+    ptr[5] = (f80.low >> 40) & 0xff;
+    ptr[4] = (f80.low >> 32) & 0xff;
+    ptr[3] = (f80.low >> 24) & 0xff;
+    ptr[2] = (f80.low >> 16) & 0xff;
+    ptr[1] = (f80.low >> 8) & 0xff;
+    ptr[0] = (f80.low >> 0) & 0xff;
+    
+    return result;
 }
 
 static void inst_fmath (const uint16_t ext)
@@ -1579,6 +1668,8 @@ static void inst_fmath (const uint16_t ext)
     const uint8_t source_specifier = s;
     const uint8_t dest_register = d;
     const uint8_t extension = e;
+    
+    slog("FPU:---\n");
     
     /* Throw illegal instruction for 040-only ops */
     if (_fmath_flags[e] & FMATH_TYPE_68040) {
@@ -1646,6 +1737,7 @@ static void inst_fmath (const uint16_t ext)
          * 68kprm says M should be ~b(000000), but apparently
          * any value will work for fmovecr
          */
+        slog("FPU: fmovecr %u,fp%u\n", e, dest_register);
         inst_fmath_fmovecr();
         goto computation_done;
     }
@@ -1658,9 +1750,18 @@ static void inst_fmath (const uint16_t ext)
     if (src_in_ea) {
         if (!_fpu_read_ea(source_specifier, &fpu->source))
             return ;
+        slog("FPU: %s.%c ", _fmath_names[e], "lsxpwdb?"[source_specifier]);
     }
-    else
+    else {
         fpu->source = floatx80_to_float128(fpu->fp[source_specifier]);
+        slog("FPU: %s.x ", _fmath_names[e], "lsxpwdb?"[source_specifier]);
+    }
+
+    
+    {
+        long double tmp = _float128_to_long_double(fpu->source);
+        printf("%Lf,fp%u\n", tmp, dest_register);
+    }
     
     /*
      * If the source is NaN, or this is a dyadic (two-operand)
@@ -1707,6 +1808,9 @@ computation_done:
     ae_dz |= es_dz;
     ae_inex |= es_inex1 | es_inex2 | es_ovfl;
     
+    slog("FPU: bsun=%u snan=%u operr=%u ovfl=%u unfl=%u dz=%u inex1=%u inex2=%u\n",
+           es_bsun, es_snan, es_operr, es_ovfl, es_unfl, es_dz, es_inex1, es_inex2);
+    
     /* Are any exceptions both set and enabled? */
     if (fpu->fpsr.raw & fpu->fpcr.raw & 0x0000ff00) {
         /* 
@@ -1719,6 +1823,8 @@ computation_done:
          * exception to whichever bit is set first.
          */
         uint8_t i, throwable = (fpu->fpsr.raw & fpu->fpcr.raw) >> 8;
+        
+        slog("FPU: throw exception! 0x%08x\n", throwable);
         
         assert(throwable);
         for (i=0; 1; i++) {
@@ -1750,8 +1856,12 @@ computation_done:
     _fpu_read_ea_commit(source_specifier);
     
     /* Write back the result, and we're done! */
-    if (fpu->write_back)
+    if (fpu->write_back) {
         fpu->fp[dest_register] = rounded_result;
+        
+        long double tmp = _floatx80_to_long_double(rounded_result);
+        slog("FPU: result = %Lf\n", tmp);
+    }
 }
 
 #pragma mark Second-hop non-fmath instructions

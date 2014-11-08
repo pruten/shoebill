@@ -1013,7 +1013,7 @@ void slog(const char *fmt, ...)
 {
     va_list args;
  
-    // return ;
+    return ;
     
     va_start(args, fmt);
     vprintf(fmt, args);
