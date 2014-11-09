@@ -1005,6 +1005,34 @@ static void inst_fmath_fmovecr (void)
     return $map_str;
 })
 
+static _Bool _float128_is_zero (float128 f)
+{
+    return ((f.high << 1) == 0) && (f.low == 0);
+}
+
+static _Bool _float128_is_neg (float128 f)
+{
+    return f.high >> 63;
+}
+
+static _Bool _float128_is_infinity (float128 f)
+{
+    const uint64_t frac_a = f.high & 0x0000ffffffffffff;
+    const uint64_t frac_b = f.low;
+    const uint16_t exp = (f.high >> 48) & 0x7fff;
+    
+    return (exp == 0x7fff) && ((frac_a | frac_b) == 0);
+}
+
+static _Bool _float128_is_nan (float128 f)
+{
+    const uint64_t frac_a = f.high & 0x0000ffffffffffff;
+    const uint64_t frac_b = f.low;
+    const uint16_t exp = (f.high >> 48) & 0x7fff;
+    
+    return (exp == 0x7fff) && ((frac_a | frac_b) != 0);
+}
+
 static void inst_fmath_fabs ()
 {
     fpu_get_state_ptr();
@@ -1039,6 +1067,14 @@ static void inst_fmath_fadd ()
     /* Throw inex2 if the result is inexact */
     if (float_exception_flags & float_flag_inexact)
         es_inex2 = 1;
+    
+    /* Throw ovfl if the op overflowed */
+    if (float_exception_flags & float_flag_overflow)
+        es_ovfl = 1;
+    
+    /* Throw unfl if the op overflowed */
+    if (float_exception_flags & float_flag_underflow)
+        es_unfl = 1;
 }
 
 static void inst_fmath_fasin ()
@@ -1114,6 +1150,14 @@ static void inst_fmath_fdiv ()
     /* Throw inex2 if the result is inexact */
     if (float_exception_flags & float_flag_inexact)
         es_inex2 = 1;
+    
+    /* Throw ovfl if the op overflowed */
+    if (float_exception_flags & float_flag_overflow)
+        es_ovfl = 1;
+    
+    /* Throw unfl if the op overflowed */
+    if (float_exception_flags & float_flag_underflow)
+        es_unfl = 1;
 }
 
 static void inst_fmath_fetox ()
@@ -1228,7 +1272,60 @@ static void inst_fmath_fmod ()
 {
     fpu_get_state_ptr();
     
-    assert(!"fmath: fmod not implemented");
+    const _Bool source_zero = _float128_is_zero(fpu->source);
+    const _Bool source_inf = _float128_is_infinity(fpu->source);
+    const _Bool dest_zero = _float128_is_zero(fpu->dest);
+    const _Bool dest_inf = _float128_is_infinity(fpu->dest);
+    
+    /* I just assume the quotient/sign are 0 for the following cases */
+    qu_quotient = 0;
+    qu_s = 0;
+    
+    /* If source is zero, result is nan */
+    if (source_zero) {
+        fpu->result = _nan128;
+        es_operr = 1;
+        return ;
+    }
+    /* If dest (but not source) is zero, result is that zero */
+    else if (dest_zero) {
+        fpu->result = fpu->dest;
+        return ;
+    }
+    /* If dest is infinity, result is nan */
+    else if (dest_inf) {
+        fpu->result = _nan128;
+        es_operr = 1;
+        return ;
+    }
+    /* If source, but not dest, is infinity, result is dest */
+    else if (source_inf) {
+        fpu->result = fpu->dest;
+        return ;
+    }
+    
+    /* -- We're past the edge cases, do the actual op -- */
+    
+    const signed char old_round_mode = float_rounding_mode;
+    
+    /* fmod uses round-to-zero */
+    float_rounding_mode = float_round_to_zero;
+    
+    float128 N = float128_div(fpu->dest, fpu->source);
+    N = float128_round_to_int(N);
+    
+    float_rounding_mode = old_round_mode;
+    
+    fpu->result = float128_sub(fpu->dest, float128_mul(fpu->source, N));
+    
+    /* FIXME: not sure how to set unfl reliably */
+    
+    _Bool sign = N.high >> 63; /* Remember the sign */
+    N.high <<= 1; /* Clear the sign */
+    N.high >>= 1;
+    uint32_t final = float128_to_int32(N); /* Get the integer of the quotient */
+    qu_quotient = final & 0x7f;
+    qu_s = sign;
 }
 
 static void inst_fmath_fmove ()
@@ -1254,6 +1351,14 @@ static void inst_fmath_fmul ()
     /* Throw inex2 if the result is inexact */
     if (float_exception_flags & float_flag_inexact)
         es_inex2 = 1;
+    
+    /* Throw ovfl if the op overflowed */
+    if (float_exception_flags & float_flag_overflow)
+        es_ovfl = 1;
+    
+    /* Throw unfl if the op overflowed */
+    if (float_exception_flags & float_flag_underflow)
+        es_unfl = 1;
 }
 
 static void inst_fmath_fneg ()
@@ -1263,6 +1368,11 @@ static void inst_fmath_fneg ()
     /* Flip the sign bit */
     fpu->result = fpu->dest;
     fpu->result.high ^= (1ULL << 63);
+    
+    /* 
+     * FIXME: you're supposed to throw UNFL if this is a
+     *        denormalized number, I think.
+     */
 }
 
 static uint8_t __find_quotient(float128 dest, float128 source, float128 result)
@@ -1289,34 +1399,69 @@ static uint8_t __find_quotient(float128 dest, float128 source, float128 result)
     return (uint8_t)final;
 }
 
+const float128 _nan128 = {
+    .high = 0xFFFF800000000000ULL,
+    .low = 0
+};
+
 static void inst_fmath_frem ()
 {
     fpu_get_state_ptr();
-    float128 tmp;
     
-    fpu->result = float128_rem(fpu->dest, fpu->source);
+    const _Bool source_zero = _float128_is_zero(fpu->source);
+    const _Bool source_inf = _float128_is_infinity(fpu->source);
+    const _Bool dest_zero = _float128_is_zero(fpu->dest);
+    const _Bool dest_inf = _float128_is_infinity(fpu->dest);
     
-    /*
-     * Throw operr (and return NaN) if source is zero,
-     * or if dest is infinity.
-     */
-    if (float_exception_flags & float_flag_invalid)
+    /* I just assume the quotient/sign are 0 for the following cases */
+    qu_quotient = 0;
+    qu_s = 0;
+    
+    /* If source is zero, result is nan */
+    if (source_zero) {
+        fpu->result = _nan128;
         es_operr = 1;
+        return ;
+    }
+    /* If dest (but not source) is zero, result is that zero */
+    else if (dest_zero) {
+        fpu->result = fpu->dest;
+        return ;
+    }
+    /* If dest is infinity, result is nan */
+    else if (dest_inf) {
+        fpu->result = _nan128;
+        es_operr = 1;
+        return ;
+    }
+    /* If source, but not dest, is infinity, result is dest */
+    else if (source_inf) {
+        fpu->result = fpu->dest;
+        return ;
+    }
     
-    // FIXME: !! set quotient byte!
-    // you may be able to use the local "q" bits64 in
-    // float128_rem()
-    uint8_t quo = __find_quotient(fpu->dest, fpu->source, fpu->result);
-    printf("FPU: __find_quotient = 0x%02x\n", quo);
+    /* -- We're past the edge cases, do the actual op -- */
     
+    const signed char old_round_mode = float_rounding_mode;
     
-    qu_quotient = quo & 0x7f;
-    qu_s = quo >> 7;
-    /*
-     * errata: 68kprm has typesetting issues (or typos?)
-     *         if source==inf, don't set operr!
-     */
+    /* frem uses round-to-nearest */
+    float_rounding_mode = float_round_nearest_even;
     
+    float128 N = float128_div(fpu->dest, fpu->source);
+    N = float128_round_to_int(N);
+    
+    float_rounding_mode = old_round_mode;
+    
+    fpu->result = float128_sub(fpu->dest, float128_mul(fpu->source, N));
+    
+    /* FIXME: not sure how to set unfl reliably */
+    
+    _Bool sign = N.high >> 63; /* Remember the sign */
+    N.high <<= 1; /* Clear the sign */
+    N.high >>= 1;
+    uint32_t final = float128_to_int32(N); /* Get the integer of the quotient */
+    qu_quotient = final & 0x7f;
+    qu_s = sign;
 }
 
 static void inst_fmath_fscale ()
@@ -1330,14 +1475,77 @@ static void inst_fmath_fsgldiv ()
 {
     fpu_get_state_ptr();
     
-    assert(!"fmath: fsgldiv not implemented");
+    float128 source = fpu->source;
+    float128 dest = fpu->dest;
+    
+    /* Dump the low 88 bits of the source/dest mantissas */
+    source.low = 0;
+    source.high &= 0xffffffffff000000;
+    dest.low = 0;
+    dest.high &= 0xffffffffff000000;
+    
+    fpu->result = float128_div(dest, source);
+    
+    /* Throw operr (and return NaN) if both operands are zero */
+    if (float_exception_flags & float_flag_invalid)
+        es_operr = 1;
+    
+    /* Throw divide-by-zero if dividend is zero */
+    if (float_exception_flags & float_flag_divbyzero)
+        es_dz = 1;
+    
+    /* Throw inex2 if the result is inexact */
+    if (float_exception_flags & float_flag_inexact)
+        es_inex2 = 1;
+    
+    /* Throw ovfl if the op overflowed */
+    if (float_exception_flags & float_flag_overflow)
+        es_ovfl = 1;
+    
+    /* Throw unfl if the op overflowed */
+    if (float_exception_flags & float_flag_underflow)
+        es_unfl = 1;
 }
 
 static void inst_fmath_fsglmul ()
 {
     fpu_get_state_ptr();
     
-    assert(!"fmath: fsglmul not implemented");
+    /*
+     * As far as I can tell, fsglmul/fsgldiv use an ALU
+     * for the mantissa that is only 24-bits wide. Everything
+     * else is done with regular internal precision.
+     */
+    
+    float128 source = fpu->source;
+    float128 dest = fpu->dest;
+    
+    /* Dump the low 88 bits of the source/dest mantissas */
+    source.low = 0;
+    source.high &= 0xffffffffff000000;
+    dest.low = 0;
+    dest.high &= 0xffffffffff000000;
+    
+    fpu->result = float128_mul(dest, source);
+    
+    /*
+     * Throw operr (and return NaN) if one operand is infinity
+     * and the other is zero.
+     */
+    if (float_exception_flags & float_flag_invalid)
+        es_operr = 1;
+    
+    /* Throw inex2 if the result is inexact */
+    if (float_exception_flags & float_flag_inexact)
+        es_inex2 = 1;
+    
+    /* Throw ovfl if the op overflowed */
+    if (float_exception_flags & float_flag_overflow)
+        es_ovfl = 1;
+    
+    /* Throw unfl if the op overflowed */
+    if (float_exception_flags & float_flag_underflow)
+        es_unfl = 1;
 }
 
 static void inst_fmath_fsin ()
@@ -1396,6 +1604,14 @@ static void inst_fmath_fsub ()
     /* Throw inex2 if the result is inexact */
     if (float_exception_flags & float_flag_inexact)
         es_inex2 = 1;
+    
+    /* Throw ovfl if the op overflowed */
+    if (float_exception_flags & float_flag_overflow)
+        es_ovfl = 1;
+    
+    /* Throw unfl if the op overflowed */
+    if (float_exception_flags & float_flag_underflow)
+        es_unfl = 1;
 }
 
 static void inst_fmath_ftan ()
@@ -2276,7 +2492,7 @@ void inst_frestore () {
         size = 0xb8; // BUSY state frame
     else {
         slog("Frestore encountered an unknown state frame 0x%04x\n", word);
-        assert("inst_frestore: bad state frame");
+        assert(!"inst_frestore: bad state frame");
         return ;
     }
     
