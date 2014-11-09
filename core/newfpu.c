@@ -792,18 +792,16 @@ float128 _from_native(double n)
 #define _native_cos(a) cos(a)
 #define _native_acos(a) acos(a)
 #define _native_cosh(a) cosh(a)
-#define _native_acosh(a) acosh(a)
 #define _native_sin(a) sin(a)
 #define _native_asin(a) asin(a)
 #define _native_sinh(a) sinh(a)
-#define _native_asinh(a) asinh(a)
 #define _native_tan(a) tan(a)
 #define _native_atan(a) atan(a)
 #define _native_tanh(a) tanh(a)
 #define _native_atanh(a) atanh(a)
 #define _native_pow(a, b) pow((a), (b))
 #define _native_exp(a) exp(a)
-#define _native_expm1(a) exp((a) - 1.0) /* or expm1() */
+#define _native_expm1(a) (exp(a) - 1.0) /* or expm1() */
 #define _native_log10(a) log10(a)
 #define _native_log2(a) (log(a) / log(2.0)) /* or log2() */
 #define _native_log(a) log(a)
@@ -832,10 +830,6 @@ static float128 _hack_cosh (float128 x) {
     return _from_native(_native_cosh(_to_native(x)));
 }
 
-static float128 _hack_acosh (float128 x) {
-    return _from_native(_native_acosh(_to_native(x)));
-}
-
 static float128 _hack_sin (float128 x) {
     return _from_native(_native_sin(_to_native(x)));
 }
@@ -846,10 +840,6 @@ static float128 _hack_asin (float128 x) {
 
 static float128 _hack_sinh (float128 x) {
     return _from_native(_native_sinh(_to_native(x)));
-}
-
-static float128 _hack_asinh (float128 x) {
-    return _from_native(_native_asinh(_to_native(x)));
 }
 
 static float128 _hack_tan (float128 x) {
@@ -1192,6 +1182,11 @@ const float128 _one128 = {
     .low = 0
 };
 
+const float128 _zero128 = {
+    .high = 0,
+    .low = 0
+};
+
 static void inst_fmath_fabs ()
 {
     fpu_get_state_ptr();
@@ -1314,7 +1309,34 @@ static void inst_fmath_fatanh ()
 {
     fpu_get_state_ptr();
     
-    assert(!"fmath: fatanh not implemented");
+    const _Bool source_zero = _float128_is_zero(fpu->source);
+    const _Bool source_inf = _float128_is_infinity(fpu->source);
+    const _Bool source_sign = _float128_is_neg(fpu->source);
+    
+    /* Take the absolute value of source */
+    float128 tmp = fpu->source;
+    tmp.high <<= 1;
+    tmp.high >>= 1;
+    
+    /* If source is 0, return source */
+    if (source_zero) {
+        fpu->result = fpu->source;
+        return;
+    }
+    /* If |source| == 1.0, set dz, return +-inf */
+    else if (float128_eq(tmp, _one128)) {
+        es_dz = 1;
+        fpu->result = _assemble_float128(source_sign, 0x7fff, 0, 0);
+        return;
+    }
+    /* If |source| > 1.0, set operr, return nan */
+    else if (!float128_le(tmp, _one128)) {
+        es_operr = 1;
+        fpu->result = _nan128;
+        return ;
+    }
+    
+    fpu->result = _hack_atanh(fpu->source);
 }
 
 static void inst_fmath_fcmp ()
@@ -1365,7 +1387,21 @@ static void inst_fmath_fcosh ()
 {
     fpu_get_state_ptr();
     
-    assert(!"fmath: fcosh not implemented");
+    const _Bool source_zero = _float128_is_zero(fpu->source);
+    const _Bool source_inf = _float128_is_infinity(fpu->source);
+    
+    /* If source is zero, result is +1.0 */
+    if (source_zero) {
+        fpu->result = _one128;
+        return;
+    }
+    /* If source is +/- inf, result is +inf */
+    else if (source_inf) {
+        fpu->result = _assemble_float128(0, 0x7fff, 0, 0);
+        return;
+    }
+    
+    fpu->result = _hack_cosh(fpu->source);
 }
 
 static void inst_fmath_fdiv ()
@@ -1399,14 +1435,56 @@ static void inst_fmath_fetox ()
 {
     fpu_get_state_ptr();
     
-    assert(!"fmath: fetox not implemented");
+    const _Bool source_zero = _float128_is_zero(fpu->source);
+    const _Bool source_inf = _float128_is_infinity(fpu->source);
+    const _Bool source_sign = _float128_is_neg(fpu->source);
+    
+    /* If source is zero, result is +1.0 */
+    if (source_zero) {
+        fpu->result = _one128;
+        return ;
+    }
+    /* if source is -inf, result is +0.0 */
+    else if (source_inf && source_sign) {
+        fpu->result = _zero128;
+        return ;
+    }
+    /* if source is +inf, result is +inf */
+    else if (source_inf) {
+        fpu->result = fpu->source;
+        return ;
+    }
+    
+    fpu->result = _hack_etox(fpu->source);
 }
 
 static void inst_fmath_fetoxm1 ()
 {
     fpu_get_state_ptr();
     
-    assert(!"fmath: fetoxm1 not implemented");
+    const _Bool source_zero = _float128_is_zero(fpu->source);
+    const _Bool source_inf = _float128_is_infinity(fpu->source);
+    const _Bool source_sign = _float128_is_neg(fpu->source);
+    
+    const float128 negone = _assemble_float128(1, 0x3fff, 0, 0);
+    
+    /* If source is zero, result is source */
+    if (source_zero) {
+        fpu->result = fpu->source;
+        return ;
+    }
+    /* if source is -inf, result is +0.0 */
+    else if (source_inf && source_sign) {
+        fpu->result = negone;
+        return ;
+    }
+    /* if source is +inf, result is +inf */
+    else if (source_inf) {
+        fpu->result = fpu->source;
+        return ;
+    }
+    
+    fpu->result = _hack_etoxm1(fpu->source);
 }
 
 static void inst_fmath_fgetexp ()
@@ -1533,6 +1611,42 @@ static void inst_fmath_flog2 ()
     fpu->result = _hack_log2(fpu->source);
 }
 
+static void inst_fmath_flognp1 ()
+{
+    fpu_get_state_ptr();
+    
+    const _Bool source_zero = _float128_is_zero(fpu->source);
+    const _Bool source_inf = _float128_is_infinity(fpu->source);
+    const _Bool source_sign = _float128_is_neg(fpu->source);
+    
+    const float128 negone = _assemble_float128(1, 0x3fff, 0, 0);
+    
+    /* If source is zero, result is source */
+    if (source_zero) {
+        fpu->result = fpu->source;
+        return;
+    }
+    /* If source is -1.0, set dz, result is -inf */
+    else if (float128_eq(negone, fpu->source)) {
+        es_dz = 1;
+        fpu->result = _assemble_float128(1, 0x7fff, 0, 0);
+        return;
+    }
+    /* If source < -1.0, set operr, result is nan */
+    else if (float128_lt(fpu->source, negone)) {
+        es_operr = 1;
+        fpu->result = _nan128;
+        return;
+    }
+    /* If source is +inf, result is +inf. */
+    else if (source_inf) {
+        fpu->result = fpu->source;
+        return;
+    }
+    
+    fpu->result = _hack_lognp1(fpu->source);
+}
+
 static void inst_fmath_flogn ()
 {
     fpu_get_state_ptr();
@@ -1560,13 +1674,6 @@ static void inst_fmath_flogn ()
     }
     
     fpu->result = _hack_logn(fpu->source);
-}
-
-static void inst_fmath_flognp1 ()
-{
-    fpu_get_state_ptr();
-    
-    assert(!"fmath: flognp1 not implemented");
 }
 
 static void inst_fmath_fmove ()
@@ -1854,7 +1961,16 @@ static void inst_fmath_fsinh ()
 {
     fpu_get_state_ptr();
     
-    assert(!"fmath: fsinh not implemented");
+    const _Bool source_zero = _float128_is_zero(fpu->source);
+    const _Bool source_inf = _float128_is_infinity(fpu->source);
+    
+    /* If source is zero or inf, return source */
+    if (source_zero || source_inf) {
+        fpu->result = fpu->source;
+        return;
+    }
+    
+    fpu->result = _hack_sinh(fpu->source);
 }
 
 static void inst_fmath_fsqrt ()
@@ -1929,13 +2045,53 @@ static void inst_fmath_ftanh ()
 {
     fpu_get_state_ptr();
     
-    assert(!"fmath: ftanh not implemented");
+    const _Bool source_zero = _float128_is_zero(fpu->source);
+    const _Bool source_inf = _float128_is_infinity(fpu->source);
+    const _Bool source_sign = _float128_is_neg(fpu->source);
+    
+    /* If source is zero, result is source */
+    if (source_zero) {
+        fpu->result = fpu->source;
+        return;
+    }
+    /* If source is +/- inf, result is +/- 1.0 */
+    else if (source_inf) {
+        fpu->result = _assemble_float128(source_sign, 0x3fff, 0, 0);
+        return;
+    }
+    
+    fpu->result = _hack_tanh(fpu->source);
 }
 
 static void inst_fmath_ftentox ()
 {
     fpu_get_state_ptr();
     
+    // _hack_ftentox() is broken on clang 3.5 on osx 10.10
+    // (tries to optimize pow(10.0, x) to __exp10(x), and __exp10
+    //  isn't implemented in the 10.8 SDK)
+//    const _Bool source_zero = _float128_is_zero(fpu->source);
+//    const _Bool source_inf = _float128_is_infinity(fpu->source);
+//    const _Bool source_sign = _float128_is_neg(fpu->source);
+//    
+//    /* If source is zero, result is +1.0 */
+//    if (source_zero) {
+//        fpu->result = _one128;
+//        return ;
+//    }
+//    /* if source is -inf, result is +0.0 */
+//    else if (source_inf && source_sign) {
+//        fpu->result = _zero128;
+//        return ;
+//    }
+//    /* if source is +inf, result is +inf */
+//    else if (source_inf) {
+//        fpu->result = fpu->source;
+//        return ;
+//    }
+//    
+//    fpu->result = _hack_tentox(fpu->source);
+//    
     assert(!"fmath: ftentox not implemented");
 }
 
@@ -1954,7 +2110,27 @@ static void inst_fmath_ftwotox ()
 {
     fpu_get_state_ptr();
     
-    assert(!"fmath: ftwotox not implemented");
+    const _Bool source_zero = _float128_is_zero(fpu->source);
+    const _Bool source_inf = _float128_is_infinity(fpu->source);
+    const _Bool source_sign = _float128_is_neg(fpu->source);
+    
+    /* If source is zero, result is +1.0 */
+    if (source_zero) {
+        fpu->result = _one128;
+        return ;
+    }
+    /* if source is -inf, result is +0.0 */
+    else if (source_inf && source_sign) {
+        fpu->result = _zero128;
+        return ;
+    }
+    /* if source is +inf, result is +inf */
+    else if (source_inf) {
+        fpu->result = fpu->source;
+        return ;
+    }
+    
+    fpu->result = _hack_twotox(fpu->source);
 }
 
 typedef void (fmath_impl_t)(void);
