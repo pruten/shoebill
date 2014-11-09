@@ -736,12 +736,7 @@ got_data:
     return 1;
 }
 
-#pragma mark FMATH! and all its helpers
-
-/* Function prototypes from SoftFloat/softfloat-specialize.h */
-char float128_is_nan(float128 a);
-char float128_is_signaling_nan (float128 a);
-
+#pragma mark Hacky low-precision transcendental implementations
 /*
  * s -> sign, e -> biased exponent
  * ma -> 48 high bits of the mantissa
@@ -749,13 +744,167 @@ char float128_is_signaling_nan (float128 a);
  */
 #define _assemble_float128(s, e, ma, mb) ({ \
     const uint64_t _ma = (ma), _mb = (mb); \
+    const uint64_t _e = (e), _s = (s); \
     float128 f = { \
-        .high = (((s) != 0) << 16) | ((e) & 0x7fff), \
+        .high = ((_s != 0) << 16) | (_e & 0x7fff), \
         .low = _mb \
     }; \
     f.high = ((f.high) << 48) | _ma; \
     f; \
 })
+
+#define HACKY_MATH_X86
+#ifdef HACKY_MATH_X86
+#define NATIVE double
+
+double _to_native(float128 f128)
+{
+    float64 f64 = float128_to_float64(f128);
+    double result;
+    uint8_t *ptr = (uint8_t*)&result;
+    ptr[0] = (f64 >> 56) & 0xff;
+    ptr[1] = (f64 >> 48) & 0xff;
+    ptr[2] = (f64 >> 40) & 0xff;
+    ptr[3] = (f64 >> 32) & 0xff;
+    ptr[4] = (f64 >> 24) & 0xff;
+    ptr[5] = (f64 >> 16) & 0xff;
+    ptr[6] = (f64 >> 8) & 0xff;
+    ptr[7] = (f64 >> 0) & 0xff;
+    return result;
+}
+
+float128 _from_native(double n)
+{
+    float64 f64 = 0;
+    uint8_t *ptr = (uint8_t*)&n;
+    f64 = (f64 << 8) | ptr[7];
+    f64 = (f64 << 8) | ptr[6];
+    f64 = (f64 << 8) | ptr[5];
+    f64 = (f64 << 8) | ptr[4];
+    f64 = (f64 << 8) | ptr[3];
+    f64 = (f64 << 8) | ptr[2];
+    f64 = (f64 << 8) | ptr[1];
+    f64 = (f64 << 8) | ptr[0];
+    return float64_to_float128(f64);
+}
+
+#include <math.h>
+#define _native_cos(a) cos(a)
+#define _native_acos(a) acos(a)
+#define _native_cosh(a) cosh(a)
+#define _native_acosh(a) acosh(a)
+#define _native_sin(a) sin(a)
+#define _native_asin(a) asin(a)
+#define _native_sinh(a) sinh(a)
+#define _native_asinh(a) asinh(a)
+#define _native_tan(a) tan(a)
+#define _native_atan(a) atan(a)
+#define _native_tanh(a) tanh(a)
+#define _native_atanh(a) atanh(a)
+#define _native_pow(a, b) pow((a), (b))
+#define _native_exp(a) exp(a)
+#define _native_expm1(a) exp((a) - 1.0) /* or expm1() */
+#define _native_log10(a) log10(a)
+#define _native_log2(a) (log(a) / log(2.0)) /* or log2() */
+#define _native_log(a) log(a)
+#define _native_log1p(a) log((a) + 1.0) /* or log1p() */
+
+const double _native_e = 2.71828182845904509;
+const double _native_10 = 10.0;
+const double _native_2 = 2.0;
+const double _native_1 = 1.0;
+
+#elif (defined(HACKY_MATH_PPC))
+#error "PowerPC hacky math isn't implemented yet"
+#else
+#error "You need to define HACKY_MATH_X86, or implement one for your arch"
+#endif
+
+static float128 _hack_cos (float128 x) {
+    return _from_native(_native_cos(_to_native(x)));
+}
+
+static float128 _hack_acos (float128 x) {
+    return _from_native(_native_acos(_to_native(x)));
+}
+
+static float128 _hack_cosh (float128 x) {
+    return _from_native(_native_cosh(_to_native(x)));
+}
+
+static float128 _hack_acosh (float128 x) {
+    return _from_native(_native_acosh(_to_native(x)));
+}
+
+static float128 _hack_sin (float128 x) {
+    return _from_native(_native_sin(_to_native(x)));
+}
+
+static float128 _hack_asin (float128 x) {
+    return _from_native(_native_asin(_to_native(x)));
+}
+
+static float128 _hack_sinh (float128 x) {
+    return _from_native(_native_sinh(_to_native(x)));
+}
+
+static float128 _hack_asinh (float128 x) {
+    return _from_native(_native_asinh(_to_native(x)));
+}
+
+static float128 _hack_tan (float128 x) {
+    return _from_native(_native_tan(_to_native(x)));
+}
+
+static float128 _hack_atan (float128 x) {
+    return _from_native(_native_atan(_to_native(x)));
+}
+
+static float128 _hack_tanh (float128 x) {
+    return _from_native(_native_tanh(_to_native(x)));
+}
+
+static float128 _hack_atanh (float128 x) {
+    return _from_native(_native_atanh(_to_native(x)));
+}
+
+static float128 _hack_etox (float128 x) {
+    return _from_native(_native_exp(_to_native(x)));
+}
+
+static float128 _hack_etoxm1 (float128 x) {
+    return _from_native(_native_expm1(_to_native(x)));
+}
+
+static float128 _hack_log10 (float128 x) {
+    return _from_native(_native_log10(_to_native(x)));
+}
+
+static float128 _hack_log2 (float128 x) {
+    return _from_native(_native_log2(_to_native(x)));
+}
+
+static float128 _hack_logn (float128 x) {
+    return _from_native(_native_log(_to_native(x)));
+}
+
+static float128 _hack_lognp1 (float128 x) {
+    return _from_native(_native_log1p(_to_native(x)));
+}
+
+static float128 _hack_tentox (float128 x) {
+    return _from_native(_native_pow(_native_10, _to_native(x)));
+}
+
+static float128 _hack_twotox (float128 x) {
+    return _from_native(_native_pow(_native_2, _to_native(x)));
+}
+
+#pragma mark FMATH! and all its helpers
+
+/* Function prototypes from SoftFloat/softfloat-specialize.h */
+char float128_is_nan(float128 a);
+char float128_is_signaling_nan (float128 a);
 
 
 static void inst_fmath_fmovecr (void)
@@ -1268,66 +1417,6 @@ static void inst_fmath_flognp1 ()
     assert(!"fmath: flognp1 not implemented");
 }
 
-static void inst_fmath_fmod ()
-{
-    fpu_get_state_ptr();
-    
-    const _Bool source_zero = _float128_is_zero(fpu->source);
-    const _Bool source_inf = _float128_is_infinity(fpu->source);
-    const _Bool dest_zero = _float128_is_zero(fpu->dest);
-    const _Bool dest_inf = _float128_is_infinity(fpu->dest);
-    
-    /* I just assume the quotient/sign are 0 for the following cases */
-    qu_quotient = 0;
-    qu_s = 0;
-    
-    /* If source is zero, result is nan */
-    if (source_zero) {
-        fpu->result = _nan128;
-        es_operr = 1;
-        return ;
-    }
-    /* If dest (but not source) is zero, result is that zero */
-    else if (dest_zero) {
-        fpu->result = fpu->dest;
-        return ;
-    }
-    /* If dest is infinity, result is nan */
-    else if (dest_inf) {
-        fpu->result = _nan128;
-        es_operr = 1;
-        return ;
-    }
-    /* If source, but not dest, is infinity, result is dest */
-    else if (source_inf) {
-        fpu->result = fpu->dest;
-        return ;
-    }
-    
-    /* -- We're past the edge cases, do the actual op -- */
-    
-    const signed char old_round_mode = float_rounding_mode;
-    
-    /* fmod uses round-to-zero */
-    float_rounding_mode = float_round_to_zero;
-    
-    float128 N = float128_div(fpu->dest, fpu->source);
-    N = float128_round_to_int(N);
-    
-    float_rounding_mode = old_round_mode;
-    
-    fpu->result = float128_sub(fpu->dest, float128_mul(fpu->source, N));
-    
-    /* FIXME: not sure how to set unfl reliably */
-    
-    _Bool sign = N.high >> 63; /* Remember the sign */
-    N.high <<= 1; /* Clear the sign */
-    N.high >>= 1;
-    uint32_t final = float128_to_int32(N); /* Get the integer of the quotient */
-    qu_quotient = final & 0x7f;
-    qu_s = sign;
-}
-
 static void inst_fmath_fmove ()
 {
     fpu_get_state_ptr();
@@ -1373,30 +1462,6 @@ static void inst_fmath_fneg ()
      * FIXME: you're supposed to throw UNFL if this is a
      *        denormalized number, I think.
      */
-}
-
-static uint8_t __find_quotient(float128 dest, float128 source, float128 result)
-{
-    int8_t old = float_exception_flags;
-    
-    float128 quo = float128_div(float128_sub(dest, result), source);
-    
-    const signed char old_round_mode = float_rounding_mode;
-    float_rounding_mode = float_round_to_zero;
-    quo = float128_round_to_int(quo);
-    float_rounding_mode = old_round_mode;
-    
-    uint8_t sign = quo.high >> 63;
-    quo.high <<= 1;
-    quo.high >>= 1;
-    uint32_t final = float128_to_int32(quo);
-    
-    final &= 0x7f;
-    final |= (sign?0x80:0);
-    
-    float_exception_flags = old;
-    
-    return (uint8_t)final;
 }
 
 const float128 _nan128 = {
@@ -1446,6 +1511,66 @@ static void inst_fmath_frem ()
     
     /* frem uses round-to-nearest */
     float_rounding_mode = float_round_nearest_even;
+    
+    float128 N = float128_div(fpu->dest, fpu->source);
+    N = float128_round_to_int(N);
+    
+    float_rounding_mode = old_round_mode;
+    
+    fpu->result = float128_sub(fpu->dest, float128_mul(fpu->source, N));
+    
+    /* FIXME: not sure how to set unfl reliably */
+    
+    _Bool sign = N.high >> 63; /* Remember the sign */
+    N.high <<= 1; /* Clear the sign */
+    N.high >>= 1;
+    uint32_t final = float128_to_int32(N); /* Get the integer of the quotient */
+    qu_quotient = final & 0x7f;
+    qu_s = sign;
+}
+
+static void inst_fmath_fmod ()
+{
+    fpu_get_state_ptr();
+    
+    const _Bool source_zero = _float128_is_zero(fpu->source);
+    const _Bool source_inf = _float128_is_infinity(fpu->source);
+    const _Bool dest_zero = _float128_is_zero(fpu->dest);
+    const _Bool dest_inf = _float128_is_infinity(fpu->dest);
+    
+    /* I just assume the quotient/sign are 0 for the following cases */
+    qu_quotient = 0;
+    qu_s = 0;
+    
+    /* If source is zero, result is nan */
+    if (source_zero) {
+        fpu->result = _nan128;
+        es_operr = 1;
+        return ;
+    }
+    /* If dest (but not source) is zero, result is that zero */
+    else if (dest_zero) {
+        fpu->result = fpu->dest;
+        return ;
+    }
+    /* If dest is infinity, result is nan */
+    else if (dest_inf) {
+        fpu->result = _nan128;
+        es_operr = 1;
+        return ;
+    }
+    /* If source, but not dest, is infinity, result is dest */
+    else if (source_inf) {
+        fpu->result = fpu->dest;
+        return ;
+    }
+    
+    /* -- We're past the edge cases, do the actual op -- */
+    
+    const signed char old_round_mode = float_rounding_mode;
+    
+    /* fmod uses round-to-zero */
+    float_rounding_mode = float_round_to_zero;
     
     float128 N = float128_div(fpu->dest, fpu->source);
     N = float128_round_to_int(N);
