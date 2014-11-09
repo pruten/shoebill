@@ -1479,21 +1479,87 @@ static void inst_fmath_flog10 ()
 {
     fpu_get_state_ptr();
     
-    assert(!"fmath: flog10 not implemented");
+    const _Bool source_zero = _float128_is_zero(fpu->source);
+    const _Bool source_inf = _float128_is_infinity(fpu->source);
+    const _Bool source_sign = _float128_is_neg(fpu->source);
+    
+    /* If source is zero, set dz, result is -inf */
+    if (source_zero) {
+        fpu->result = _assemble_float128(1, 0x7fff, 0, 0);
+        es_dz = 1;
+        return;
+    }
+    /* If source is negative, set operr, result is nan */
+    else if (source_sign) {
+        fpu->result = _nan128;
+        es_operr = 1;
+        return;
+    }
+    /* If source is +inf, result is +inf. */
+    else if (source_inf) {
+        fpu->result = fpu->source;
+        return;
+    }
+    
+    fpu->result = _hack_log10(fpu->source);
 }
 
 static void inst_fmath_flog2 ()
 {
     fpu_get_state_ptr();
     
-    assert(!"fmath: flog2 not implemented");
+    const _Bool source_zero = _float128_is_zero(fpu->source);
+    const _Bool source_inf = _float128_is_infinity(fpu->source);
+    const _Bool source_sign = _float128_is_neg(fpu->source);
+    
+    /* If source is zero, set dz, result is -inf */
+    if (source_zero) {
+        fpu->result = _assemble_float128(1, 0x7fff, 0, 0);
+        es_dz = 1;
+        return;
+    }
+    /* If source is negative, set operr, result is nan */
+    else if (source_sign) {
+        fpu->result = _nan128;
+        es_operr = 1;
+        return;
+    }
+    /* If source is +inf, result is +inf. */
+    else if (source_inf) {
+        fpu->result = fpu->source;
+        return;
+    }
+    
+    fpu->result = _hack_log2(fpu->source);
 }
 
 static void inst_fmath_flogn ()
 {
     fpu_get_state_ptr();
     
-    assert(!"fmath: flogn not implemented");
+    const _Bool source_zero = _float128_is_zero(fpu->source);
+    const _Bool source_inf = _float128_is_infinity(fpu->source);
+    const _Bool source_sign = _float128_is_neg(fpu->source);
+    
+    /* If source is zero, set dz, result is -inf */
+    if (source_zero) {
+        fpu->result = _assemble_float128(1, 0x7fff, 0, 0);
+        es_dz = 1;
+        return;
+    }
+    /* If source is negative, set operr, result is nan */
+    else if (source_sign) {
+        fpu->result = _nan128;
+        es_operr = 1;
+        return;
+    }
+    /* If source is +inf, result is +inf. */
+    else if (source_inf) {
+        fpu->result = fpu->source;
+        return;
+    }
+    
+    fpu->result = _hack_logn(fpu->source);
 }
 
 static void inst_fmath_flognp1 ()
@@ -1541,7 +1607,7 @@ static void inst_fmath_fneg ()
     fpu_get_state_ptr();
     
     /* Flip the sign bit */
-    fpu->result = fpu->dest;
+    fpu->result = fpu->source;
     fpu->result.high ^= (1ULL << 63);
     
     /* 
