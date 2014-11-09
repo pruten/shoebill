@@ -762,14 +762,14 @@ double _to_native(float128 f128)
     float64 f64 = float128_to_float64(f128);
     double result;
     uint8_t *ptr = (uint8_t*)&result;
-    ptr[0] = (f64 >> 56) & 0xff;
-    ptr[1] = (f64 >> 48) & 0xff;
-    ptr[2] = (f64 >> 40) & 0xff;
-    ptr[3] = (f64 >> 32) & 0xff;
-    ptr[4] = (f64 >> 24) & 0xff;
-    ptr[5] = (f64 >> 16) & 0xff;
-    ptr[6] = (f64 >> 8) & 0xff;
-    ptr[7] = (f64 >> 0) & 0xff;
+    ptr[7] = (f64 >> 56) & 0xff;
+    ptr[6] = (f64 >> 48) & 0xff;
+    ptr[5] = (f64 >> 40) & 0xff;
+    ptr[4] = (f64 >> 32) & 0xff;
+    ptr[3] = (f64 >> 24) & 0xff;
+    ptr[2] = (f64 >> 16) & 0xff;
+    ptr[1] = (f64 >> 8) & 0xff;
+    ptr[0] = (f64 >> 0) & 0xff;
     return result;
 }
 
@@ -1182,6 +1182,16 @@ static _Bool _float128_is_nan (float128 f)
     return (exp == 0x7fff) && ((frac_a | frac_b) != 0);
 }
 
+const float128 _nan128 = {
+    .high = 0xFFFF800000000000ULL,
+    .low = 0
+};
+
+const float128 _one128 = {
+    .high = 0x3fff000000000000ULL,
+    .low = 0
+};
+
 static void inst_fmath_fabs ()
 {
     fpu_get_state_ptr();
@@ -1196,7 +1206,28 @@ static void inst_fmath_facos ()
 {
     fpu_get_state_ptr();
     
-    assert(!"fmath: facos not implemented");
+    const _Bool source_zero = _float128_is_zero(fpu->source);
+    const _Bool source_inf = _float128_is_infinity(fpu->source);
+    
+    /* Find the absolute value of source */
+    float128 tmp = fpu->source;
+    tmp.high <<= 1;
+    tmp.high >>= 1;
+    
+    /* If source is zero, result is +pi/2 */
+    if (source_zero) {
+        fpu->result = _assemble_float128(0, 0x3fff, 0x921fb54442d1, 0x8469898cc51701b8);
+        return;
+    }
+    /* If source isn't in range [-1, 1], return nan, set operr */
+    else if (!float128_le(tmp, _one128)) {
+        fpu->result = _nan128;
+        es_operr = 1;
+        return ;
+    }
+    
+    fpu->result = _hack_acos(fpu->source);
+    /* Set inex2?? */
 }
 
 static void inst_fmath_fadd ()
@@ -1230,14 +1261,53 @@ static void inst_fmath_fasin ()
 {
     fpu_get_state_ptr();
     
-    assert(!"fmath: fasin not implemented");
+    const _Bool source_zero = _float128_is_zero(fpu->source);
+    const _Bool source_inf = _float128_is_infinity(fpu->source);
+    
+    /* Find the absolute value of source */
+    float128 tmp = fpu->source;
+    tmp.high <<= 1;
+    tmp.high >>= 1;
+    
+    /* If source is zero, result is source */
+    if (source_zero) {
+        fpu->result = fpu->source;
+        return;
+    }
+    /* If source isn't in range [-1, 1], return nan, set operr */
+    else if (!float128_le(tmp, _one128)) {
+        fpu->result = _nan128;
+        es_operr = 1;
+        return ;
+    }
+    
+    fpu->result = _hack_asin(fpu->source);
+    /* Set inex2?? */
+    /* Set unfl?? */
 }
 
 static void inst_fmath_fatan ()
 {
     fpu_get_state_ptr();
     
-    assert(!"fmath: fatan not implemented");
+    const _Bool source_zero = _float128_is_zero(fpu->source);
+    const _Bool source_inf = _float128_is_infinity(fpu->source);
+    const _Bool source_sign = _float128_is_neg(fpu->source);
+    
+    /* If source is zero, result is source */
+    if (source_zero) {
+        fpu->result = fpu->source;
+        return;
+    }
+    /* If source is inf, result is +-pi/2 */
+    else if (source_inf) {
+        fpu->result = _assemble_float128(source_sign, 0x3fff, 0x921fb54442d1, 0x8469898cc51701b8);
+        return ;
+    }
+    
+    fpu->result = _hack_atan(fpu->source);
+    /* Set inex2?? */
+    /* Set unfl?? */
 }
 
 static void inst_fmath_fatanh ()
@@ -1272,7 +1342,23 @@ static void inst_fmath_fcos ()
 {
     fpu_get_state_ptr();
     
-    assert(!"fmath: fcos not implemented");
+    const _Bool source_zero = _float128_is_zero(fpu->source);
+    const _Bool source_inf = _float128_is_infinity(fpu->source);
+    
+    /* If source is zero, result is +1.0 */
+    if (source_zero) {
+        fpu->result = _one128;
+        return;
+    }
+    /* If source is inf, result is nan, and set operr */
+    else if (source_inf) {
+        fpu->result = _nan128;
+        es_operr = 1;
+        return ;
+    }
+    
+    fpu->result = _hack_cos(fpu->source);
+    /* Set inex2?? */
 }
 
 static void inst_fmath_fcosh ()
@@ -1463,11 +1549,6 @@ static void inst_fmath_fneg ()
      *        denormalized number, I think.
      */
 }
-
-const float128 _nan128 = {
-    .high = 0xFFFF800000000000ULL,
-    .low = 0
-};
 
 static void inst_fmath_frem ()
 {
@@ -1677,7 +1758,23 @@ static void inst_fmath_fsin ()
 {
     fpu_get_state_ptr();
     
-    assert(!"fmath: fsin not implemented");
+    const _Bool source_zero = _float128_is_zero(fpu->source);
+    const _Bool source_inf = _float128_is_infinity(fpu->source);
+    
+    /* If source is zero, result is source */
+    if (source_zero) {
+        fpu->result = fpu->source;
+        return;
+    }
+    /* If source is inf, result is nan, and set operr */
+    else if (source_inf) {
+        fpu->result = _nan128;
+        es_operr = 1;
+        return ;
+    }
+    
+    fpu->result = _hack_sin(fpu->source);
+    /* Set inex2?? */
 }
 
 static void inst_fmath_fsincos ()
@@ -1743,7 +1840,23 @@ static void inst_fmath_ftan ()
 {
     fpu_get_state_ptr();
     
-    assert(!"fmath: ftan not implemented");
+    const _Bool source_zero = _float128_is_zero(fpu->source);
+    const _Bool source_inf = _float128_is_infinity(fpu->source);
+    
+    /* If source is zero, result is source */
+    if (source_zero) {
+        fpu->result = fpu->source;
+        return;
+    }
+    /* If source is inf, result is nan, and set operr */
+    else if (source_inf) {
+        fpu->result = _nan128;
+        es_operr = 1;
+        return ;
+    }
+    
+    fpu->result = _hack_tan(fpu->source);
+    /* Set inex2?? */
 }
 
 static void inst_fmath_ftanh ()
