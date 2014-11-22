@@ -132,6 +132,7 @@ typedef struct {
     // State for the static fmath instruction implementations
     float128 source, dest, result;
     _Bool write_back;
+    uint16_t extension_word; // only set in inst_fmath(), only used by fsincos
     uint8_t fmath_op;
 } fpu_state_t;
 
@@ -1522,7 +1523,29 @@ static void inst_fmath_fgetman ()
 {
     fpu_get_state_ptr();
     
-    assert(!"fmath: fgetman not implemented");
+    const _Bool source_zero = _float128_is_zero(fpu->source);
+    const _Bool source_inf = _float128_is_infinity(fpu->source);
+    
+    /* If source is inf, set operr, result is nan */
+    if (source_inf) {
+        fpu->result = _nan128;
+        es_operr = 1;
+        return;
+    }
+    /* If source is zero, result is source */
+    else if (source_zero) {
+        fpu->result = fpu->source;
+        return;
+    }
+    
+    /*
+     * fgetman "returns" the value of the source's mantissa,
+     * which I think just means it resets the exponent to 0x3fff (biased 0)
+     * FIXME: test this
+     */
+    fpu->result = fpu->source;
+    fpu->result.high &= 0x8000ffffffffffffULL;
+    fpu->result.high |= 0x3fff000000000000ULL;
 }
 
 static void inst_fmath_fint ()
@@ -1847,7 +1870,62 @@ static void inst_fmath_fscale ()
 {
     fpu_get_state_ptr();
     
-    assert(!"fmath: fscale not implemented");
+    const _Bool source_zero = _float128_is_zero(fpu->source);
+    const _Bool source_inf = _float128_is_infinity(fpu->source);
+    const _Bool source_sign = _float128_is_neg(fpu->source);
+    const _Bool dest_zero = _float128_is_zero(fpu->dest);
+    const _Bool dest_inf = _float128_is_infinity(fpu->dest);
+    
+    int32_t factor, exponent;
+    
+    /* If the source is inf, the result is nan and set operr */
+    if (source_inf) {
+        fpu->result = _nan128;
+        es_operr = 1;
+        return ;
+    }
+    /* Else, if dest is inf or zero, the result is dest */
+    else if (dest_inf || dest_zero) {
+        fpu->result = fpu->dest;
+        return ;
+    }
+    
+    /* 
+     * If the source has a huge magnitude, it's definitely
+     * going to over/underflow
+     */
+    if (float128_le(int32_to_float128(65536), fpu->source))
+        goto overflow;
+    else if (float128_le(fpu->source, int32_to_float128(-65536)))
+        goto underflow;
+
+    /* Find the scaling factor. This shoudn't raise any exceptions */
+    factor = float128_to_int32_round_to_zero(fpu->source);
+    
+    assert(float_exception_flags == 0);
+    
+    exponent = factor + (int32_t)((fpu->dest.high >> 48) & 0x7fff);
+    
+    if (exponent <= 0) /* not precisely correct, I think - should be '< 0' */
+        goto underflow;
+    else if (exponent >= 0x7fff)
+        goto overflow;
+    
+    fpu->result = fpu->dest;
+    fpu->result.high &= 0x8000ffffffffffffULL;
+    fpu->result.high |= (((uint64_t)exponent) << 48);
+    return ;
+    
+overflow:
+    /* result is +-inf, set overflow */
+    fpu->result = _assemble_float128(source_sign, 0x7fff, 0, 0);
+    es_ovfl = 1;
+    return ;
+underflow:
+    /* result is +-zero, set underflow */
+    fpu->result = _assemble_float128(source_sign, 0, 0, 0);
+    es_unfl = 1;
+    return ;
 }
 
 static void inst_fmath_fsgldiv ()
@@ -1954,7 +2032,38 @@ static void inst_fmath_fsincos ()
 {
     fpu_get_state_ptr();
     
-    assert(!"fmath: fsincos not implemented");
+    const _Bool source_zero = _float128_is_zero(fpu->source);
+    const _Bool source_inf = _float128_is_infinity(fpu->source);
+    const uint16_t cos_reg = fpu->extension_word & 0x7;
+    float128 cos_result;
+    
+    /* 
+     * This is incredibly inefficient, but it's fine for now
+     * floatx80 -> float128 -> float64 -> native -> sin -> float128 -> floatx80
+     * floatx80 -> float128 -> float64 -> native -> cos -> float128 -> floatx80
+     */
+    
+    /* If source is inf, result is nan, and set operr */
+    if (source_inf) {
+        fpu->result = _nan128;
+        cos_result = _nan128;
+        es_operr = 1;
+        goto write_cos;
+    }
+    /* If the source is zero, cos is +1.0, sin is +-0.0 */
+    else if (source_zero) {
+        fpu->result = fpu->source;
+        cos_result = _one128;
+        goto write_cos;
+    }
+    
+    fpu->result = _hack_sin(fpu->source);
+    cos_result = _hack_cos(fpu->source);
+    
+write_cos:
+    
+    /* FIXME: 68kprm doesn't clarify how the cosine result is rounded */
+    fpu->fp[cos_reg] = float128_to_floatx80(cos_result);
 }
 
 static void inst_fmath_fsinh ()
@@ -2411,9 +2520,6 @@ static void inst_fmath (const uint16_t ext)
      */
     _set_rounding_mode(mode_nearest);
     
-    /* Reset softfloat's exception flags */
-    float_exception_flags = 0;
-    
     /* Reset fpsr's exception flags */
     es_inex1 = 0; // this is only set for imprecisely-rounded packed inputs (not implemented)
     es_inex2 = 0; // set if we ever lose precision (during the op or during rounding)
@@ -2459,6 +2565,9 @@ static void inst_fmath (const uint16_t ext)
         printf("%Lf,fp%u\n", tmp, dest_register);
     }
     
+    /* fsincos needs this to know which register to write cos */
+    fpu->extension_word = ext;
+    
     /*
      * If the source is NaN, or this is a dyadic (two-operand)
      * instruction, and the second operand (fpu->dest) is NaN,
@@ -2470,6 +2579,9 @@ static void inst_fmath (const uint16_t ext)
         _fmath_handle_nans();
         goto computation_done;
     }
+    
+    /* Reset softfloat's exception flags */
+    float_exception_flags = 0;
     
     /* 
      * Otherwise, call the extension-specific helper function.

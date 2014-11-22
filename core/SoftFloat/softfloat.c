@@ -3321,7 +3321,11 @@ float128 floatx80_to_float128( floatx80 a )
     if ( ( aExp == 0x7FFF ) && (bits64) ( aSig<<1 ) ) {
         return commonNaNToFloat128( floatx80ToCommonNaN( a ) );
     }
-    shift128Right( aSig<<1, 0, 16, &zSig0, &zSig1 );
+
+    if (aExp == 0)
+        shift128Right( aSig, 0, 16, &zSig0, &zSig1 );
+    else
+        shift128Right( aSig<<1, 0, 16, &zSig0, &zSig1 );
     return packFloat128( aSign, aExp, zSig0, zSig1 );
 
 }
