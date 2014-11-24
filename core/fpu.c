@@ -807,6 +807,15 @@ float128 _from_native(double n)
 #define _native_log2(a) (log(a) / log(2.0)) /* or log2() */
 #define _native_log(a) log(a)
 #define _native_log1p(a) log((a) + 1.0) /* or log1p() */
+double  _native_tentox(a) {
+    /*
+     * This is a dumb workaround for a clang bug on OS X 10.10
+     * Clang wants to optimize pow(10.0, a) to __exp(a), but
+     * __exp doesn't exist in the 10.8 SDK. So I'm using powl()
+     * instead, which doesn't have an equivalent optimized function.
+     */
+    return (double)powl(10.0, (long double)a);
+}
 
 const double _native_e = 2.71828182845904509;
 const double _native_10 = 10.0;
@@ -884,7 +893,7 @@ static float128 _hack_lognp1 (float128 x) {
 }
 
 static float128 _hack_tentox (float128 x) {
-    return _from_native(_native_pow(_native_10, _to_native(x)));
+    return _from_native(_native_tentox(_to_native(x)));
 }
 
 static float128 _hack_twotox (float128 x) {
@@ -1923,15 +1932,36 @@ static void inst_fmath_fscale ()
         fpu->result.low >>= 1;
         fpu->result.low |= (fpu->result.high << 63);
         m_high = (fpu->result.high & 0x0000ffffffffffffULL) >> 1;
-        fpu->result.high >>= 63;
-        fpu->result.high <<= 63;
+        fpu->result.high &= 0x8000000000000000ULL;
         fpu->result.high |= m_high;
-        return;
     }
-    
-    fpu->result = fpu->dest;
-    fpu->result.high &= 0x8000ffffffffffffULL;
-    fpu->result.high |= (((uint64_t)exponent) << 48);
+    else if ((orig_exponent == 0) && (exponent > 0)) {
+        uint32_t i;
+        /*
+         * Edge case 2: if the original value was subnormal, and we're
+         * adding to the exponent, then the result may normal or subnormal,
+         * and we need to adjust the implicit bit accordingly.
+         */
+        
+        fpu->result = fpu->dest;
+        float128 _two128 = int32_to_float128(2);
+        for (i=0; i < exponent; i++)
+            fpu->result = float128_mul(fpu->result, _two128);
+        /* 
+         * FIXME: this is a really bad implementation, but I doubt anyone
+         * will ever hit this condition. It's also probably not exactly
+         * correct. The motorola docs say that 68881 will never return an
+         * unnormal number as the result of an operation, but if you add
+         * an arbitrary value to the exponent of a subnormal number, you
+         * can get an unnormal number. Does the 68881 specially handle this?
+         */
+    }
+    else {
+        /* Common case */
+        fpu->result = fpu->dest;
+        fpu->result.high &= 0x8000ffffffffffffULL;
+        fpu->result.high |= (((uint64_t)exponent) << 48);
+    }
     return ;
     
 overflow:
@@ -2197,29 +2227,27 @@ static void inst_fmath_ftentox ()
     // _hack_ftentox() is broken on clang 3.5 on osx 10.10
     // (tries to optimize pow(10.0, x) to __exp10(x), and __exp10
     //  isn't implemented in the 10.8 SDK)
-//    const _Bool source_zero = _float128_is_zero(fpu->source);
-//    const _Bool source_inf = _float128_is_infinity(fpu->source);
-//    const _Bool source_sign = _float128_is_neg(fpu->source);
-//    
-//    /* If source is zero, result is +1.0 */
-//    if (source_zero) {
-//        fpu->result = _one128;
-//        return ;
-//    }
-//    /* if source is -inf, result is +0.0 */
-//    else if (source_inf && source_sign) {
-//        fpu->result = _zero128;
-//        return ;
-//    }
-//    /* if source is +inf, result is +inf */
-//    else if (source_inf) {
-//        fpu->result = fpu->source;
-//        return ;
-//    }
-//    
-//    fpu->result = _hack_tentox(fpu->source);
-//    
-    assert(!"fmath: ftentox not implemented");
+    const _Bool source_zero = _float128_is_zero(fpu->source);
+    const _Bool source_inf = _float128_is_infinity(fpu->source);
+    const _Bool source_sign = _float128_is_neg(fpu->source);
+    
+    /* If source is zero, result is +1.0 */
+    if (source_zero) {
+        fpu->result = _one128;
+        return ;
+    }
+    /* if source is -inf, result is +0.0 */
+    else if (source_inf && source_sign) {
+        fpu->result = _zero128;
+        return ;
+    }
+    /* if source is +inf, result is +inf */
+    else if (source_inf) {
+        fpu->result = fpu->source;
+        return ;
+    }
+    
+    fpu->result = _hack_tentox(fpu->source);
 }
 
 static void inst_fmath_ftst ()

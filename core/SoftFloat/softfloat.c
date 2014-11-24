@@ -3162,6 +3162,9 @@ int32 floatx80_to_int32( floatx80 a )
     aExp = extractFloatx80Exp( a );
     aSign = extractFloatx80Sign( a );
     if ( ( aExp == 0x7FFF ) && (bits64) ( aSig<<1 ) ) aSign = 0;
+    // [shoebill] there is no way 0x4037 is the right constant to use here.
+    // 1.0 has exp=0x3fff, 0x4037 - 0x3fff == 56.
+    // (aSig >> 56) shifts out the mantissa bits, plus 8 more.
     shiftCount = 0x4037 - aExp;
     if ( shiftCount <= 0 ) shiftCount = 1;
     shift64RightJamming( aSig, shiftCount, &aSig );
@@ -3392,11 +3395,11 @@ float128 floatx80_to_float128( floatx80 a )
     // either 0 or 1.
     //
     // shift128Right( aSig<<1, 0, 16, &zSig0, &zSig1 );
-    
     if (aExp == 0)
         shift128Right( aSig, 0, 16, &zSig0, &zSig1 );
     else
         shift128Right( aSig<<1, 0, 16, &zSig0, &zSig1 );
+    
     return packFloat128( aSign, aExp, zSig0, zSig1 );
 
 }
@@ -3501,7 +3504,7 @@ static floatx80 addFloatx80Sigs( floatx80 a, floatx80 b, flag zSign )
             return a;
         }
         // [shoebill]
-        // vestigial implicit-bit stuff
+        // vestigial implicit-bit code
         // if ( bExp == 0 ) --expDiff;
         
         shift64ExtraRightJamming( bSig, 0, expDiff, &bSig, &zSig1 );
@@ -3513,7 +3516,7 @@ static floatx80 addFloatx80Sigs( floatx80 a, floatx80 b, flag zSign )
             return packFloatx80( zSign, 0x7FFF, LIT64( 0x8000000000000000 ) );
         }
         // [shoebill]
-        // vestigial implicit-bit stuff
+        // vestigial implicit-bit code
         // if ( aExp == 0 ) ++expDiff;
         
         shift64ExtraRightJamming( aSig, 0, - expDiff, &aSig, &zSig1 );
@@ -3595,7 +3598,8 @@ static floatx80 subFloatx80Sigs( floatx80 a, floatx80 b, flag zSign )
     }
     // [shoebill]
     // All these places where we check if exp==0 and then add one to it
-    // are vestigial implicit-bit stuff
+    // are vestigial implicit-bit-handling code from the float32, 64, and
+    // 128 implementations. When floatx80 has exp=0, it really means 0.
     //
     //if ( aExp == 0 ) {
     //    aExp = 1;
@@ -3612,7 +3616,7 @@ static floatx80 subFloatx80Sigs( floatx80 a, floatx80 b, flag zSign )
         return packFloatx80( zSign ^ 1, 0x7FFF, LIT64( 0x8000000000000000 ) );
     }
     // [shoebill]
-    // vestigial implicit-bit stuff
+    // vestigial implicit-bit code
     //if ( aExp == 0 ) ++expDiff;
     
     shift128RightJamming( aSig, 0, - expDiff, &aSig, &zSig1 );
@@ -3627,7 +3631,7 @@ static floatx80 subFloatx80Sigs( floatx80 a, floatx80 b, flag zSign )
         return a;
     }
     // [shoebill]
-    // vestigial implicit-bit stuff
+    // vestigial implicit-bit code
     //if ( bExp == 0 ) --expDiff;
     shift128RightJamming( bSig, 0, expDiff, &bSig, &zSig1 );
  aBigger:
