@@ -1,3 +1,10 @@
+/*
+ * SoftFloat with lots of fixes and modified for use by Shoebill.
+ *
+ * Based on SoftFloat 2b by John R. Hauser.
+ * Modifications by Peter Rutenbar. (pruten@gmail.com)
+ */
+
 
 /*============================================================================
 
@@ -29,6 +36,9 @@ the work is derivative, and (2) the source code includes prominent notice with
 these four paragraphs for those parts of this code that are retained.
 
 =============================================================================*/
+
+// [shoebill]
+// Inlining milieu.h
 
 /*----------------------------------------------------------------------------
  | Include common integer types and flags.
@@ -307,6 +317,10 @@ static float32 roundAndPackFloat32( flag zSign, int16 zExp, bits32 zSig )
             shift32RightJamming( zSig, - zExp, &zSig );
             zExp = 0;
             roundBits = zSig & 0x7F;
+            // [shoebill]
+            // I think there's a bug here too: if zSig==0x80000080 and zExp==-2,
+            // then that low bit will get lost. And since roundBits is 0,
+            // we won't raise underflow or inexact.
             if ( isTiny && roundBits ) float_raise( float_flag_underflow );
         }
     }
@@ -376,7 +390,13 @@ INLINE flag extractFloat64Sign( float64 a )
 | significand are stored at the locations pointed to by `zExpPtr' and
 | `zSigPtr', respectively.
 *----------------------------------------------------------------------------*/
-
+// [shoebill]
+// This function left shifts the mantissa until it has an implicit 1 bit
+// just to the left of the mantissa (actually, it produces a value with an explicit bit
+// in that position, but the callers are aware of that.)
+// The exponent it returns is the "true" exponent - as if 0x0000 weren't a special case.
+// It behaves as though exp=0 was an order of magnitude below exp=1, (which is isn't for implicit bit formats),
+// and it returns negative numbers if it needs an even lower magnitude than that.
 static void
  normalizeFloat64Subnormal( bits64 aSig, int16 *zExpPtr, bits64 *zSigPtr )
 {
@@ -387,6 +407,7 @@ static void
     *zExpPtr = 1 - shiftCount;
 
 }
+
 
 /*----------------------------------------------------------------------------
 | Packs the sign `zSign', exponent `zExp', and significand `zSig' into a
@@ -469,6 +490,10 @@ static float64 roundAndPackFloat64( flag zSign, int16 zExp, bits64 zSig )
             shift64RightJamming( zSig, - zExp, &zSig );
             zExp = 0;
             roundBits = zSig & 0x3FF;
+            // [shoebill]
+            // I think there's a bug here: if zSig==0x8000000000000400 and zExp==-2,
+            // then that low bit will get lost. And since roundBits is 0,
+            // we won't raise underflow or inexact.
             if ( isTiny && roundBits ) float_raise( float_flag_underflow );
         }
     }
@@ -551,8 +576,12 @@ static void
 
     shiftCount = countLeadingZeros64( aSig );
     *zSigPtr = aSig<<shiftCount;
-    *zExpPtr = 1 - shiftCount;
-
+    // [shoebill]
+    // normalizeFloat*Subnormal returns the true normalized exponent.
+    // but for floatx80, with no implicit bit to account for,
+    // shiftCount *is* the true exponent. No need to add one
+    // *zExpPtr = 1 - shiftCount;
+    *zExpPtr = 0 - shiftCount;
 }
 
 /*----------------------------------------------------------------------------
@@ -603,6 +632,10 @@ static floatx80
     flag roundNearestEven, increment, isTiny;
     int64 roundIncrement, roundMask, roundBits;
 
+    // [shoebill]
+    // printf("roundAndPackFloatx80: prec=%d sign=%d exp=%u sig0=0x%016llx sig1=0x%016llx\n",
+           // roundingPrecision, zSign, zExp, zSig0, zSig1);
+    
     roundingMode = float_rounding_mode;
     roundNearestEven = ( roundingMode == float_round_nearest_even );
     if ( roundingPrecision == 80 ) goto precision80;
@@ -644,7 +677,13 @@ static floatx80
                    ( float_detect_tininess == float_tininess_before_rounding )
                 || ( zExp < 0 )
                 || ( zSig0 <= zSig0 + roundIncrement );
-            shift64RightJamming( zSig0, 1 - zExp, &zSig0 );
+            // [shoebill]
+            // Why are we jamming right by one extra bit? If zExp==0, then that's
+            // the "true" exponent
+            //
+            // shift64RightJamming( zSig0, 1 - zExp, &zSig0 );
+            shift64RightJamming( zSig0, -zExp, &zSig0 );
+            
             zExp = 0;
             roundBits = zSig0 & roundMask;
             if ( isTiny && roundBits ) float_raise( float_flag_underflow );
@@ -711,7 +750,13 @@ static floatx80
                 || ( zExp < 0 )
                 || ! increment
                 || ( zSig0 < LIT64( 0xFFFFFFFFFFFFFFFF ) );
-            shift64ExtraRightJamming( zSig0, zSig1, 1 - zExp, &zSig0, &zSig1 );
+            // [shoebill]
+            // Why are we jamming right by one extra bit? If zExp==0, then that's
+            // the "true" exponent
+            //
+            // shift64ExtraRightJamming( zSig0, zSig1, 1 - zExp, &zSig0, &zSig1 );
+            shift64ExtraRightJamming( zSig0, zSig1, -zExp, &zSig0, &zSig1 );
+            
             zExp = 0;
             if ( isTiny && zSig1 ) float_raise( float_flag_underflow );
             if ( zSig1 ) float_exception_flags |= float_flag_inexact;
@@ -874,6 +919,8 @@ static void
 
 }
 
+
+
 /*----------------------------------------------------------------------------
 | Packs the sign `zSign', the exponent `zExp', and the significand formed
 | by the concatenation of `zSig0' and `zSig1' into a quadruple-precision
@@ -983,6 +1030,10 @@ static float128
             shift128ExtraRightJamming(
                 zSig0, zSig1, zSig2, - zExp, &zSig0, &zSig1, &zSig2 );
             zExp = 0;
+            // [shoebill]
+            // I think there's a bug here too, like in roundAndPackFloat32/64,
+            // (but it's more complicated since zSig2 has bits jammed into it,
+            //  whereas the other functions use the constant roundBits value.)
             if ( isTiny && zSig2 ) float_raise( float_flag_underflow );
             if ( roundNearestEven ) {
                 increment = ( (sbits64) zSig2 < 0 );
@@ -2546,6 +2597,9 @@ static float64 addFloat64Sigs( float64 a, float64 b, flag zSign )
             if ( aSig | bSig ) return propagateFloat64NaN( a, b );
             return a;
         }
+        // [shoebill]
+        // This works only by accident. if a and b were subnormal, but (a+b) is normal,
+        // (aSig+bSig) will leak a bit into the exponent, which will correctly set it to 1
         if ( aExp == 0 ) return packFloat64( zSign, 0, ( aSig + bSig )>>9 );
         zSig = LIT64( 0x4000000000000000 ) + aSig + bSig;
         zExp = aExp;
@@ -3321,7 +3375,24 @@ float128 floatx80_to_float128( floatx80 a )
     if ( ( aExp == 0x7FFF ) && (bits64) ( aSig<<1 ) ) {
         return commonNaNToFloat128( floatx80ToCommonNaN( a ) );
     }
+    
+    // [shoebill]
+    // If the x80 has a non-zero exponent and its explicit bit is 0,
+    // then Motorola's 68881 docs call it "unnormal". packFloat128 can't
+    // handle that, so we need to de-unnormalize it to get a regular
+    // normal or subnormal number.
+    while ((aExp > 0) && ((aSig >> 63)==0)) {
+        aExp--;
+        aSig <<= 1;
+    }
 
+    // [shoebill]
+    // Don't chew off the x80's explicit bit without checking
+    // the exponent. If it's 0, then the explicit bit may be
+    // either 0 or 1.
+    //
+    // shift128Right( aSig<<1, 0, 16, &zSig0, &zSig1 );
+    
     if (aExp == 0)
         shift128Right( aSig, 0, 16, &zSig0, &zSig1 );
     else
@@ -3424,21 +3495,27 @@ static floatx80 addFloatx80Sigs( floatx80 a, floatx80 b, flag zSign )
     bSig = extractFloatx80Frac( b );
     bExp = extractFloatx80Exp( b );
     expDiff = aExp - bExp;
-    if ( 0 < expDiff ) {
+    if ( 0 < expDiff ) { // [shoebill] aExp is bigger than bExp
         if ( aExp == 0x7FFF ) {
             if ( (bits64) ( aSig<<1 ) ) return propagateFloatx80NaN( a, b );
             return a;
         }
-        if ( bExp == 0 ) --expDiff;
+        // [shoebill]
+        // vestigial implicit-bit stuff
+        // if ( bExp == 0 ) --expDiff;
+        
         shift64ExtraRightJamming( bSig, 0, expDiff, &bSig, &zSig1 );
         zExp = aExp;
     }
-    else if ( expDiff < 0 ) {
+    else if ( expDiff < 0 ) { // [shoebill] aExp is smaller than bExp
         if ( bExp == 0x7FFF ) {
             if ( (bits64) ( bSig<<1 ) ) return propagateFloatx80NaN( a, b );
             return packFloatx80( zSign, 0x7FFF, LIT64( 0x8000000000000000 ) );
         }
-        if ( aExp == 0 ) ++expDiff;
+        // [shoebill]
+        // vestigial implicit-bit stuff
+        // if ( aExp == 0 ) ++expDiff;
+        
         shift64ExtraRightJamming( aSig, 0, - expDiff, &aSig, &zSig1 );
         zExp = bExp;
     }
@@ -3452,7 +3529,21 @@ static floatx80 addFloatx80Sigs( floatx80 a, floatx80 b, flag zSign )
         zSig1 = 0;
         zSig0 = aSig + bSig;
         if ( aExp == 0 ) {
-            normalizeFloatx80Subnormal( zSig0, &zExp, &zSig0 );
+            // [shoebill]
+            // Adding subnormal numbers can possibly overflow, so we need to
+            // detect and handle that.
+            if ((( aSig >> 63 ) &&  ( bSig >> 63 )) ||
+                (( aSig >> 63 ) && !( zSig0 >> 63 )) ||
+                (( bSig >> 63 ) && !( zSig0 >> 63 ))) {
+                zSig1 = zSig0 << 63;
+                zSig0 >>= 1;
+                zSig0 |= LIT64( 0x8000000000000000 );
+                zExp = 1;
+            }
+            else {
+                normalizeFloatx80Subnormal( zSig0, &zExp, &zSig0 );
+            }
+            
             goto roundAndPack;
         }
         zExp = aExp;
@@ -3502,10 +3593,15 @@ static floatx80 subFloatx80Sigs( floatx80 a, floatx80 b, flag zSign )
         z.high = floatx80_default_nan_high;
         return z;
     }
-    if ( aExp == 0 ) {
-        aExp = 1;
-        bExp = 1;
-    }
+    // [shoebill]
+    // All these places where we check if exp==0 and then add one to it
+    // are vestigial implicit-bit stuff
+    //
+    //if ( aExp == 0 ) {
+    //    aExp = 1;
+    //    bExp = 1;
+    //}
+    
     zSig1 = 0;
     if ( bSig < aSig ) goto aBigger;
     if ( aSig < bSig ) goto bBigger;
@@ -3515,7 +3611,10 @@ static floatx80 subFloatx80Sigs( floatx80 a, floatx80 b, flag zSign )
         if ( (bits64) ( bSig<<1 ) ) return propagateFloatx80NaN( a, b );
         return packFloatx80( zSign ^ 1, 0x7FFF, LIT64( 0x8000000000000000 ) );
     }
-    if ( aExp == 0 ) ++expDiff;
+    // [shoebill]
+    // vestigial implicit-bit stuff
+    //if ( aExp == 0 ) ++expDiff;
+    
     shift128RightJamming( aSig, 0, - expDiff, &aSig, &zSig1 );
  bBigger:
     sub128( bSig, 0, aSig, zSig1, &zSig0, &zSig1 );
@@ -3527,7 +3626,9 @@ static floatx80 subFloatx80Sigs( floatx80 a, floatx80 b, flag zSign )
         if ( (bits64) ( aSig<<1 ) ) return propagateFloatx80NaN( a, b );
         return a;
     }
-    if ( bExp == 0 ) --expDiff;
+    // [shoebill]
+    // vestigial implicit-bit stuff
+    //if ( bExp == 0 ) --expDiff;
     shift128RightJamming( bSig, 0, expDiff, &bSig, &zSig1 );
  aBigger:
     sub128( aSig, 0, bSig, zSig1, &zSig0, &zSig1 );
@@ -3628,6 +3729,7 @@ floatx80 floatx80_mul( floatx80 a, floatx80 b )
         if ( bSig == 0 ) return packFloatx80( zSign, 0, 0 );
         normalizeFloatx80Subnormal( bSig, &bExp, &bSig );
     }
+    
     zExp = aExp + bExp - 0x3FFE;
     mul64To128( aSig, bSig, &zSig0, &zSig1 );
     if ( 0 < (sbits64) zSig0 ) {
@@ -4350,10 +4452,10 @@ floatx80 float128_to_floatx80( float128 a )
     int32 aExp;
     bits64 aSig0, aSig1;
 
-    aSig1 = extractFloat128Frac1( a );
-    aSig0 = extractFloat128Frac0( a );
-    aExp = extractFloat128Exp( a );
-    aSign = extractFloat128Sign( a );
+    aSig1 = extractFloat128Frac1( a ); // [shoebill] low
+    aSig0 = extractFloat128Frac0( a ); // [shoebill] high & 0x0000ffffff...
+    aExp = extractFloat128Exp( a ); // [shoebill] (high >> 48) & 0x7fff
+    aSign = extractFloat128Sign( a ); // [shoebill] 1 or 0
     if ( aExp == 0x7FFF ) {
         if ( aSig0 | aSig1 ) {
             return commonNaNToFloatx80( float128ToCommonNaN( a ) );
@@ -4363,13 +4465,23 @@ floatx80 float128_to_floatx80( float128 a )
     if ( aExp == 0 ) {
         if ( ( aSig0 | aSig1 ) == 0 ) return packFloatx80( aSign, 0, 0 );
         normalizeFloat128Subnormal( aSig0, aSig1, &aExp, &aSig0, &aSig1 );
+        // [shoebill]
+        // normalizeFloat128Subnormal (exp=0x0000, mant=0x0000 c000...) -> (aExp=0, mant=0x0001 8000...)
+        // normalizeFloat128Subnormal (exp=0x0000, mant=0x0000 4000...) -> (aExp=-1, mant=0x0001 0000...)
+        // if the original exponent was 0x0000, then the implicit bit is 0.
+        // So when making a x80-friendly mantissa, make sure the explicit bit is 0
+        shortShift128Left( aSig0, aSig1, 14, &aSig0, &aSig1 );
     }
     else {
         aSig0 |= LIT64( 0x0001000000000000 );
+        // [shoebill]
+        shortShift128Left( aSig0, aSig1, 15, &aSig0, &aSig1 );
     }
-    shortShift128Left( aSig0, aSig1, 15, &aSig0, &aSig1 );
-    return roundAndPackFloatx80( 80, aSign, aExp, aSig0, aSig1 );
 
+    // [shoebill]
+    // shortShift128Left( aSig0, aSig1, 15, &aSig0, &aSig1 );
+    
+    return roundAndPackFloatx80( 80, aSign, aExp, aSig0, aSig1 );
 }
 
 #endif

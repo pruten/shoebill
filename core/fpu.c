@@ -1876,7 +1876,7 @@ static void inst_fmath_fscale ()
     const _Bool dest_zero = _float128_is_zero(fpu->dest);
     const _Bool dest_inf = _float128_is_infinity(fpu->dest);
     
-    int32_t factor, exponent;
+    int32_t factor, orig_exponent, exponent;
     
     /* If the source is inf, the result is nan and set operr */
     if (source_inf) {
@@ -1904,12 +1904,30 @@ static void inst_fmath_fscale ()
     
     assert(float_exception_flags == 0);
     
-    exponent = factor + (int32_t)((fpu->dest.high >> 48) & 0x7fff);
+    orig_exponent = (int32_t)((fpu->dest.high >> 48) & 0x7fff);
+    exponent = factor + orig_exponent;
     
-    if (exponent <= 0) /* not precisely correct, I think - should be '< 0' */
+    if (exponent < 0)
         goto underflow;
     else if (exponent >= 0x7fff)
         goto overflow;
+    else if ((exponent == 0) && (orig_exponent > 0)) {
+        uint64_t m_high;
+        /* 
+         * Edge case: if the 80-bit input was {exp=1, mantissa=1},
+         * the 128-bit version will be {exp=1, mantissa=0}.
+         * If we're subtracting 1, the result will be {exp=0, mantissa=0}
+         * which is not correct. We need to account for the implicit bit.
+         */
+        fpu->result = fpu->dest;
+        fpu->result.low >>= 1;
+        fpu->result.low |= (fpu->result.high << 63);
+        m_high = (fpu->result.high & 0x0000ffffffffffffULL) >> 1;
+        fpu->result.high >>= 63;
+        fpu->result.high <<= 63;
+        fpu->result.high |= m_high;
+        return;
+    }
     
     fpu->result = fpu->dest;
     fpu->result.high &= 0x8000ffffffffffffULL;

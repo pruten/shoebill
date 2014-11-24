@@ -1,3 +1,9 @@
+/*
+ * SoftFloat with lots of fixes and modified for use by Shoebill.
+ *
+ * Based on SoftFloat 2b by John R. Hauser.
+ * Modifications by Peter Rutenbar. (pruten@gmail.com)
+ */
 
 /*============================================================================
 
@@ -152,7 +158,9 @@ INLINE void
         z0 = a0>>count;
     }
     else {
-        z1 = ( count < 64 ) ? ( a0>>( count & 63 ) ) : 0;
+        // [shoebill] This is a bug, right? ( count < 64 ) can never be true
+        // z1 = ( count < 64 ) ? ( a0>>( count & 63 ) ) : 0;
+        z1 = ( count < 128 ) ? ( a0>>( count & 63 ) ) : 0;
         z0 = 0;
     }
     *z1Ptr = z1;
