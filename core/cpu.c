@@ -1398,7 +1398,7 @@ static void inst_cas (void) {
     ~decompose(ext, 0000 000 uuu 000 ccc);
     
     const uint8_t sz = (1 << s) >> 1; // (01 -> byte, 10 -> word, 11 -> long)
-
+    
     call_ea_read(M, sz);
     
     /* The dest/source/result operands are reversed here from inst_cmp */
@@ -2747,26 +2747,30 @@ static void inst_bchg_immediate (void) {
     
 static void inst_ext (void) {
     ~decompose(shoe.op, 0100 100 ooo 000 rrr);
+    
     switch (o) {
         case ~b(010): { // byte -> word
             uint16_t val = (int8_t)get_d(r, 1);
             set_d(r, val, 2);
+            set_sr_z(get_d(r, 2));
+            set_sr_n(mib(shoe.d[r], 2));
             break;
         } case ~b(011): { // word -> long
             uint32_t val = (int16_t)get_d(r, 2);
             set_d(r, val, 4);
+            set_sr_z(get_d(r, 4));
+            set_sr_n(mib(shoe.d[r], 4));
             break;
         } case ~b(111): { // byte -> long
             uint32_t val = (int8_t)get_d(r, 1);
             set_d(r, val, 4);
+            set_sr_z(get_d(r, 4));
+            set_sr_n(mib(shoe.d[r], 4));
             break;
         }
     }
     set_sr_v(0);
     set_sr_c(0);
-    // if the LSb of o is 1, then result size == long
-    set_sr_z(get_d(r, 2+2*(o&1))==0);
-    set_sr_n(mib(shoe.d[r], 2+2*(o&1))); 
 }
     
 static void inst_andi_to_sr (void) {

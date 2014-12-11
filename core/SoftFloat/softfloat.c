@@ -3142,6 +3142,32 @@ flag float64_lt_quiet( float64 a, float64 b )
 
 #ifdef FLOATX80
 
+// [shoebill]
+// 68881 supports "unnormalized" 80 bit floats - floats where the exponent
+// is >0 and the explicit bit is 0. We can easily convert this to a regular
+// normal or subnormal number.
+INLINE floatx80 floatx80_de_unnormalize( floatx80 a )
+{
+    flag aSign;
+    int16 aExp;
+    bits64 aSig;
+    
+    aSig = extractFloatx80Frac( a );
+    aExp = extractFloatx80Exp( a );
+    aSign = extractFloatx80Sign( a );
+    
+    // NaN/inf don't count
+    if (aExp == 0x7FFF)
+        return a;
+    
+    while ((aExp > 0) && ((aSig >> 63)==0)) {
+        aExp--;
+        aSig <<= 1;
+    }
+    
+    return packFloatx80(aSign, aExp, aSig);
+}
+
 /*----------------------------------------------------------------------------
 | Returns the result of converting the extended double-precision floating-
 | point value `a' to the 32-bit two's complement integer format.  The
@@ -3158,6 +3184,9 @@ int32 floatx80_to_int32( floatx80 a )
     int32 aExp, shiftCount;
     bits64 aSig;
 
+    // [shoebill]
+    a = floatx80_de_unnormalize(a);
+    
     aSig = extractFloatx80Frac( a );
     aExp = extractFloatx80Exp( a );
     aSign = extractFloatx80Sign( a );
@@ -3188,6 +3217,9 @@ int32 floatx80_to_int32_round_to_zero( floatx80 a )
     int32 aExp, shiftCount;
     bits64 aSig, savedASig;
     int32 z;
+    
+    // [shoebill]
+    a = floatx80_de_unnormalize(a);
 
     aSig = extractFloatx80Frac( a );
     aExp = extractFloatx80Exp( a );
@@ -3232,6 +3264,9 @@ int64 floatx80_to_int64( floatx80 a )
     flag aSign;
     int32 aExp, shiftCount;
     bits64 aSig, aSigExtra;
+    
+    // [shoebill]
+    a = floatx80_de_unnormalize(a);
 
     aSig = extractFloatx80Frac( a );
     aExp = extractFloatx80Exp( a );
@@ -3273,6 +3308,9 @@ int64 floatx80_to_int64_round_to_zero( floatx80 a )
     int32 aExp, shiftCount;
     bits64 aSig;
     int64 z;
+    
+    // [shoebill]
+    a = floatx80_de_unnormalize(a);
 
     aSig = extractFloatx80Frac( a );
     aExp = extractFloatx80Exp( a );
@@ -3313,6 +3351,9 @@ float32 floatx80_to_float32( floatx80 a )
     flag aSign;
     int32 aExp;
     bits64 aSig;
+    
+    // [shoebill]
+    a = floatx80_de_unnormalize(a);
 
     aSig = extractFloatx80Frac( a );
     aExp = extractFloatx80Exp( a );
@@ -3341,6 +3382,9 @@ float64 floatx80_to_float64( floatx80 a )
     flag aSign;
     int32 aExp;
     bits64 aSig, zSig;
+    
+    // [shoebill]
+    a = floatx80_de_unnormalize(a);
 
     aSig = extractFloatx80Frac( a );
     aExp = extractFloatx80Exp( a );
@@ -3372,21 +3416,14 @@ float128 floatx80_to_float128( floatx80 a )
     int16 aExp;
     bits64 aSig, zSig0, zSig1;
 
+    // [shoebill]
+    a = floatx80_de_unnormalize(a);
+    
     aSig = extractFloatx80Frac( a );
     aExp = extractFloatx80Exp( a );
     aSign = extractFloatx80Sign( a );
     if ( ( aExp == 0x7FFF ) && (bits64) ( aSig<<1 ) ) {
         return commonNaNToFloat128( floatx80ToCommonNaN( a ) );
-    }
-    
-    // [shoebill]
-    // If the x80 has a non-zero exponent and its explicit bit is 0,
-    // then Motorola's 68881 docs call it "unnormal". packFloat128 can't
-    // handle that, so we need to de-unnormalize it to get a regular
-    // normal or subnormal number.
-    while ((aExp > 0) && ((aSig >> 63)==0)) {
-        aExp--;
-        aSig <<= 1;
     }
 
     // [shoebill]
@@ -3420,6 +3457,9 @@ floatx80 floatx80_round_to_int( floatx80 a )
     bits64 lastBitMask, roundBitsMask;
     int8 roundingMode;
     floatx80 z;
+    
+    // [shoebill]
+    a = floatx80_de_unnormalize(a);
 
     aExp = extractFloatx80Exp( a );
     if ( 0x403E <= aExp ) {
@@ -3653,6 +3693,10 @@ static floatx80 subFloatx80Sigs( floatx80 a, floatx80 b, flag zSign )
 floatx80 floatx80_add( floatx80 a, floatx80 b )
 {
     flag aSign, bSign;
+    
+    // [shoebill]
+    a = floatx80_de_unnormalize(a);
+    b = floatx80_de_unnormalize(b);
 
     aSign = extractFloatx80Sign( a );
     bSign = extractFloatx80Sign( b );
@@ -3674,6 +3718,10 @@ floatx80 floatx80_add( floatx80 a, floatx80 b )
 floatx80 floatx80_sub( floatx80 a, floatx80 b )
 {
     flag aSign, bSign;
+    
+    // [shoebill]
+    a = floatx80_de_unnormalize(a);
+    b = floatx80_de_unnormalize(b);
 
     aSign = extractFloatx80Sign( a );
     bSign = extractFloatx80Sign( b );
@@ -3698,6 +3746,10 @@ floatx80 floatx80_mul( floatx80 a, floatx80 b )
     int32 aExp, bExp, zExp;
     bits64 aSig, bSig, zSig0, zSig1;
     floatx80 z;
+    
+    // [shoebill]
+    a = floatx80_de_unnormalize(a);
+    b = floatx80_de_unnormalize(b);
 
     aSig = extractFloatx80Frac( a );
     aExp = extractFloatx80Exp( a );
@@ -3759,6 +3811,10 @@ floatx80 floatx80_div( floatx80 a, floatx80 b )
     bits64 aSig, bSig, zSig0, zSig1;
     bits64 rem0, rem1, rem2, term0, term1, term2;
     floatx80 z;
+    
+    // [shoebill]
+    a = floatx80_de_unnormalize(a);
+    b = floatx80_de_unnormalize(b);
 
     aSig = extractFloatx80Frac( a );
     aExp = extractFloatx80Exp( a );
@@ -3839,6 +3895,10 @@ floatx80 floatx80_rem( floatx80 a, floatx80 b )
     bits64 aSig0, aSig1, bSig;
     bits64 q, term0, term1, alternateASig0, alternateASig1;
     floatx80 z;
+    
+    // [shoebill]
+    a = floatx80_de_unnormalize(a);
+    b = floatx80_de_unnormalize(b);
 
     aSig0 = extractFloatx80Frac( a );
     aExp = extractFloatx80Exp( a );
@@ -3936,6 +3996,9 @@ floatx80 floatx80_sqrt( floatx80 a )
     bits64 aSig0, aSig1, zSig0, zSig1, doubleZSig0;
     bits64 rem0, rem1, rem2, rem3, term0, term1, term2, term3;
     floatx80 z;
+    
+    // [shoebill]
+    a = floatx80_de_unnormalize(a);
 
     aSig0 = extractFloatx80Frac( a );
     aExp = extractFloatx80Exp( a );
@@ -4002,7 +4065,10 @@ floatx80 floatx80_sqrt( floatx80 a )
 
 flag floatx80_eq( floatx80 a, floatx80 b )
 {
-
+    // [shoebill]
+    a = floatx80_de_unnormalize(a);
+    b = floatx80_de_unnormalize(b);
+    
     if (    (    ( extractFloatx80Exp( a ) == 0x7FFF )
               && (bits64) ( extractFloatx80Frac( a )<<1 ) )
          || (    ( extractFloatx80Exp( b ) == 0x7FFF )
@@ -4033,6 +4099,10 @@ flag floatx80_eq( floatx80 a, floatx80 b )
 flag floatx80_le( floatx80 a, floatx80 b )
 {
     flag aSign, bSign;
+    
+    // [shoebill]
+    a = floatx80_de_unnormalize(a);
+    b = floatx80_de_unnormalize(b);
 
     if (    (    ( extractFloatx80Exp( a ) == 0x7FFF )
               && (bits64) ( extractFloatx80Frac( a )<<1 ) )
@@ -4067,6 +4137,10 @@ flag floatx80_lt( floatx80 a, floatx80 b )
 {
     flag aSign, bSign;
 
+    // [shoebill]
+    a = floatx80_de_unnormalize(a);
+    b = floatx80_de_unnormalize(b);
+    
     if (    (    ( extractFloatx80Exp( a ) == 0x7FFF )
               && (bits64) ( extractFloatx80Frac( a )<<1 ) )
          || (    ( extractFloatx80Exp( b ) == 0x7FFF )
@@ -4098,7 +4172,10 @@ flag floatx80_lt( floatx80 a, floatx80 b )
 
 flag floatx80_eq_signaling( floatx80 a, floatx80 b )
 {
-
+    // [shoebill]
+    a = floatx80_de_unnormalize(a);
+    b = floatx80_de_unnormalize(b);
+    
     if (    (    ( extractFloatx80Exp( a ) == 0x7FFF )
               && (bits64) ( extractFloatx80Frac( a )<<1 ) )
          || (    ( extractFloatx80Exp( b ) == 0x7FFF )
@@ -4126,6 +4203,10 @@ flag floatx80_eq_signaling( floatx80 a, floatx80 b )
 flag floatx80_le_quiet( floatx80 a, floatx80 b )
 {
     flag aSign, bSign;
+    
+    // [shoebill]
+    a = floatx80_de_unnormalize(a);
+    b = floatx80_de_unnormalize(b);
 
     if (    (    ( extractFloatx80Exp( a ) == 0x7FFF )
               && (bits64) ( extractFloatx80Frac( a )<<1 ) )
@@ -4163,6 +4244,10 @@ flag floatx80_lt_quiet( floatx80 a, floatx80 b )
 {
     flag aSign, bSign;
 
+    // [shoebill]
+    a = floatx80_de_unnormalize(a);
+    b = floatx80_de_unnormalize(b);
+    
     if (    (    ( extractFloatx80Exp( a ) == 0x7FFF )
               && (bits64) ( extractFloatx80Frac( a )<<1 ) )
          || (    ( extractFloatx80Exp( b ) == 0x7FFF )

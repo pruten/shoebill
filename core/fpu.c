@@ -397,6 +397,8 @@ static void _fpu_read_ea_commit(const uint8_t format)
         assert(!"size==1, reg==a7");
 }
 
+static long double _floatx80_to_long_double(floatx80 f80);
+
 static void _fpu_write_ea(uint8_t mr, uint8_t format, floatx80 *f, uint8_t K)
 {
     fpu_get_state_ptr();
@@ -421,7 +423,10 @@ static void _fpu_write_ea(uint8_t mr, uint8_t format, floatx80 *f, uint8_t K)
     
     const _Bool is_nan = ((f->high << 1) == 0xfffe) && f->low;
     
-    slog("inst_f fpu_write_ea EA=%u/%u data=%Lf format=%u\n", m, r, 666.0L, format);
+    {
+        const long double tmp = _floatx80_to_long_double(*f);
+        slog("FPU: fpu_write_ea EA=%u/%u data=%Lf format=%u\n", m, r, tmp, format);
+    }
     
     /* Initialize softfloat's exceptions bits/rounding mode */
     
@@ -496,11 +501,12 @@ static void _fpu_write_ea(uint8_t mr, uint8_t format, floatx80 *f, uint8_t K)
     
     /* Copy the formatted data into *addr */
     
-    slog("inst_f  fpu_write_ea: addr=0x08x data=0x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x\n",
-         addr,
-         ptr[0], ptr[1], ptr[2], ptr[3],
-         ptr[4], ptr[5], ptr[6], ptr[7],
-         ptr[8], ptr[9], ptr[10], ptr[11]);
+    {
+        slog("FPU:  fpu_write_ea: addr=0x%08x data=", addr);
+        for (i=0; i<size; i++)
+            printf("%02x", ptr[i]);
+        printf("\n");
+    }
     
     for (i=0; i<size; i++) {
         lset(addr + i, 1, buf[i]);
@@ -1352,22 +1358,35 @@ static void inst_fmath_fatanh ()
 static void inst_fmath_fcmp ()
 {
     fpu_get_state_ptr();
+    const uint8_t source_zero = _float128_is_zero(fpu->source);
+    const uint8_t source_inf = _float128_is_infinity(fpu->source);
+    const uint8_t source_sign = _float128_is_neg(fpu->source);
+    const uint8_t dest_zero = _float128_is_zero(fpu->dest);
+    const uint8_t dest_inf = _float128_is_infinity(fpu->dest);
+    const uint8_t dest_sign = _float128_is_neg(fpu->dest);
+    
+    /* If the operands are "in-range", then we actually need to compare them */
+    if (!(source_zero | source_inf | dest_zero | dest_inf)) {
+        // dest - source.
+        // dest == zource -> Z
+        // dest < source -> N
+        if (float128_eq(fpu->dest, fpu->source))
+            cc_z = 1;
+        else if (float128_le(fpu->dest, fpu->source))
+            cc_n = 1;
+    }
+    else {
+        const uint8_t offset = ((source_zero << 5) | (source_inf << 4) | (source_sign << 3) |
+                                (dest_zero << 2) | (dest_inf << 1) | (dest_sign << 0));
+        /* Precomputed answers for all the possible combinations */
+        cc_z = (0x0000303008040201ULL >> offset) & 1;
+        cc_n = (0x00002a2a083b0a3bULL >> offset) & 1;
+        
+        slog("FPU: fcmp: hit uncommon case: offset=0x%x z=%u n=%u\n", offset, cc_z, cc_n);
+    }
     
     /* Don't write the result back to the register */
     fpu->write_back = 0;
-    
-    fpu->result = float128_sub(fpu->dest, fpu->source);
-    
-    /*
-     * The 68881 docs say fcmp doesn't throw any exceptions
-     * based on the result, but I'm not sure I believe it.
-     
-     if (float_exception_flags & float_flag_invalid)
-        es_operr = 1;
-     
-     if (float_exception_flags & float_flag_inexact)
-        es_inex2 = 1;
-     */
 }
 
 static void inst_fmath_fcos ()
@@ -2254,11 +2273,16 @@ static void inst_fmath_ftst ()
 {
     fpu_get_state_ptr();
     
+    const _Bool source_zero = _float128_is_zero(fpu->source);
+    const _Bool source_inf = _float128_is_infinity(fpu->source);
+    const _Bool source_sign = _float128_is_neg(fpu->source);
+    
+    cc_z = source_zero;
+    cc_i = source_inf;
+    cc_n = source_sign;
+    
     /* Don't write the result back to the register */
     fpu->write_back = 0;
-    
-    /* ftst just sets the cond codes according to the source */
-    fpu->result = fpu->source;
 }
 
 static void inst_fmath_ftwotox ()
@@ -2342,9 +2366,6 @@ static void _fmath_set_condition_codes (floatx80 val)
     const uint64_t frac = val.low;
     const uint32_t exp = val.high & 0x7fff;
     const _Bool sign = val.high >> 15;
-    
-    /* Clear the whole CC register byte */
-    fpu->fpsr.raw &= 0x00ffffff;
     
     /* Check for zero */
     cc_z = ((exp == 0) && (frac == 0));
@@ -2576,6 +2597,9 @@ static void inst_fmath (const uint16_t ext)
     es_snan = 0;  // Set if one of the inputs was a signaling NaN
     es_bsun = 0;  // never set here
     
+    /* Clear the whole CC register byte */
+    fpu->fpsr.raw &= 0x00ffffff;
+    
     fpu->write_back = 1; // let "do-write-back" be the default behavior
     fpu->fmath_op = e;
     
@@ -2623,6 +2647,12 @@ static void inst_fmath (const uint16_t ext)
              (((_fmath_flags[e] & FMATH_TYPE_DYADIC) &&
                float128_is_nan(fpu->dest)))) {
         _fmath_handle_nans();
+        /*
+         * The result is guaranteed to be NaN, so we need
+         * to set cc_nan for ftst and fcmp, who bypass
+         * _fmath_set_condition_codes()
+         */
+        cc_nan = 1;
         goto computation_done;
     }
     
@@ -2643,13 +2673,12 @@ static void inst_fmath (const uint16_t ext)
      */
 computation_done:
     
-    /* Convert the 128-bit result to the specified precision */
-    /*
-     * FIXME: If fpu->write_back==0, should we still go through rounding?
-     *        The condition codes will still need to be set. Should they
-     *        be set based on the intermediate result or rounded result?
+    /* 
+     * Convert the 128-bit result to the specified precision.
+     * FIXME: do we need to do rounding for ftst/fcmp?
      */
-    rounded_result = _fmath_round_intermediate_result();
+    if (fpu->write_back)
+        rounded_result = _fmath_round_intermediate_result();
     
     
     /* Update the accrued exception bits */
@@ -2688,6 +2717,12 @@ computation_done:
         }
         
         /*
+         * FIXME: are condition codes ever set if an exception is thrown?
+         * I think not, so clear the whole CC register byte
+         */
+        fpu->fpsr.raw &= 0x00ffffff;
+        
+        /*
          * Convert the exception bit position
          * to the correct vector number, and throw
          * a (pre-instruction) exception.
@@ -2699,22 +2734,22 @@ computation_done:
     
     /*
      * Otherwise, no exceptions to throw!
-     * Calculate the condition codes from the result.
-     */
-    _fmath_set_condition_codes(rounded_result);
-    
-    /*
      * We're definitely running to completion now,
      * so commit ea-read changes
      */
     _fpu_read_ea_commit(source_specifier);
     
-    /* Write back the result, and we're done! */
     if (fpu->write_back) {
-        fpu->fp[dest_register] = rounded_result;
+        /* Calculate the condition codes from the result. */
+        _fmath_set_condition_codes(rounded_result);
         
-        long double tmp = _floatx80_to_long_double(rounded_result);
-        slog("FPU: result = %Lf\n", tmp);
+        /* Write back the result, and we're done! */
+        if (fpu->write_back) {
+            fpu->fp[dest_register] = rounded_result;
+            
+            long double tmp = _floatx80_to_long_double(rounded_result);
+            slog("FPU: result = %Lf\n", tmp);
+        }
     }
 }
 
@@ -2839,7 +2874,7 @@ static void inst_fmovem_control (const uint16_t ext)
             uint8_t newround = fpu->fpcr.b._mc_rnd;
             
             if (round != newround) {
-                slog("inst_fmovem_control: HEY: round %u -> %u\n", round, newround);
+                slog("FPU: inst_fmovem_control: HEY: round %u -> %u\n", round, newround);
             }
         }
         if (S) fpu->fpsr.raw = buf[i++];
@@ -2859,7 +2894,7 @@ static void inst_fmovem_control (const uint16_t ext)
     
     
     
-    slog("inst_fmove_control: notice: (EA = %u/%u %08x CSI = %u%u%u)\n", m, r, (uint32_t)shoe.dat, C, S, I);
+    slog("FPU: inst_fmove_control: notice: (EA = %u/%u %08x CSI = %u%u%u)\n", m, r, (uint32_t)shoe.dat, C, S, I);
     
     
 }
@@ -2911,7 +2946,7 @@ static void inst_fmovem (const uint16_t ext)
         assert(p); // assert post-increment mask
     }
     
-    slog("inst_fmovem: pre=%08x mask=%08x EA=%u/%u addr=0x%08x size=%u %s\n", pre_mask, mask, m, r, addr, size, d?"to mem":"from mem");
+    slog("FPU: inst_fmovem: pre=%08x mask=%08x EA=%u/%u addr=0x%08x size=%u %s\n", pre_mask, mask, m, r, addr, size, d?"to mem":"from mem");
     
     if (d) {
         // Write those registers
@@ -2968,6 +3003,7 @@ static void inst_fmovem (const uint16_t ext)
  * to these instructions. inst_fpu_other() will handle all
  * other FPU instructions.
  */
+
 
 static _Bool fpu_test_cc(uint8_t cc)
 {
@@ -3136,7 +3172,7 @@ void inst_frestore () {
     
     if (m==3) {
         shoe.a[r] += size;
-        slog("frestore: changing shoe.a[%u] += %u\n", r, size);
+        slog("FPU: frestore: changing shoe.a[%u] += %u\n", r, size);
     }
 }
 

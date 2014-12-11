@@ -777,7 +777,7 @@ void dis_long_div () {
     sprintf(dest, "d%u", R);
     if (Q != R) 
         sprintf(dest+2, ":d%u", Q);
-    sprintf(dis.str, "div%c%s.l %s,%s", "us"[u], s?"":"l", decode_ea_rw(M, 4), dest);
+    sprintf(dis.str, "div%c%s.l %s,%s", "us"[u], s?"l":"", decode_ea_rw(M, 4), dest);
 }
 
 void dis_cmpm () {
