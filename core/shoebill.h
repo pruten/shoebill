@@ -79,6 +79,9 @@
 #endif
 
 
+#define slikely(e) (__builtin_expect(!!(e), 1))
+#define sunlikely(e) (__builtin_expect(!!(e), 0))
+
 /*
  * core_api.c stuff
  */
@@ -876,7 +879,12 @@ extern const physical_get_ptr physical_get_jump_table[16];
 extern const physical_set_ptr physical_set_jump_table[16];
 
 #define physical_set() physical_set_jump_table[shoe.physical_addr >> 28]()
-#define pset(addr, s, val) {shoe.physical_addr=(addr); shoe.physical_size=(s); shoe.physical_dat=(val); physical_set();}
+#define pset(addr, s, val) do { \
+    shoe.physical_addr=(addr); \
+    shoe.physical_size=(s); \
+    shoe.physical_dat=(val); \
+    physical_set(); \
+} while (0)
 
 #define physical_get() physical_get_jump_table[shoe.physical_addr >> 28]()
 #define pget(addr, s) ({shoe.physical_addr=(addr); shoe.physical_size=(s); physical_get(); shoe.physical_dat;})
@@ -889,26 +897,17 @@ void logical_get (void);
     logical_get(); \
     shoe.logical_dat; \
 })
-
-#define lget(addr, s) ({ \
-    shoe.logical_addr=(addr); \
-    shoe.logical_size=(s); \
-    shoe.logical_fc = (sr_s() ? 5 : 1); \
-    logical_get(); \
-    shoe.logical_dat; \
-})
+#define lget(addr, s) lget_fc((addr), (s), (sr_s() ? 5 : 1))
 
 void logical_set (void);
-#define lset_fc(addr, s, val, fc) {\
+#define lset_fc(addr, s, val, fc) do { \
     shoe.logical_addr=(addr); \
     shoe.logical_size=(s); \
     shoe.logical_dat=(val); \
     shoe.logical_fc = (fc); \
     logical_set();\
-}
-#define lset(addr, s, val) { \
-    lset_fc((addr), (s), (val), sr_s() ? 5 : 1) \
-}
+} while (0)
+#define lset(addr, s, val) lset_fc((addr), (s), (val), sr_s() ? 5 : 1)
 
 typedef void (*_ea_func) (void);
 extern const _ea_func ea_read_jump_table[64];
@@ -922,10 +921,10 @@ extern const _ea_func ea_addr_jump_table[64];
 #define ea_addr() ea_addr_jump_table[shoe.mr]()
 
 
-#define call_ea_read(M, s) {shoe.mr=(M);shoe.sz=(s);ea_read();if (shoe.abort) return;}
-#define call_ea_write(M, s) {shoe.mr=(M);shoe.sz=(s);ea_write();if (shoe.abort) return;}
-#define call_ea_read_commit(M, s) {shoe.mr=(M);shoe.sz=(s);ea_read_commit();if (shoe.abort) return;}
-#define call_ea_addr(M) {shoe.mr=(M);ea_addr();if (shoe.abort) return;}
+#define call_ea_read(M, s) {shoe.mr=(M);shoe.sz=(s);ea_read();if sunlikely(shoe.abort) return;}
+#define call_ea_write(M, s) {shoe.mr=(M);shoe.sz=(s);ea_write();if sunlikely(shoe.abort) return;}
+#define call_ea_read_commit(M, s) {shoe.mr=(M);shoe.sz=(s);ea_read_commit();if sunlikely(shoe.abort) return;}
+#define call_ea_addr(M) {shoe.mr=(M);ea_addr();if sunlikely(shoe.abort) return;}
 
 #define push_a7(_dat, _sz) {shoe.a[7]-=(_sz);lset(shoe.a[7], (_sz), (_dat));}
 

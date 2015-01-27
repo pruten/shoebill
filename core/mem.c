@@ -34,17 +34,13 @@
 void _physical_get_ram (void)
 {
     uint64_t *addr;
-    if (shoe.physical_addr < shoe.physical_mem_size)
+    if slikely(shoe.physical_addr < shoe.physical_mem_size)
         addr = (uint64_t*)&shoe.physical_mem_base[shoe.physical_addr];
     else
         addr = (uint64_t*)&shoe.physical_mem_base[shoe.physical_addr % shoe.physical_mem_size];
     
     const uint8_t bits = (8 - shoe.physical_size) * 8;
     shoe.physical_dat = ntohll(*addr) >> bits;
-    
-    if ((shoe.physical_addr >= 256) && (shoe.physical_addr < 0x4000)) {
-        slog("LOMEM get: *0x%08x = 0x%x\n", shoe.physical_addr, (uint32_t)shoe.physical_dat);
-    }
 }
 
 void _physical_get_rom (void)
@@ -99,7 +95,7 @@ void _physical_get_io (void)
 void _physical_get_super_slot (void)
 {
     const uint32_t slot = shoe.physical_addr >> 28;
-    if (shoe.slots[slot].connected)
+    if slikely(shoe.slots[slot].connected)
         shoe.physical_dat = shoe.slots[slot].read_func(shoe.physical_addr,
                                                        shoe.physical_size,
                                                        slot);
@@ -111,7 +107,7 @@ void _physical_get_super_slot (void)
 void _physical_get_standard_slot (void)
 {
     const uint32_t slot = (shoe.physical_addr >> 24) & 0xf;
-    if (shoe.slots[slot].connected)
+    if slikely(shoe.slots[slot].connected)
         shoe.physical_dat = shoe.slots[slot].read_func(shoe.physical_addr,
                                                        shoe.physical_size,
                                                        slot);
@@ -342,7 +338,7 @@ static void translate_logical_addr()
     // TODO: Check limit here
     
     // If root descriptor is invalid, throw a bus error
-    if (rp_dt(rootp) == 0) {
+    if sunlikely(rp_dt(rootp) == 0) {
         throw_bus_error(shoe.logical_addr, shoe.logical_is_write);
         return ;
     }
@@ -377,7 +373,7 @@ static void translate_logical_addr()
         const uint8_t dt = desc_dt(desc, desc_size);
         
         // If this descriptor is invalid, throw a bus error
-        if (dt == 0) {
+        if sunlikely(dt == 0) {
             throw_bus_error(shoe.logical_addr, shoe.logical_is_write);
             return ;
         }
@@ -395,7 +391,7 @@ static void translate_logical_addr()
             get_desc(desc & 0xfffffff0, (4 << desc_size));
             
             // I think it's possible for an indirect descriptor to point to an invalid descriptor...
-            if (desc_dt(desc, desc_size) == 0) {
+            if sunlikely(desc_dt(desc, desc_size) == 0) {
                 throw_bus_error(shoe.logical_addr, shoe.logical_is_write);
                 return ;
             }
@@ -426,7 +422,7 @@ search_done:
     wp |= desc_wp(desc, desc_size); // or in the wp flag for this page descriptor
     
     // And finally throw a bus error
-    if (wp && shoe.logical_is_write) {
+    if sunlikely(wp && shoe.logical_is_write) {
         throw_bus_error(shoe.logical_addr, shoe.logical_is_write);
         return ;
     }
@@ -467,11 +463,11 @@ void logical_get (void)
 {
     
     // If address translation isn't enabled, this is a physical address
-    if (!tc_enable()) {
+    if sunlikely(!tc_enable()) {
         shoe.physical_addr = shoe.logical_addr;
         shoe.physical_size = shoe.logical_size;
         physical_get();
-        if (shoe.abort) {
+        if sunlikely(shoe.abort) {
             shoe.abort = 0;
             throw_long_bus_error(shoe.logical_addr, 0);
             return ;
@@ -491,21 +487,21 @@ void logical_get (void)
     shoe.logical_is_write = 0;
     
     // Common case: the read is contained entirely within a page
-    if (!((pageoffset + logical_size - 1) >> ps)) {
-        if (!check_pmmu_cache()) {
+    if slikely(!((pageoffset + logical_size - 1) >> ps)) {
+        if sunlikely(!check_pmmu_cache()) {
             translate_logical_addr();
-            if (shoe.abort)
+            if sunlikely(shoe.abort)
                 return ;
         }
         
-        if (shoe.physical_addr < shoe.physical_mem_size) {
+        if slikely(shoe.physical_addr < shoe.physical_mem_size) {
             // Fast path
             shoe.logical_dat = ntohll(*(uint64_t*)&shoe.physical_mem_base[shoe.physical_addr]) >> ((8-logical_size)*8);
         }
         else {
             shoe.physical_size = logical_size;
             physical_get();
-            if (shoe.abort) {
+            if sunlikely(shoe.abort) {
                 shoe.abort = 0;
                 throw_long_bus_error(logical_addr, 0);
                 return ;
@@ -521,9 +517,9 @@ void logical_get (void)
         
         shoe.logical_addr = addr_a;
         shoe.logical_size = size_a;
-        if (!check_pmmu_cache()) {
+        if sunlikely(!check_pmmu_cache()) {
             translate_logical_addr();
-            if (shoe.abort)
+            if sunlikely(shoe.abort)
                 return ;
         }
         
@@ -531,16 +527,16 @@ void logical_get (void)
         
         shoe.logical_addr = addr_b;
         shoe.logical_size = size_b;
-        if (!check_pmmu_cache()) {
+        if sunlikely(!check_pmmu_cache()) {
             translate_logical_addr();
-            if (shoe.abort)
+            if sunlikely(shoe.abort)
                 return ;
         }
         
         const uint32_t p_addr_b = shoe.physical_addr;
         shoe.physical_size = size_b;
         physical_get();
-        if (shoe.abort) {
+        if sunlikely(shoe.abort) {
             shoe.abort = 0;
             throw_long_bus_error(shoe.logical_addr, 0);
             return ;
@@ -550,7 +546,7 @@ void logical_get (void)
         shoe.physical_addr = p_addr_a;
         shoe.physical_size = size_a;
         physical_get();
-        if (shoe.abort) {
+        if sunlikely(shoe.abort) {
             shoe.abort = 0;
             throw_long_bus_error(shoe.logical_addr, 0);
             return ;
@@ -563,7 +559,7 @@ void logical_get (void)
 void logical_set (void)
 {
     // If address translation isn't enabled, this is a physical address
-    if (!tc_enable()) {
+    if sunlikely(!tc_enable()) {
         shoe.physical_addr = shoe.logical_addr;
         shoe.physical_size = shoe.logical_size;
         shoe.physical_dat = shoe.logical_dat;
@@ -583,11 +579,11 @@ void logical_set (void)
     shoe.logical_is_write = 1;
     
     // Common case: this write is contained entirely in one page
-    if (!((pageoffset + logical_size - 1) >> ps)) {
+    if slikely(!((pageoffset + logical_size - 1) >> ps)) {
         // Common case: the write is contained entirely within a page
-        if (!check_pmmu_cache()) {
+        if sunlikely(!check_pmmu_cache()) {
             translate_logical_addr();
-            if (shoe.abort)
+            if sunlikely(shoe.abort)
                 return ;
         }
         
@@ -605,18 +601,18 @@ void logical_set (void)
         
         shoe.logical_addr = addr_a;
         shoe.logical_size = size_a;
-        if (!check_pmmu_cache()) {
+        if sunlikely(!check_pmmu_cache()) {
             translate_logical_addr();
-            if (shoe.abort)
+            if sunlikely(shoe.abort)
                 return ;
         }
         const uint32_t p_addr_a = shoe.physical_addr;
         
         shoe.logical_addr = addr_b;
         shoe.logical_size = size_b;
-        if (!check_pmmu_cache()) {
+        if sunlikely(!check_pmmu_cache()) {
             translate_logical_addr();
-            if (shoe.abort)
+            if sunlikely(shoe.abort)
                 return ;
         }
         const uint32_t p_addr_b = shoe.physical_addr;
@@ -639,8 +635,8 @@ void logical_set (void)
 /* --- EA routines --- */
 #pragma mark EA routines
 
-#define nextword(pc) ({const uint16_t w=lget((pc),2);if (shoe.abort){return;}(pc)+=2; w;})
-#define nextlong(pc) ({const uint32_t L=lget((pc),4);if (shoe.abort){return;}(pc)+=4; L;})
+#define nextword(pc) ({const uint16_t w=lget((pc),2);if sunlikely(shoe.abort){return;}(pc)+=2; w;})
+#define nextlong(pc) ({const uint32_t L=lget((pc),4);if sunlikely(shoe.abort){return;}(pc)+=4; L;})
 
 // ea_decode_extended() - find the EA for those hiddeous 68020 addr modes
 static void ea_decode_extended()
@@ -760,7 +756,7 @@ static void ea_decode_extended()
             case ~b(1001): case ~b(1010): case ~b(1011): {
                 // Indirect preindexed
                 const uint32_t intermediate = lget(base_addr + base_disp + index_val, 4);
-                if (shoe.abort) return ;
+                if sunlikely(shoe.abort) return ;
                 shoe.extended_addr = intermediate + outer_disp;
                 shoe.extended_len = mypc - start_pc;
                 // slog("addr=0x%x len=%u\n", shoe.extended_addr, shoe.extended_len);
@@ -770,7 +766,7 @@ static void ea_decode_extended()
             case ~b(0101): case ~b(0110): case ~b(0111): {
                 // Indirect postindexed
                 const uint32_t intermediate = lget(base_addr + base_disp, 4);
-                if (shoe.abort) return ;
+                if sunlikely(shoe.abort) return ;
                 shoe.extended_addr = intermediate + index_val + outer_disp;
                 shoe.extended_len = mypc - start_pc;
                 return ;
@@ -847,7 +843,7 @@ void _ea_011_write (void)
     const uint8_t delta = ((reg==7) && (shoe.sz==1)) ? 2 : shoe.sz;
     
     lset(shoe.a[reg], shoe.sz, shoe.dat);
-    if (!shoe.abort)
+    if slikely(!shoe.abort)
         shoe.a[reg] += delta;
 }
 
@@ -870,7 +866,7 @@ void _ea_100_write (void)
     const uint8_t delta = ((reg==7) && (shoe.sz==1)) ? 2 : shoe.sz;
     
     lset(shoe.a[reg] - delta, shoe.sz, shoe.dat);
-    if (!shoe.abort)
+    if slikely(!shoe.abort)
         shoe.a[reg] -= delta;
 }
 
@@ -902,7 +898,7 @@ void _ea_101_addr (void)
 void _ea_110_read (void)
 {
     ea_decode_extended();
-    if (!shoe.abort)
+    if slikely(!shoe.abort)
         shoe.dat = lget(shoe.extended_addr, shoe.sz);
     shoe.uncommitted_ea_read_pc = shoe.pc + shoe.extended_len;
 }
@@ -913,16 +909,16 @@ void _ea_110_read_commit (void)
 void _ea_110_write (void)
 {
     ea_decode_extended();
-    if (!shoe.abort) {
+    if slikely(!shoe.abort) {
         lset(shoe.extended_addr, shoe.sz, shoe.dat);
-        if (!shoe.abort)
+        if slikely(!shoe.abort)
             shoe.pc += shoe.extended_len;
     }
 }
 void _ea_110_addr (void)
 {
     ea_decode_extended();
-    if (!shoe.abort) {
+    if slikely(!shoe.abort) {
         shoe.dat = shoe.extended_addr;
         shoe.pc += shoe.extended_len;
     }
@@ -998,7 +994,7 @@ void _ea_111_010_addr (void)
 void _ea_111_011_read (void)
 {
     ea_decode_extended();
-    if (!shoe.abort)
+    if slikely(!shoe.abort)
         shoe.dat = lget(shoe.extended_addr, shoe.sz);
     shoe.uncommitted_ea_read_pc = shoe.pc + shoe.extended_len;
 }
@@ -1009,7 +1005,7 @@ void _ea_111_011_read_commit (void)
 void _ea_111_011_addr (void)
 {
     ea_decode_extended();
-    if (!shoe.abort) {
+    if slikely(!shoe.abort) {
         shoe.dat = shoe.extended_addr;
         shoe.pc += shoe.extended_len;
     }

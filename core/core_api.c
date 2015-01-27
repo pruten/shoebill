@@ -115,15 +115,15 @@ void *_cpu_thread (void *arg)
     pthread_mutex_lock(&shoe.cpu_thread_lock);
     
     while (1) {
-        if (shoe.cpu_thread_notifications) {
+        if sunlikely(shoe.cpu_thread_notifications) {
             
             // If there's an interrupt pending
-            if (shoe.cpu_thread_notifications & 0xff) {
+            if slikely(shoe.cpu_thread_notifications & 0xff) {
                 // process_pending_interrupt() may clear SHOEBILL_STATE_STOPPED
                 process_pending_interrupt();
             }
             
-            if (shoe.cpu_thread_notifications & SHOEBILL_STATE_RETURN) {
+            if sunlikely(shoe.cpu_thread_notifications & SHOEBILL_STATE_RETURN) {
                 pthread_mutex_unlock(&shoe.cpu_thread_lock);
                 return NULL;
             }

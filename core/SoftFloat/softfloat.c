@@ -631,10 +631,6 @@ static floatx80
     int8 roundingMode;
     flag roundNearestEven, increment, isTiny;
     int64 roundIncrement, roundMask, roundBits;
-
-    // [shoebill]
-    // printf("roundAndPackFloatx80: prec=%d sign=%d exp=%u sig0=0x%016llx sig1=0x%016llx\n",
-           // roundingPrecision, zSign, zExp, zSig0, zSig1);
     
     roundingMode = float_rounding_mode;
     roundNearestEven = ( roundingMode == float_round_nearest_even );
@@ -3191,9 +3187,7 @@ int32 floatx80_to_int32( floatx80 a )
     aExp = extractFloatx80Exp( a );
     aSign = extractFloatx80Sign( a );
     if ( ( aExp == 0x7FFF ) && (bits64) ( aSig<<1 ) ) aSign = 0;
-    // [shoebill] there is no way 0x4037 is the right constant to use here.
-    // 1.0 has exp=0x3fff, 0x4037 - 0x3fff == 56.
-    // (aSig >> 56) shifts out the mantissa bits, plus 8 more.
+    
     shiftCount = 0x4037 - aExp;
     if ( shiftCount <= 0 ) shiftCount = 1;
     shift64RightJamming( aSig, shiftCount, &aSig );

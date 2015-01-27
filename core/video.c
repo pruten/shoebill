@@ -145,7 +145,7 @@ uint32_t nubus_video_read_func(const uint32_t rawaddr, const uint32_t size,
     const uint32_t addr = rawaddr & 0x00ffffff;
     
     // ROM and control registers
-    if ((addr >> 20) == 0xf) {
+    if sunlikely((addr >> 20) == 0xf) {
         
         slog("nubus_video_read_func: got a read to 0x%08x sz=%u\n", rawaddr, size);
         
@@ -172,7 +172,7 @@ uint32_t nubus_video_read_func(const uint32_t rawaddr, const uint32_t size,
     // Else, this is video ram
     
     uint32_t i, result = 0;
-    if (addr < (ctx->pixels * 4)) {
+    if slikely(addr < (ctx->pixels * 4)) {
         for (i=0; i<size; i++)
             result = (result << 8) | ((uint8_t*)ctx->direct_buf)[addr + i];
     }
@@ -234,7 +234,7 @@ void nubus_video_write_func(const uint32_t rawaddr, const uint32_t size,
     uint32_t i;
     
     // ROM and control registers
-    if ((addr >> 20) == 0xf) {
+    if sunlikely((addr >> 20) == 0xf) {
         
         slog("nubus_video_write_func: got a write to 0x%08x sz=%u data=0x%x\n", rawaddr, size, data);
         
@@ -340,7 +340,7 @@ void nubus_video_write_func(const uint32_t rawaddr, const uint32_t size,
     
     // Else, this is video ram
     
-    if (addr < (ctx->pixels * 4)) {
+    if slikely(addr < (ctx->pixels * 4)) {
         uint32_t mydata, myaddr;
         for (myaddr = addr + size, mydata = data; addr < myaddr; ) {
             ((uint8_t*)ctx->direct_buf)[--myaddr] = mydata & 0xff;

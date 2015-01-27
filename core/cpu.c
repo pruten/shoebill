@@ -55,9 +55,9 @@ static const _cc_func evaluate_cc[16] = {
 };
 
 
-#define nextword() ({const uint16_t w=lget(shoe.pc,2); if (shoe.abort) {return;}; shoe.pc+=2; w;})
-#define nextlong() ({const uint32_t L=lget(shoe.pc,4); if (shoe.abort) {return;}; shoe.pc+=4; L;})
-#define verify_supervisor() {if (!sr_s()) {throw_privilege_violation(); return;}}
+#define nextword() ({const uint16_t w=lget(shoe.pc,2); if sunlikely(shoe.abort) {return;}; shoe.pc+=2; w;})
+#define nextlong() ({const uint32_t L=lget(shoe.pc,4); if sunlikely(shoe.abort) {return;}; shoe.pc+=4; L;})
+#define verify_supervisor() {if sunlikely(!sr_s()) {throw_privilege_violation(); return;}}
 
 
 static void inst_callm(void) {
@@ -466,9 +466,9 @@ static void inst_abcd (void) {
         // FIXME: these addresses aren't predecremented (check whether a7 is incremented 2 bytes)
         assert(!"acbd is broken");
         packed_x = lget(shoe.a[x], 1);
-        if (shoe.abort) return ;
+        if sunlikely(shoe.abort) return ;
         packed_y = lget(shoe.a[y], 1);
-        if (shoe.abort) return ;
+        if sunlikely(shoe.abort) return ;
     }
     else {
         packed_x = shoe.d[x] & 0xff;
@@ -494,7 +494,7 @@ static void inst_abcd (void) {
     
     if (m) {
         lset(shoe.a[x]-1, 1, packed_sum);
-        if (shoe.abort) return ;
+        if sunlikely(shoe.abort) return ;
         
         shoe.a[x]--;
         if (x != y)
@@ -580,10 +580,10 @@ static void inst_stop (void) {
 
 static void inst_rtr (void) {
     const uint16_t ccr = lget(shoe.a[7], 2);
-    if (shoe.abort) return ;
+    if sunlikely(shoe.abort) return ;
     
     const uint32_t pc = lget(shoe.a[7]+2, 4);
-    if (shoe.abort) return ;
+    if sunlikely(shoe.abort) return ;
     
     shoe.a[7] += 6;
     
@@ -595,7 +595,7 @@ static void inst_rtr (void) {
 static void inst_rtd (void) {
     const int16_t disp = nextword();
     const uint32_t new_pc = lget(shoe.a[7], 4);
-    if (shoe.abort) return ;
+    if sunlikely(shoe.abort) return ;
     
     shoe.pc = new_pc;
     shoe.a[7] += 4;
@@ -606,13 +606,13 @@ static void inst_rte (void) {
     verify_supervisor();
     
     const uint16_t sr = lget(shoe.a[7], 2);
-    if (shoe.abort) return ;
+    if sunlikely(shoe.abort) return ;
     
     const uint32_t pc = lget(shoe.a[7]+2, 4);
-    if (shoe.abort) return ;
+    if sunlikely(shoe.abort) return ;
     
     const uint16_t format_word = lget(shoe.a[7]+6, 2);
-    if (shoe.abort) return ;
+    if sunlikely(shoe.abort) return ;
     
     // slog("rte: sr=0x%04x pc=0x%08x format=0x%04x, post-pop a7=0x%08x\n", sr, pc, format_word, shoe.a[7]+8);
     
@@ -819,9 +819,9 @@ static void inst_addx (void) {
         const uint32_t predec_x = shoe.a[x] - sz;
         
         const uint32_t S = lget(predec_y, 4);
-        if (shoe.abort) return ;
+        if sunlikely(shoe.abort) return ;
         const uint32_t D = lget(predec_x, 4);
-        if (shoe.abort) return ;
+        if sunlikely(shoe.abort) return ;
         
         // Sm = mib(S + extend_bit, sz); // FIXME: sure you want to do this?
         Sm = mib(S, sz);
@@ -832,7 +832,7 @@ static void inst_addx (void) {
         
         const uint32_t chopped_R = chop(R, sz);
         lset(chopped_R, sz, shoe.dat);
-        if (shoe.abort) return ;
+        if sunlikely(shoe.abort) return ;
         
         shoe.a[y] = predec_y;
         shoe.a[x] = predec_x;
@@ -926,10 +926,10 @@ static void inst_cmpm (void) {
     const uint32_t ay = shoe.a[y] + ((x==y) ? sz : 0); // if x==y, then we pop the stack twice
     
     const uint32_t dst = lget(ax, sz);
-    if (shoe.abort) return ;
+    if sunlikely(shoe.abort) return ;
     
     const uint32_t src = lget(ay, sz);
-    if (shoe.abort) return ;
+    if sunlikely(shoe.abort) return ;
     
     // *I believe* that if x==y, then that register will only be incremented *once*
     // WRONG!
@@ -1202,7 +1202,7 @@ static void inst_move (void) {
     // So in this case, we need to switch back to the original a7 (set_sr(shoe.orig_sr)) before modifying it
     // (This is hacky)
     
-    if (shoe.abort) {
+    if sunlikely(shoe.abort) {
         if (m == 4 || m == 3) {
             const uint16_t new_sr = shoe.sr;
             const uint8_t delta = ((r==7) && (sz==1)) ? 2 : sz;
@@ -1357,12 +1357,12 @@ static void inst_moves (void) {
         assert(! ((a && (M&7)==r) && (((M>>3) == 3) || ((M>>3) == 4))) );
         
         lset_fc(addr, sz, data, fc);
-        if (shoe.abort)
+        if sunlikely(shoe.abort)
             return ;
     }
     else {
         uint32_t data = lget_fc(addr, sz, fc);
-        if (shoe.abort)
+        if sunlikely(shoe.abort)
             return ;
         
         // if destination is address register, data is sign extended to 32 bits
@@ -1758,7 +1758,7 @@ static void inst_pea (void) {
     call_ea_addr(M);
     // push it onto the stack
     lset(shoe.a[7]-4, 4, shoe.dat);
-    if (shoe.abort) return ;
+    if sunlikely(shoe.abort) return ;
     // decrement the stack pointer if lset didn't abort
     shoe.a[7] -= 4;
 }
@@ -1775,10 +1775,10 @@ static void inst_subx (void) {
         const uint32_t predecrement_y = shoe.a[y]-predecrement_sz;
 
         const uint32_t src = lget(predecrement_x, sz);
-        if (shoe.abort) return ;
+        if sunlikely(shoe.abort) return ;
         
         const uint32_t dst = lget(predecrement_y, sz);
-        if (shoe.abort) return ;
+        if sunlikely(shoe.abort) return ;
         
         const uint32_t result = dst - src - (sr_x()?1:0);
         
@@ -1868,7 +1868,7 @@ static void inst_bsr (void) {
     }
     
     lset(shoe.a[7]-4, 4, shoe.pc);
-    if (shoe.abort) return ;
+    if sunlikely(shoe.abort) return ;
     shoe.a[7] -= 4;
     shoe.pc = new_pc;
 }
@@ -1942,7 +1942,7 @@ static void inst_jsr (void) {
     // my quadra 800 doesn't object when a7 is odd... 
     // so, no extra error checking needed
     lset(shoe.a[7]-4, 4, shoe.pc);
-    if (shoe.abort) return ;
+    if sunlikely(shoe.abort) return ;
     
     // slog("jsr: writing pc (0x%08x) to *0x%08x (phys=0x%08x)\n", shoe.pc, shoe.a[7]-4, shoe.physical_addr);
     
@@ -1997,7 +1997,7 @@ static void inst_link_word (void) {
     
     // push the contents of the address register onto the stack
     lset(shoe.a[7]-4, 4, shoe.a[r]);
-    if (shoe.abort) return ;
+    if sunlikely(shoe.abort) return ;
     shoe.a[7] -= 4;
     
     // load the updated stack pointer into the address register
@@ -2011,7 +2011,7 @@ static void inst_unlk (void) {
     ~decompose(shoe.op, 0100 1110 0101 1 rrr);
     
     const uint32_t pop = lget(shoe.a[r], 4);
-    if (shoe.abort) return ;
+    if sunlikely(shoe.abort) return ;
     
     // loads the stack pointer from the address register
     shoe.a[7] = shoe.a[r]+4;
@@ -2022,7 +2022,7 @@ static void inst_unlk (void) {
 
 static void inst_rts (void) {
     const uint32_t pop = lget(shoe.a[7], 4);
-    if (shoe.abort) return ;
+    if sunlikely(shoe.abort) return ;
     
     shoe.a[7] += 4;
     shoe.pc = pop;
@@ -2059,7 +2059,7 @@ static void inst_link_long (void) {
     
     // push the contents of the address register onto the stack
     lset(shoe.a[7]-4, 4, shoe.a[r]);
-    if (shoe.abort) return ;
+    if sunlikely(shoe.abort) return ;
     shoe.a[7] -= 4;
     
     // load the updated stack pointer into the address register
@@ -2093,7 +2093,7 @@ static void inst_movem (void) {
                     tmp = lget(shoe.dat, 4);
                 else 
                     tmp = (uint32_t)((int32_t)((int16_t)lget(shoe.dat, 2))); // sign-extend if short-mode
-                if (shoe.abort) goto abort;
+                if sunlikely(shoe.abort) goto abort;
                 shoe.d[i] = tmp;
                 shoe.dat += sz;
             }
@@ -2107,7 +2107,7 @@ static void inst_movem (void) {
                     tmp = lget(shoe.dat, 4);
                 else 
                     tmp = (uint32_t)((int32_t)((int16_t)lget(shoe.dat, 2))); // sign-extend if short-mode
-                if (shoe.abort) goto abort;
+                if sunlikely(shoe.abort) goto abort;
                 shoe.a[i] = tmp;
                 shoe.dat += sz;
             }
@@ -2152,7 +2152,7 @@ static void inst_movem (void) {
             // FIXME: determine what happens when the predecrementing address register is written
             if ((dfield >> i) & 1) {
                 lset(addr, sz, shoe.d[i]);
-                if (shoe.abort) 
+                if sunlikely(shoe.abort) 
                     goto abort; // FIXME: figure out how to abort cleanly
                 addr += sz;
             }
@@ -2175,7 +2175,7 @@ static void inst_movem (void) {
                 }
                 
                 lset(addr, sz, data);
-                if (shoe.abort) 
+                if sunlikely(shoe.abort) 
                     goto abort; // FIXME: figure out how to abort cleanly
                 addr += sz;
             }
@@ -2233,26 +2233,26 @@ static void inst_movep (void) {
     switch (m) {
         case 0: { // word, mem->reg
             uint16_t val = lget(addr, 1);
-            if (shoe.abort) return;
+            if sunlikely(shoe.abort) return;
             
             val = (val << 8) | lget(addr + 2, 1);
-            if (shoe.abort) return;
+            if sunlikely(shoe.abort) return;
             
             set_d(d, val, 2);
             break;
         }
         case 1: { // long, mem->reg
             uint32_t val = lget(addr, 1);
-            if (shoe.abort) return;
+            if sunlikely(shoe.abort) return;
             
             val = (val << 8) | lget(addr + 2, 1);
-            if (shoe.abort) return;
+            if sunlikely(shoe.abort) return;
             
             val = (val << 8) | lget(addr + 4, 1);
-            if (shoe.abort) return;
+            if sunlikely(shoe.abort) return;
             
             val = (val << 8) | lget(addr + 6, 1);
-            if (shoe.abort) return;
+            if sunlikely(shoe.abort) return;
             
             shoe.d[d] = val;
             break;
@@ -2260,26 +2260,26 @@ static void inst_movep (void) {
         case 2: { // word, reg->mem
             const uint16_t val = shoe.d[d];
             lset(addr + 0, 1, (val >> 8) & 0xff);
-            if (shoe.abort) return;
+            if sunlikely(shoe.abort) return;
             
             lset(addr + 2, 1, (val >> 0) & 0xff);
-            if (shoe.abort) return;
+            if sunlikely(shoe.abort) return;
             
             break;
         }
         case 3: { // long, reg->mem
             const uint32_t val = shoe.d[d];
             lset(addr + 0, 1, (val >> 24) & 0xff);
-            if (shoe.abort) return;
+            if sunlikely(shoe.abort) return;
             
             lset(addr + 2, 1, (val >> 16) & 0xff);
-            if (shoe.abort) return;
+            if sunlikely(shoe.abort) return;
             
             lset(addr + 4, 1, (val >>  8) & 0xff);
-            if (shoe.abort) return;
+            if sunlikely(shoe.abort) return;
             
             lset(addr + 6, 1, (val >>  0) & 0xff);
-            if (shoe.abort) return;
+            if sunlikely(shoe.abort) return;
             
             break;
         }
@@ -2330,7 +2330,7 @@ void write_bitfield(const uint32_t width, const uint32_t offset, const uint32_t 
             //slog("write_bitfield: byte_mask = 0x%02x field_mask = 0x%02x bit_offset=%u byte_offset=%u\n", byte_mask, field_mask, bit_offset, byte_offset);
             //slog("write_bitfield: changing byte at 0x%08x from 0x%02x to 0x%02x\n",
                    //first_byte_addr, old_byte, new_byte);
-            if (shoe.abort) return ;
+            if sunlikely(shoe.abort) return ;
         }
         else {
             uint32_t boff = bit_offset;
@@ -2340,7 +2340,7 @@ void write_bitfield(const uint32_t width, const uint32_t offset, const uint32_t 
             uint32_t remaining_field = field<<(32-width); // left-aligned
             while (remaining_width > 0) {
                 const uint8_t byte = lget(addr, 1);
-                if (shoe.abort) return ;
+                if sunlikely(shoe.abort) return ;
                 
                 const uint8_t mask = ~~(((uint8_t)((0xff) << (8-curwidth))) >> boff);
                 const uint8_t field_chunk = remaining_field >> (32-curwidth);
@@ -2351,7 +2351,7 @@ void write_bitfield(const uint32_t width, const uint32_t offset, const uint32_t 
                 lset(addr, 1, (byte & mask) | rotated_chunk);
                 //slog("write_bitfield: changing byte at 0x%08x from 0x%02x to 0x%02x\n",
                        //addr, byte, (byte & mask) | rotated_chunk);
-                if (shoe.abort) return ;
+                if sunlikely(shoe.abort) return ;
                 
                 addr++;
                 remaining_field <<= curwidth;
@@ -2399,10 +2399,10 @@ uint32_t extract_bitfield(const uint32_t width, const uint32_t offset, const uin
         
         field = bitchop(lget(first_byte_addr, 1), 8-bit_offset);
         //slog("debug: extract_bitfield: first byte field (low %u bits): 0x%02x\n", 8-bit_offset, field);
-        if (shoe.abort) return 0;
+        if sunlikely(shoe.abort) return 0;
         if (width > (8-bit_offset)) { // if the data isn't entirely contained in the first byte
             uint32_t last_long = lget(first_byte_addr+1, 4);
-            if (shoe.abort) return 0;
+            if sunlikely(shoe.abort) return 0;
             field = (field<<(width - (8-bit_offset))) | // first_byte, left shifted
             (last_long >> (32 - (width - (8-bit_offset)))); // last_long, right shifted
         }
@@ -2429,7 +2429,7 @@ static void inst_bfextu (void) {
     }
     
     const uint32_t field = extract_bitfield(width, offset, M, ea);
-    if (shoe.abort) return;
+    if sunlikely(shoe.abort) return;
     
     shoe.d[r] = field;
     
@@ -2455,9 +2455,9 @@ static void inst_bfchg (void) {
     }
     
     const uint32_t field = extract_bitfield(width, offset, M, ea);
-    if (shoe.abort) return;
+    if sunlikely(shoe.abort) return;
     write_bitfield(width, offset, M, ea, ~~field);
-    if (shoe.abort) return;
+    if sunlikely(shoe.abort) return;
     
     set_sr_c(0);
     set_sr_v(0);
@@ -2481,7 +2481,7 @@ static void inst_bfexts (void) {
     }
     
     const uint32_t field = extract_bitfield(width, offset, M, ea);
-    if (shoe.abort) return;
+    if sunlikely(shoe.abort) return;
     const uint32_t mib = (field >> (width-1))&1;
     
     const uint32_t maskA = (((uint32_t)0) - mib) << 1;
@@ -2511,9 +2511,9 @@ static void inst_bfclr (void) {
     }
     
     const uint32_t field = extract_bitfield(width, offset, M, ea);
-    if (shoe.abort) return;
+    if sunlikely(shoe.abort) return;
     write_bitfield(width, offset, M, ea, 0);
-    if (shoe.abort) return;
+    if sunlikely(shoe.abort) return;
     
     set_sr_c(0);
     set_sr_v(0);
@@ -2537,9 +2537,9 @@ static void inst_bfset (void) {
     }
     
     const uint32_t field = extract_bitfield(width, offset, M, ea);
-    if (shoe.abort) return;
+    if sunlikely(shoe.abort) return;
     write_bitfield(width, offset, M, ea, 0xffffffff);
-    if (shoe.abort) return;
+    if sunlikely(shoe.abort) return;
     
     set_sr_c(0);
     set_sr_v(0);
@@ -2563,7 +2563,7 @@ static void inst_bftst (void) {
     }
     
     const uint32_t field = extract_bitfield(width, offset, M, ea);
-    if (shoe.abort) return;
+    if sunlikely(shoe.abort) return;
     
     set_sr_c(0);
     set_sr_v(0);
@@ -2587,7 +2587,7 @@ static void inst_bfffo (void) {
     }
     
     const uint32_t field = extract_bitfield(width, offset, M, ea);
-    if (shoe.abort) return;
+    if sunlikely(shoe.abort) return;
     
     uint32_t i;
     for (i=1; (i<=width) && ((field>>(width-i))&1)==0; i++) ;
@@ -2618,7 +2618,7 @@ static void inst_bfins (void) {
     }
     
     write_bitfield(width, offset, M, ea, field);
-    if (shoe.abort) return;
+    if sunlikely(shoe.abort) return;
     
     set_sr_c(0);
     set_sr_v(0);
@@ -2752,20 +2752,20 @@ static void inst_ext (void) {
         case ~b(010): { // byte -> word
             uint16_t val = (int8_t)get_d(r, 1);
             set_d(r, val, 2);
-            set_sr_z(get_d(r, 2));
-            set_sr_n(mib(shoe.d[r], 2));
+            set_sr_z(!val);
+            set_sr_n(val >> 15);
             break;
         } case ~b(011): { // word -> long
             uint32_t val = (int16_t)get_d(r, 2);
             set_d(r, val, 4);
-            set_sr_z(get_d(r, 4));
-            set_sr_n(mib(shoe.d[r], 4));
+            set_sr_z(!val);
+            set_sr_n(val >> 31);
             break;
         } case ~b(111): { // byte -> long
             uint32_t val = (int8_t)get_d(r, 1);
             set_d(r, val, 4);
-            set_sr_z(get_d(r, 4));
-            set_sr_n(mib(shoe.d[r], 4));
+            set_sr_z(!val);
+            set_sr_n(val >> 31);
             break;
         }
     }
@@ -2980,14 +2980,16 @@ static void inst_trap (void) {
     set_sr_s(1);
     
     push_a7(vector_offset, 2);
-        if (shoe.abort) goto fail;
+    if sunlikely(shoe.abort) goto fail;
+    
     push_a7(shoe.pc, 4);
-        if (shoe.abort) goto fail;
+    if sunlikely(shoe.abort) goto fail;
+    
     push_a7(shoe.orig_sr, 2);
-        if (shoe.abort) goto fail;
+    if sunlikely(shoe.abort) goto fail;
     
     const uint32_t newpc = lget(shoe.vbr + vector_offset, 4);
-        if (shoe.abort) goto fail;
+    if sunlikely(shoe.abort) goto fail;
     
     shoe.pc = newpc;
     return ;
@@ -3007,7 +3009,7 @@ void cpu_step()
     shoe.orig_sr = shoe.sr;
     
     // Is this an odd address? Throw an address exception!
-    if (shoe.pc & 1) {
+    if sunlikely(shoe.pc & 1) {
         // throw_address_error(shoe.pc, 0);
         // I'm leaving this assert in here for now because it almost always indicates a bug in the emulator when it fires
         assert(!"odd PC address (probably a bug)");
@@ -3018,7 +3020,7 @@ void cpu_step()
     shoe.op = lget(shoe.pc, 2);
     
     // If there was an exception, then the pc changed. Restart execution from the beginning.
-    if (shoe.abort) {
+    if sunlikely(shoe.abort) {
         shoe.abort = 0;
         return ;
     }
