@@ -289,33 +289,52 @@ const physical_set_ptr physical_set_jump_table[16] = {
 }
 
 
-static _Bool check_pmmu_cache(void)
+static _Bool check_pmmu_cache_write(void)
 {
-    const _Bool use_srp = (tc_sre() && (shoe.logical_fc >= 4));
+    const _Bool use_srp = (shoe.tc_sre && (shoe.logical_fc >= 5));
     
     // logical addr [is]xxxxxxxxxxxx[ps] -> value xxxxxxxxxxxx
-    const uint32_t value = (shoe.logical_addr << tc_is()) >> (tc_is() + tc_ps());
+    const uint32_t value = (shoe.logical_addr << shoe.tc_is) >> shoe.tc_is_plus_ps;
     // value xxx[xxxxxxxxx] -> key xxxxxxxxx
-    const uint32_t key = value & (PMMU_CACHE_SIZE-1); // low PMMU_CACHE_KEY_BITS bits
+    const uint32_t key = value & (PMMU_CACHE_SIZE - 1); // low PMMU_CACHE_KEY_BITS bits
     
     const pmmu_cache_entry_t entry = shoe.pmmu_cache[use_srp].entry[key];
     
-    const _Bool is_set = (shoe.pmmu_cache[use_srp].valid_map[key/8] >> (key & 7)) & 1;
-    const _Bool values_match = (entry.logical_value == value);
-    const _Bool first_modify = !(shoe.logical_is_write && !entry.modified);
-    const _Bool not_write_protected = !(shoe.logical_is_write && entry.wp);
+    const _Bool is_set = (shoe.pmmu_cache[use_srp].valid_map[key >> 3] >> (key & 7)) & 1;
     
     const uint32_t ps_mask = 0xffffffff >> entry.used_bits;
     const uint32_t v_mask = ~~ps_mask;
     
     shoe.physical_addr = ((entry.physical_addr<<8) & v_mask) | (shoe.logical_addr & ps_mask);
-    return is_set && values_match && first_modify && not_write_protected;
+    return is_set && (entry.logical_value == value) && entry.modified && !entry.wp;
+}
+
+static _Bool check_pmmu_cache_read(void)
+{
+    const _Bool use_srp = (shoe.tc_sre && (shoe.logical_fc >= 5));
+    
+    // logical addr [is]xxxxxxxxxxxx[ps] -> value xxxxxxxxxxxx
+    const uint32_t value = (shoe.logical_addr << shoe.tc_is) >> shoe.tc_is_plus_ps;
+    // value xxx[xxxxxxxxx] -> key xxxxxxxxx
+    const uint32_t key = value & (PMMU_CACHE_SIZE - 1); // low PMMU_CACHE_KEY_BITS bits
+    
+    const pmmu_cache_entry_t entry = shoe.pmmu_cache[use_srp].entry[key];
+    
+    const _Bool is_set = (shoe.pmmu_cache[use_srp].valid_map[key >> 3] >> (key & 7)) & 1;
+    
+    const uint32_t ps_mask = 0xffffffff >> entry.used_bits;
+    const uint32_t v_mask = ~~ps_mask;
+    
+    shoe.physical_addr = ((entry.physical_addr<<8) & v_mask) | (shoe.logical_addr & ps_mask);
+    return is_set && (entry.logical_value == value);
 }
 
 
 static void translate_logical_addr()
 {
-    const uint8_t use_srp = (tc_sre() && (shoe.logical_fc >= 4));
+    const uint8_t use_srp = (shoe.tc_sre && (shoe.logical_fc >= 5));
+    assert((0x66 >> shoe.logical_fc) & 1); // we only support these FCs for now
+    
     uint64_t *rootp_ptr = (use_srp ? (&shoe.srp) : (&shoe.crp));
     const uint64_t rootp = *rootp_ptr;
     uint8_t desc_did_change = 0;
@@ -325,7 +344,7 @@ static void translate_logical_addr()
     uint8_t i;
     uint64_t desc = rootp; // Initial descriptor is the root pointer descriptor
     uint8_t desc_size = 1; // And the root pointer descriptor is always 8 bytes (1==8 bytes, 0==4 bytes)
-    uint8_t used_bits = tc_is(); // Keep track of how many bits will be the effective "page size"
+    uint8_t used_bits = shoe.tc_is; // Keep track of how many bits will be the effective "page size"
     // (If the table search terminates early (before used_bits == ts_ps()),
     //  then (32 - used_bits) will be the effective page size. That is, the number of bits
     //  we or into the physical addr from the virtual addr)
@@ -443,7 +462,7 @@ search_done:
     /* --- insert this translation into pmmu_cache --- */
     
     // logical addr [is]xxxxxxxxxxxx[ps] -> value xxxxxxxxxxxx
-    const uint32_t value = (shoe.logical_addr << tc_is()) >> (tc_is() + tc_ps());
+    const uint32_t value = (shoe.logical_addr << shoe.tc_is) >> shoe.tc_is_plus_ps;
     // value xxx[xxxxxxxxx] -> key xxxxxxxxx
     const uint32_t key = value & (PMMU_CACHE_SIZE-1); // low PMMU_CACHE_KEY_BITS bits
     
@@ -463,7 +482,7 @@ void logical_get (void)
 {
     
     // If address translation isn't enabled, this is a physical address
-    if sunlikely(!tc_enable()) {
+    if sunlikely(!shoe.tc_enable) {
         shoe.physical_addr = shoe.logical_addr;
         shoe.physical_size = shoe.logical_size;
         physical_get();
@@ -479,16 +498,13 @@ void logical_get (void)
     const uint32_t logical_size = shoe.logical_size;
     const uint32_t logical_addr = shoe.logical_addr;
     
-    const uint16_t ps = tc_ps(); // log2 of the page size
-    const uint32_t pagesize = 1 << ps; // the page size
-    const uint32_t pagemask = pagesize-1; // a mask of the page bits
+    const uint32_t pagemask = shoe.tc_pagemask;
     const uint32_t pageoffset = logical_addr & pagemask;
     
-    shoe.logical_is_write = 0;
-    
     // Common case: the read is contained entirely within a page
-    if slikely(!((pageoffset + logical_size - 1) >> ps)) {
-        if sunlikely(!check_pmmu_cache()) {
+    if slikely(!((pageoffset + logical_size - 1) >> shoe.tc_ps)) {
+        if sunlikely(!check_pmmu_cache_read()) {
+            shoe.logical_is_write = 0;
             translate_logical_addr();
             if sunlikely(shoe.abort)
                 return ;
@@ -515,9 +531,11 @@ void logical_get (void)
         const uint32_t size_a = logical_size - size_b;
         const uint32_t addr_b = addr_a + size_a;
         
+        shoe.logical_is_write = 0;
+        
         shoe.logical_addr = addr_a;
         shoe.logical_size = size_a;
-        if sunlikely(!check_pmmu_cache()) {
+        if sunlikely(!check_pmmu_cache_read()) {
             translate_logical_addr();
             if sunlikely(shoe.abort)
                 return ;
@@ -527,7 +545,7 @@ void logical_get (void)
         
         shoe.logical_addr = addr_b;
         shoe.logical_size = size_b;
-        if sunlikely(!check_pmmu_cache()) {
+        if sunlikely(!check_pmmu_cache_read()) {
             translate_logical_addr();
             if sunlikely(shoe.abort)
                 return ;
@@ -559,7 +577,7 @@ void logical_get (void)
 void logical_set (void)
 {
     // If address translation isn't enabled, this is a physical address
-    if sunlikely(!tc_enable()) {
+    if sunlikely(!shoe.tc_enable) {
         shoe.physical_addr = shoe.logical_addr;
         shoe.physical_size = shoe.logical_size;
         shoe.physical_dat = shoe.logical_dat;
@@ -570,18 +588,16 @@ void logical_set (void)
     const uint32_t logical_size = shoe.logical_size;
     const uint32_t logical_addr = shoe.logical_addr;
     
-    const uint16_t ps = tc_ps(); // log2 of the page size
-    const uint32_t pagesize = 1 << ps; // the page size
-    const uint32_t pagemask = pagesize-1; // a mask of the page bits
+    const uint32_t pagemask = shoe.tc_pagemask;
     const uint32_t pageoffset = logical_addr & pagemask;
     
     // Make the translate function fail if the page is write-protected
     shoe.logical_is_write = 1;
     
     // Common case: this write is contained entirely in one page
-    if slikely(!((pageoffset + logical_size - 1) >> ps)) {
+    if slikely(!((pageoffset + logical_size - 1) >> shoe.tc_ps)) {
         // Common case: the write is contained entirely within a page
-        if sunlikely(!check_pmmu_cache()) {
+        if sunlikely(!check_pmmu_cache_write()) {
             translate_logical_addr();
             if sunlikely(shoe.abort)
                 return ;
@@ -601,7 +617,7 @@ void logical_set (void)
         
         shoe.logical_addr = addr_a;
         shoe.logical_size = size_a;
-        if sunlikely(!check_pmmu_cache()) {
+        if sunlikely(!check_pmmu_cache_write()) {
             translate_logical_addr();
             if sunlikely(shoe.abort)
                 return ;
@@ -610,7 +626,7 @@ void logical_set (void)
         
         shoe.logical_addr = addr_b;
         shoe.logical_size = size_b;
-        if sunlikely(!check_pmmu_cache()) {
+        if sunlikely(!check_pmmu_cache_write()) {
             translate_logical_addr();
             if sunlikely(shoe.abort)
                 return ;
@@ -631,12 +647,163 @@ void logical_set (void)
     }
 }
 
+/* --- PC cache routines --- */
+#pragma mark PC cache routines
+
+static uint16_t pccache_miss(const uint32_t pc)
+{
+    const uint32_t pagemask = shoe.tc_pagemask;
+    const uint32_t pageoffset = pc & pagemask;
+    uint32_t paddr;
+    
+    /*
+     * I think the instruction decoder uses these
+     * these function codes:
+     * 6 -> supervisor program space,
+     * 2 -> user program space
+     */
+    shoe.logical_fc = sr_s() ? 6 : 2;
+    shoe.logical_addr = pc;
+    if sunlikely(!check_pmmu_cache_read()) {
+        shoe.logical_is_write = 0;
+        translate_logical_addr();
+        if sunlikely(shoe.abort)
+            goto fail;
+    }
+    
+    paddr = shoe.physical_addr ^ pageoffset;
+    
+    shoe.pccache_use_srp = shoe.tc_sre && sr_s();
+    shoe.pccache_logical_page = pc ^ pageoffset;
+    
+    if (paddr < 0x40000000) {
+        /* Address in RAM */
+        
+        if sunlikely(paddr >= shoe.physical_mem_size)
+            paddr %= shoe.physical_mem_size;
+        
+        shoe.pccache_ptr = &shoe.physical_mem_base[paddr];
+        return ntohs(*(uint16_t*)(shoe.pccache_ptr + pageoffset));
+    }
+    else if (paddr < 0x50000000) {
+        /* Address in ROM */
+        shoe.pccache_ptr = &shoe.physical_rom_base[paddr & (shoe.physical_rom_size - 1)];
+        return ntohs(*(uint16_t*)(shoe.pccache_ptr + pageoffset));
+    }
+    
+    /*
+     * For now, only supporting reads from RAM and ROM.
+     * This could easily be supported by just calling
+     * physical_get() and leaving the cache invalid,
+     * but I don't think A/UX ever tries to execute outside
+     * RAM/ROM.
+     */
+    assert(!"pccache_miss: neither RAM nor ROM!\n");
+    
+fail:
+    invalidate_pccache();
+    return 0;
+}
+
+uint16_t pccache_nextword(const uint32_t pc)
+{
+    if (sunlikely(pc & 1))
+        goto odd_addr;
+    
+    if slikely(shoe.tc_enable) {
+        const uint32_t pc_offset = pc & shoe.tc_pagemask;
+        const uint32_t pc_page = pc ^ pc_offset;
+        const uint32_t use_srp = shoe.tc_sre && sr_s();
+        
+        /* If the cache exists and is valid */
+        if slikely((shoe.pccache_use_srp == use_srp) && (shoe.pccache_logical_page == pc_page)) {
+            // printf("pccache_nextword: hit: pc=%x\n", pc);
+            return ntohs(*(uint16_t*)(shoe.pccache_ptr + pc_offset));
+        }
+        // printf("pccache_nextword: miss: pc=%x\n", pc);
+        
+        return pccache_miss(pc);
+    }
+    else {
+        uint32_t paddr = pc;
+        
+        if (paddr < 0x40000000) {
+            /* Address in RAM */
+            
+            if sunlikely(paddr >= shoe.physical_mem_size)
+                paddr %= shoe.physical_mem_size;
+    
+            return ntohs(*(uint16_t*)(&shoe.physical_mem_base[paddr]));
+        }
+        else if (paddr < 0x50000000) {
+            /* Address in ROM */
+            
+            return ntohs(*(uint16_t*)&shoe.physical_rom_base[paddr & (shoe.physical_rom_size - 1)]);
+        }
+        assert(!"!tc_enable: neither RAM nor RAM\n");
+    }
+    
+odd_addr:
+    assert(!"odd pc address!\n");
+    return 0;
+}
+
+uint32_t pccache_nextlong(const uint32_t pc)
+{
+    if slikely(shoe.tc_enable) {
+        const uint32_t lastpage = shoe.pccache_logical_page;
+        const uint32_t pc_offset = pc & shoe.tc_pagemask;
+        const uint32_t pc_page = pc ^ pc_offset;
+        const uint32_t use_srp = shoe.tc_sre && sr_s();
+        
+        
+        /* If the cache exists, is valid, and the read is contained entirely within 1 page */
+        if slikely((shoe.pccache_use_srp == use_srp) && (lastpage == pc_page) && !((pc_offset + 3) >> shoe.tc_ps)) {
+            const uint32_t result = ntohl(*(uint32_t*)(shoe.pccache_ptr + pc_offset));
+            if (sunlikely(pc_offset & 1))
+                goto odd_addr;
+            return result;
+        }
+        
+        const uint32_t result_high = pccache_nextword(pc) << 16;
+        if sunlikely(shoe.abort)
+            return 0;
+        
+        return result_high | pccache_nextword(pc + 2);
+    }
+    else {
+        uint32_t paddr = pc;
+        
+        if sunlikely(paddr & 1)
+            goto odd_addr;
+        
+        if (paddr < 0x40000000) {
+            /* Address in RAM */
+            
+            if sunlikely(paddr >= shoe.physical_mem_size)
+                paddr %= shoe.physical_mem_size;
+            
+            return ntohl(*(uint32_t*)(&shoe.physical_mem_base[paddr]));
+        }
+        else if (paddr < 0x50000000) {
+            /* Address in ROM */
+            
+            return ntohl(*(uint32_t*)&shoe.physical_rom_base[paddr & (shoe.physical_rom_size - 1)]);
+        }
+        assert(!"!tc_enable: neither RAM nor RAM\n");
+    }
+
+odd_addr:
+    assert(!"odd pc address!\n");
+    return 0;
+}
+
 
 /* --- EA routines --- */
 #pragma mark EA routines
 
-#define nextword(pc) ({const uint16_t w=lget((pc),2);if sunlikely(shoe.abort){return;}(pc)+=2; w;})
-#define nextlong(pc) ({const uint32_t L=lget((pc),4);if sunlikely(shoe.abort){return;}(pc)+=4; L;})
+#define nextword(pc) ({const uint16_t w = pccache_nextword(pc); if sunlikely(shoe.abort) return; (pc) += 2; w;})
+#define nextlong(pc) ({const uint32_t L = pccache_nextlong(pc); if sunlikely(shoe.abort) return; (pc) += 4; L;})
 
 // ea_decode_extended() - find the EA for those hiddeous 68020 addr modes
 static void ea_decode_extended()

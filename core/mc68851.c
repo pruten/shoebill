@@ -83,6 +83,9 @@ void inst_mc68851_pflushr(uint16_t ext){
     // Just nuke the entire cache
     memset(shoe.pmmu_cache[0].valid_map, 0, PMMU_CACHE_SIZE/8);
     memset(shoe.pmmu_cache[1].valid_map, 0, PMMU_CACHE_SIZE/8);
+    
+    /* Invalidate the pc cache */
+    invalidate_pccache();
 }
 
 void inst_mc68851_pflush(uint16_t ext){
@@ -91,6 +94,9 @@ void inst_mc68851_pflush(uint16_t ext){
     memset(shoe.pmmu_cache[0].valid_map, 0, PMMU_CACHE_SIZE/8);
     memset(shoe.pmmu_cache[1].valid_map, 0, PMMU_CACHE_SIZE/8);
     // slog("%s: Error, not implemented!\n", __func__);
+    
+    /* Invalidate the pc cache */
+    invalidate_pccache();
 }
 
 void inst_mc68851_pmove(uint16_t ext){
@@ -100,6 +106,12 @@ void inst_mc68851_pmove(uint16_t ext){
     ~decompose(shoe.op, 1111 000 000 MMMMMM);
     ~decompose(ext, fff ppp w 0000 nnn 00);
     
+    /* 
+     * For simplicity, just blow away pccache whenever
+     * the PMMU state changes at all
+     */
+    if (!w)
+        invalidate_pccache();
     
     
     // instruction format #1
@@ -119,7 +131,16 @@ void inst_mc68851_pmove(uint16_t ext){
         
         switch (p) {
             case 0: // tc
-                if (!w) shoe.tc = shoe.dat & 0x83FFFFFF;
+                if (!w) {
+                    shoe.tc = shoe.dat & 0x83FFFFFF;
+                    shoe.tc_is = (shoe.tc >> 16) & 0xf;
+                    shoe.tc_ps = (shoe.tc >> 20) & 0xf;
+                    shoe.tc_pagesize = 1 << shoe.tc_ps;
+                    shoe.tc_pagemask = shoe.tc_pagesize - 1;
+                    shoe.tc_is_plus_ps = shoe.tc_is + shoe.tc_ps;
+                    shoe.tc_enable = (shoe.tc >> 31) & 1;
+                    shoe.tc_sre = (shoe.tc >> 25) & 1;
+                }
                 else {
                     shoe.dat = shoe.tc;
                     //if (!tc_fcl()) assert(!"pmove->tc: function codes not supported\n");
@@ -193,7 +214,7 @@ static int64_t ptest_search(const uint32_t _logical_addr, const uint64_t rootp)
     uint8_t i;
     uint64_t desc = rootp; // Initial descriptor is the root pointer descriptor
     uint8_t desc_size = 1; // And the root pointer descriptor is always 8 bytes (1==8 bytes, 0==4 bytes)
-    uint8_t used_bits = tc_is(); // Keep track of how many bits will be the effective "page size"
+    uint8_t used_bits = shoe.tc_is; // Keep track of how many bits will be the effective "page size"
     // (If the table search terminates early (before used_bits == ts_ps()),
     //  then this will be the effective page size. That is, the number of bits
     //  we or into the physical addr from the virtual addr)
@@ -315,7 +336,7 @@ void inst_mc68851_ptest(uint16_t ext){
     ~decompose(shoe.op, 1111 0000 00 MMMMMM);
     ~decompose(ext, 100 LLL R AAAA FFFFF); // Erata in 68kPRM - F is 6 bits, and A is 3
 
-    assert(tc_enable()); // XXX: Throws some exception if tc_enable isn't set
+    assert(shoe.tc_enable); // XXX: Throws some exception if tc_enable isn't set
     assert(tc_fcl() == 0); // XXX: I can't handle function code lookups, and I don't want to
     assert(L == 7); // XXX: Not currently handling searching to a particular level
 

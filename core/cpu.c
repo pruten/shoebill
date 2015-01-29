@@ -32,31 +32,17 @@
 
 global_shoebill_context_t shoe;
 
-static _Bool _cc_t() {return 1;}
-static _Bool _cc_f() {return 0;}
-static _Bool _cc_hi() {return !sr_c() && !sr_z();}
-static _Bool _cc_ls() {return sr_c() || sr_z();}
-static _Bool _cc_cc() {return !sr_c();}
-static _Bool _cc_cs() {return sr_c();}
-static _Bool _cc_ne() {return !sr_z();}
-static _Bool _cc_eq() {return sr_z();}
-static _Bool _cc_vc() {return !sr_v();}
-static _Bool _cc_vs() {return sr_v();}
-static _Bool _cc_pl() {return !sr_n();}
-static _Bool _cc_mi() {return sr_n();}
-static _Bool _cc_ge() {return (sr_n() && sr_v()) || (!sr_n() && !sr_v());}
-static _Bool _cc_lt() {return (sr_n() && !sr_v()) || (!sr_n() && sr_v());}
-static _Bool _cc_gt() {return (sr_n() && sr_v() && !sr_z()) || (!sr_n() && !sr_v() && !sr_z());}
-static _Bool _cc_le() {return sr_z() || (sr_n() && !sr_v()) || (!sr_n() && sr_v());}
-typedef _Bool (*_cc_func)();
-static const _cc_func evaluate_cc[16] = {
-    _cc_t, _cc_f, _cc_hi, _cc_ls, _cc_cc, _cc_cs, _cc_ne, _cc_eq,
-    _cc_vc, _cc_vs, _cc_pl, _cc_mi, _cc_ge, _cc_lt, _cc_gt, _cc_le
+/* Precomputed results for condition code tests */
+static const uint16_t cc_consts[16] = {
+    0xffff, 0x0000, 0x0505, 0xfafa, 0x5555, 0xaaaa, 0x0f0f, 0xf0f0,
+    0x3333, 0xcccc, 0x00ff, 0xff00, 0xcc33, 0x33cc, 0x0c03, 0xf3fc
 };
+#define evaluate_cc(c) ((cc_consts[(c)] >> (shoe.sr & 0xf)) & 1)
 
 
-#define nextword() ({const uint16_t w=lget(shoe.pc,2); if sunlikely(shoe.abort) {return;}; shoe.pc+=2; w;})
-#define nextlong() ({const uint32_t L=lget(shoe.pc,4); if sunlikely(shoe.abort) {return;}; shoe.pc+=4; L;})
+#define nextword() ({const uint16_t w = pccache_nextword(shoe.pc); if sunlikely(shoe.abort) {return;} shoe.pc += 2; w;})
+#define nextlong() ({const uint32_t L = pccache_nextlong(shoe.pc); if sunlikely(shoe.abort) {return;} shoe.pc += 4; L;})
+
 #define verify_supervisor() {if sunlikely(!sr_s()) {throw_privilege_violation(); return;}}
 
 
@@ -105,7 +91,7 @@ static void inst_trapcc (void) {
     const uint32_t sz = y << (z+1); // too clever
     const uint32_t next_pc = shoe.pc + sz;
     
-    if (evaluate_cc[c]())
+    if (evaluate_cc(c))
         throw_frame_two(shoe.sr, next_pc, 7, shoe.orig_pc);
     else
         shoe.pc = next_pc;
@@ -388,7 +374,7 @@ static void inst_divu (void) {
     const uint32_t dividend = shoe.d[r];
     const uint16_t divisor = (uint16_t)shoe.dat;
     
-    if (divisor == 0) {
+    if sunlikely(divisor == 0) {
         throw_frame_two(shoe.orig_sr, shoe.uncommitted_ea_read_pc, 5, shoe.orig_pc);
         return ;
     }
@@ -420,7 +406,7 @@ static void inst_divs (void) {
     const uint16_t u_divisor = (uint16_t)shoe.dat;
     const int16_t s_divisor = (int16_t)shoe.dat;
     
-    if (s_divisor == 0) {
+    if sunlikely(s_divisor == 0) {
         throw_frame_two(shoe.orig_sr, shoe.uncommitted_ea_read_pc, 5, shoe.orig_pc);
         return ;
     }
@@ -1029,7 +1015,7 @@ static void inst_long_div (void) {
     call_ea_read(M, 4);
     
     const uint32_t divisor = shoe.dat;
-    if (divisor == 0) {
+    if sunlikely(divisor == 0) {
         throw_frame_two(shoe.orig_sr, shoe.uncommitted_ea_read_pc, 5, shoe.orig_pc);
         return ;
     }
@@ -1253,21 +1239,6 @@ static void inst_movec (void) {
             else reg[r] = shoe.cacr;
             return ;
         }
-        /* // These are >'020 registers
-         case 0x003: { // TC
-            // TC is a 16 bit register, but movec is always a 32bit
-            if (x) shoe.tc = reg[r] & ~b(1100 0000 0000 0000);
-            else reg[r] = shoe.tc & ~b(1100 0000 0000 0000);
-            return ;
-        }
-        case 0x006: // DTT0
-            if (x) shoe.dtt0 = reg[r] & ~b(11111111 11111111 11100011 01100100);
-            else reg[r] = shoe.dtt0 & ~b(11111111 11111111 11100011 01100100);
-            return ;
-        case 0x007: // DTT1
-            if (x) shoe.dtt1 = reg[r] & ~b(11111111 11111111 11100011 01100100);
-            else reg[r] = shoe.dtt1 & ~b(11111111 11111111 11100011 01100100);
-            return ; */
         case 0x801: // VBR
             if (x) shoe.vbr = reg[r];
             else reg[r] = shoe.vbr;
@@ -1325,7 +1296,7 @@ static void inst_moves (void) {
      */
     
     // For now, only supporting fc 1 (user data space)
-    if (fc != 1) {
+    if sunlikely(fc != 1) {
         slog("inst_moves: error: hit fc=%u\n", fc);
         assert(!"inst_moves: error, hit weird function code");
         return ;
@@ -1838,7 +1809,7 @@ static void inst_suba (void) {
 
 static void inst_dbcc (void) {
     ~decompose(shoe.op, 0101 cccc 11001 rrr);
-    if (evaluate_cc[c]()) {
+    if (evaluate_cc(c)) {
         shoe.pc += 2;
     }
     else {
@@ -1877,7 +1848,7 @@ static void inst_bcc (void) {
     const uint32_t orig_pc = shoe.pc;
     ~decompose(shoe.op, 0110 cccc dddddddd);
     
-    if (evaluate_cc[c]()) {
+    if (evaluate_cc(c)) {
         if (d == 0) {
             const int16_t ext = (int16_t)nextword();
             shoe.pc = orig_pc + ext;
@@ -1899,7 +1870,7 @@ static void inst_bcc (void) {
 static void inst_scc (void) {
     ~decompose(shoe.op, 0101 cccc 11 MMMMMM);
     
-    shoe.dat = evaluate_cc[c]() ? 0xff : 0;
+    shoe.dat = evaluate_cc(c) ? 0xff : 0;
     call_ea_write(M, 1);
 }
 
@@ -3008,25 +2979,14 @@ void cpu_step()
     shoe.orig_pc = shoe.pc;
     shoe.orig_sr = shoe.sr;
     
-    // Is this an odd address? Throw an address exception!
-    if sunlikely(shoe.pc & 1) {
-        // throw_address_error(shoe.pc, 0);
-        // I'm leaving this assert in here for now because it almost always indicates a bug in the emulator when it fires
-        assert(!"odd PC address (probably a bug)");
-        return ;
-    }
-    
     // Fetch the next instruction word
-    shoe.op = lget(shoe.pc, 2);
+    shoe.op = pccache_nextword(shoe.pc);
     
-    // If there was an exception, then the pc changed. Restart execution from the beginning.
-    if sunlikely(shoe.abort) {
-        shoe.abort = 0;
-        return ;
+    // If the fetch succeeded, execute it
+    if slikely(!shoe.abort) {
+        shoe.pc += 2;
+        inst_instruction_to_pointer[inst_opcode_map[shoe.op]]();
     }
-    shoe.pc+=2;
-    
-    inst_instruction_to_pointer[inst_opcode_map[shoe.op]]();
     
     /* The abort flag indicates that a routine should stop trying to execute the
      instruction and return immediately to cpu_step(), usually to begin

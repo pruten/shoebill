@@ -172,8 +172,8 @@ enum {
 } fpu_formats;
 
 #define fpu_get_state_ptr() fpu_state_t *fpu = (fpu_state_t*)shoe.fpu_state
-#define nextword() ({const uint16_t w=lget(shoe.pc,2); if (shoe.abort) {return;}; shoe.pc+=2; w;})
-#define nextlong() ({const uint32_t L=lget(shoe.pc,4); if (shoe.abort) {return;}; shoe.pc+=4; L;})
+#define nextword() ({const uint16_t w = pccache_nextword(shoe.pc); if sunlikely(shoe.abort) return; shoe.pc += 2; w;})
+#define nextlong() ({const uint32_t L = pccache_nextlong(shoe.pc); if sunlikely(shoe.abort) return; shoe.pc += 4; L;})
 #define verify_supervisor() {if (!sr_s()) {throw_privilege_violation(); return;}}
 
 #pragma mark FPU exception stuff

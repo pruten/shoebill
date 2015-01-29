@@ -261,11 +261,11 @@ uint8_t* shoebill_extract_kernel(const char *disk_path, const char *kernel_path,
 		#define set_sr_t1(b) {shoe.sr &= (~(1<<15)); shoe.sr |= (((b)!=0)<<15);}
 
     // MMU
-        #define tc_enable() (shoe.tc >> 31)
-        #define tc_sre() ((shoe.tc >> 25) & 1)
+        #define _tc_enable() (shoe.tc >> 31) // _tc_enable,sre,ps,is are all extracted in shoe.tc_*
+        #define _tc_sre() ((shoe.tc >> 25) & 1)
         #define tc_fcl() ((shoe.tc >> 24) & 1)
-        #define tc_ps() ((shoe.tc >> 20) & 0xf)
-        #define tc_is() ((shoe.tc >> 16) & 0xf)
+        #define _tc_ps() ((shoe.tc >> 20) & 0xf)
+        #define _tc_is() ((shoe.tc >> 16) & 0xf)
         #define tc_tia() ((shoe.tc >> 12) & 0xf)
         #define tc_tib() ((shoe.tc >> 8) & 0xf)
         #define tc_tic() ((shoe.tc >> 4) & 0xf)
@@ -738,6 +738,11 @@ typedef struct {
     _Bool logical_is_write; // <- boolean: true iff the operation is logical_set()
     uint8_t logical_fc; // logical function code
     
+#define invalidate_pccache() do {shoe.pccache_use_srp = 2;} while (0)
+    uint32_t pccache_use_srp; // 1 -> use srp, 0 -> use crp, other -> pccache is invalid
+    uint32_t pccache_logical_page;
+    uint8_t *pccache_ptr;
+    
     // -- PMMU caching structures ---
 #define PMMU_CACHE_KEY_BITS 10
 #define PMMU_CACHE_SIZE (1<<PMMU_CACHE_KEY_BITS)
@@ -773,6 +778,10 @@ typedef struct {
     // 68851 registers
     uint64_t crp, srp, drp; // user/supervisor/DMA root pointers
     uint32_t tc; // translation control
+    
+    uint32_t tc_pagesize, tc_pagemask; // page size and page mask
+    uint8_t tc_ps, tc_is, tc_is_plus_ps, tc_enable, tc_sre; // commonly read bits in shoe.tc
+    
     uint16_t pcsr; // PMMU cache status
     uint16_t ac; // access control
     uint16_t bad[8]; // breakpoint acknowledge data registers
@@ -871,6 +880,9 @@ void throw_frame_zero(uint16_t sr, uint32_t pc, uint16_t vector_num);
 
 
 // mem.c functions
+
+uint16_t pccache_nextword(uint32_t pc);
+uint32_t pccache_nextlong(uint32_t pc);
 
 //void physical_get (void);
 typedef void (*physical_get_ptr) (void);

@@ -738,6 +738,8 @@ uint32_t shoebill_initialize(shoebill_config_t *config)
     init_scsi_bus_state();
     init_iwm_state();
     
+    /* Invalidate the pc cache */
+    invalidate_pccache();
     
     set_sr(0x2000);
     shoe.pc = pc;
@@ -799,6 +801,9 @@ void shoebill_restart (void)
     // clear the pmmu cache
     memset(shoe.pmmu_cache, 0, sizeof(shoe.pmmu_cache));
     
+    // Invalidate the pc cache
+    invalidate_pccache();
+    
     // Reset all CPU registers
     memset(shoe.d, 0, sizeof(shoe.d));
     memset(shoe.a, 0, sizeof(shoe.a));
@@ -813,6 +818,8 @@ void shoebill_restart (void)
     // Reset all pmmu registers
     shoe.crp = shoe.srp = shoe.drp = 0;
     shoe.tc = 0;
+    shoe.tc_pagesize = shoe.tc_pagemask = 0;
+    shoe.tc_ps = shoe.tc_is = shoe.tc_is_plus_ps = shoe.tc_enable = shoe.tc_sre = 0;
     shoe.pcsr = 0;
     shoe.ac = 0;
     memset(shoe.bad, 0, sizeof(shoe.bad));

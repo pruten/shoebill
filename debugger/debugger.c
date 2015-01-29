@@ -84,7 +84,7 @@ void printregs()
     print_mmu_rp(shoe.crp);
     
     printf("tc: e=%u sre=%u fcl=%u ps=%u is=%u (tia=%u tib=%u tic=%u tid=%u)\n",
-           tc_enable(), tc_sre(), tc_fcl(), tc_ps(), tc_is(), tc_tia(), tc_tib(), tc_tic(), tc_tid());
+           _tc_enable(), _tc_sre(), tc_fcl(), _tc_ps(), _tc_is(), tc_tia(), tc_tib(), tc_tic(), tc_tid());
     
     printf("\n");
 }
