@@ -584,7 +584,32 @@ static uint8_t via_read_reg(const uint8_t vianum, const uint8_t reg, const long 
             return via->ddra;
 
         case VIA_T2C_HI: {
-            const uint16_t counter = via->t2c - (uint16_t)_via_get_delta_counter(via->t2_last_set);
+            uint16_t counter = via->t2c - (uint16_t)_via_get_delta_counter(via->t2_last_set);
+            
+            /*
+             * This is a hack to allow A/UX 3.x.x to boot on fast hosts.
+             * The A/UX 3 kernel calls a function, SetUpTimeK, during boot
+             * to run a giant drba-to-self loop and time it via T2C.
+             * If the loop completes too quickly, (quicker than 0x492 E_CLOCK
+             * ticks on 3.0.0), it rejects it and tries again.
+             * 
+             * SetUpTimeK reads T2C twice and compares them to determine the
+             * time elapsed. I don't want to count on getting the order correct, 
+             * however. Therefore, we will fake it out by randomly adding 0x500
+             * to the the value of the clock whenever it's read by SetUpTimeK.
+             * By the Monte Carlo method, we'll eventually get a case where
+             * two sequential reads differ by at least 0x500.
+             *
+             * FIXME: optimize this better, stop using coff_find_func()
+             */
+            if (sr_s()) {
+                coff_symbol *symb = coff_find_func(shoe.coff, shoe.pc);
+                if (symb && strcmp(symb->name, "SetUpTimeK") == 0) {
+                    if (random() & 1)
+                        counter += 0x500;
+                }
+            }
+            
             return counter >> 8;
         }
         case VIA_T2C_LO: {
