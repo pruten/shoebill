@@ -9,30 +9,30 @@ Shoebill requires a Macintosh II, IIx or IIcx ROM, and a disk image with A/UX in
 [Download the latest release], and then see the [getting started] wiki.  
 Also check out [screenshots].
 
-__Update (Oct 15, 2014): Sorry there hasn't been a new release in a while. Ethernet is mostly-working in the latest source tree, and I'm currently working on a total FPU rewrite. I'll release 0.0.5 when the new FPU is mostly-working__
+__Update (April 9, 2015): Taking a break from regular development for a while. The last release was 0.0.4 in June 2014, and the latest commit implements ethernet and a new theoretically-very-accurate but totally untested FPU core with lots of suspected bugs. (But it seems to work better than the old FPU, anyways.) [The thread on emaculation.com] has tips on how to get ethernet working.__
 
 ####Supports
-* A/UX 1.1.1 through 3.1
+* A/UX 1.1.1 through 3.1 (and 3.1.1 a little)
 
 ####Currently Implements
 * 68020 CPU (mostly)
-* 68881 FPU (a little)
+* 68881 FPU (mostly)
 * 68851 PMMU (just enough to boot A/UX)
 * SCSI
 * ADB
 * PRAM
-* A NuBus video card with 24-bit depth
+* Ethernet (via emulated Apple EtherTalk/DP8390 card)
+* A NuBus video card with 24-bit depth. 
 
 #### Does not implement (yet)
 * Sound
 * Floppy
 * Serial ports
-* Ethernet
-* Support for multiple screens
 
     
 [Download the latest release]:https://github.com/pruten/Shoebill/releases
 [getting started]:https://github.com/pruten/Shoebill/wiki/Getting-Started
 [screenshots]:https://github.com/pruten/Shoebill/wiki/Screenshots
 [Shoebill 0.0.4 is available (Now with Windows & Linux ports)]:https://github.com/pruten/Shoebill/releases
+[The thread on emaculation.com]:http://www.emaculation.com/forum/viewtopic.php?f=7&t=8288
 
