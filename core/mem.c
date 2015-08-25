@@ -77,7 +77,7 @@ void _physical_get_io (void)
             return ;
         case 0x50014000 ... 0x50015fff: // Sound
             // slog("physical_get: got read to sound\n");
-            shoe.physical_dat = sound_dma_read_raw(shoe.physical_addr - 0x50014000, shoe.physical_size);
+            shoe.physical_dat = sound_dma_read_raw(shoe.physical_addr & 0x1fff, shoe.physical_size);
             // slog("soundsound read : register 0x%04x sz=%u\n",
                    //shoe.physical_addr - 0x50014000, shoe.physical_size);
             // shoe.physical_dat = 0;
@@ -205,7 +205,7 @@ void _physical_set_io (void)
             scsi_dma_write(shoe.physical_dat);
             return ;
         case 0x50014000 ... 0x50015fff: // Sound
-            sound_dma_write_raw(shoe.physical_addr - 0x50014000, shoe.physical_size, shoe.physical_dat);
+            sound_dma_write_raw(shoe.physical_addr & 0x1fff, shoe.physical_size, shoe.physical_dat);
             // slog("soundsound write: register 0x%04x sz=%u dat=0x%x\n",
                    // shoe.physical_addr - 0x50014000, shoe.physical_size, (uint32_t)shoe.physical_dat);
             // slog("physical_set: got write to sound\n");

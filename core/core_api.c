@@ -737,6 +737,7 @@ uint32_t shoebill_initialize(shoebill_config_t *config)
     init_adb_state();
     init_scsi_bus_state();
     init_iwm_state();
+    init_asc_state();
     
     /* Invalidate the pc cache */
     invalidate_pccache();
@@ -1020,7 +1021,7 @@ void slog(const char *fmt, ...)
 {
     va_list args;
  
-    return ;
+    // return ;
     
     va_start(args, fmt);
     vprintf(fmt, args);

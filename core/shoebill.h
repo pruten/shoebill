@@ -417,6 +417,27 @@ typedef struct {
     dbg_breakpoint_t *breakpoints;
 } debugger_state_t;
 
+// Sound (Apple Sound Chip)
+void sound_dma_write_raw(uint16_t addr, uint8_t sz, uint32_t data);
+uint32_t sound_dma_read_raw(uint16_t addr, uint8_t sz);
+void init_asc_state(void);
+
+typedef struct __attribute__ ((__packed__)) {
+    uint8_t buf[0x800];
+    uint8_t version; // read-only
+    uint8_t asc_mode;
+    uint8_t channel_ctrl;
+    uint8_t fifo_ctrl;
+    uint8_t fifo_intr; // read-only
+    uint8_t unknown1;
+    uint8_t volume_ctrl;
+    uint8_t clock_ctrl;
+    uint8_t unknown2[8];
+    
+    uint16_t left_ptr, right_ptr;
+} apple_sound_chip_registers_t;
+
+
 typedef enum {
     adb_talk,
     adb_listen,
@@ -820,6 +841,7 @@ typedef struct {
     pram_state_t pram;
     keyboard_state_t key;
     mouse_state_t mouse;
+    apple_sound_chip_registers_t asc;
     
     iwm_state_t iwm;
     
@@ -1063,9 +1085,5 @@ void nubus_ethernet_init(void *_ctx, uint8_t slotnum, uint8_t ethernet_addr[6]);
 uint32_t nubus_ethernet_read_func(uint32_t, uint32_t, uint8_t);
 void nubus_ethernet_write_func(uint32_t, uint32_t, uint32_t, uint8_t);
 void nubus_ethernet_destroy_func(uint8_t);
-
-// Sound (Apple Sound Chip)
-void sound_dma_write_raw(uint16_t addr, uint8_t sz, uint32_t data);
-uint32_t sound_dma_read_raw(uint16_t addr, uint8_t sz);
 
 #endif // _SHOEBILL_H
