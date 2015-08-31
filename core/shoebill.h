@@ -422,7 +422,7 @@ void sound_dma_write_raw(uint16_t addr, uint8_t sz, uint32_t data);
 uint32_t sound_dma_read_raw(uint16_t addr, uint8_t sz);
 void init_asc_state(void);
 
-typedef struct __attribute__ ((__packed__)) {
+typedef struct {
     uint8_t buf[0x800];
     uint8_t version; // read-only
     uint8_t asc_mode;
@@ -432,7 +432,7 @@ typedef struct __attribute__ ((__packed__)) {
     uint8_t unknown1;
     uint8_t volume_ctrl;
     uint8_t clock_ctrl;
-    uint8_t unknown2[8];
+    
     
     uint16_t left_ptr, right_ptr;
 } apple_sound_chip_registers_t;

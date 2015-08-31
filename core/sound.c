@@ -23,9 +23,18 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+/*
+ * Props to MESS for their EASC register map: http://www.mess.org/mess/driver_info/easc
+ * EASC's PCM mode is backwards compatible with ASC, so their registers are very similar.
+ */
+
 #include <assert.h>
 #include <string.h>
 #include "../core/shoebill.h"
+
+#define r_ptr (0x400 + (asc->right_ptr & 0x3ff)) /* right buf ptr */
+#define l_ptr (asc->left_ptr & 0x3ff) /* left buf ptr */
+#define m_ptr (asc->left_ptr & 0x7ff) /* mono buf ptr */
 
 void init_asc_state(void)
 {
@@ -40,42 +49,48 @@ static uint8_t sound_dma_read_byte(uint16_t addr)
     apple_sound_chip_registers_t *asc = &shoe.asc;
     
     if (addr < 0x800) {
-        
+        if (asc->asc_mode == 1) {
+            // PCM mode (FIFO is append-only)
+            if (asc->channel_ctrl & 2) {
+                // stereo mode - return the byte referenced by the right pointer
+                return asc->buf[r_ptr];
+            }
+            else {
+                // mono mode - return the byte referenced by the left pointer
+                return asc->buf[m_ptr];
+            }
+        }
+        else {
+            // Off or wavetable mode (FIFO is random access)
+            return asc->buf[addr];
+        }
     }
     
     switch (addr) {
         case 0x800: // Version
             return asc->version;
-            break;
             
         case 0x801: // ASC-mode
             return asc->asc_mode;
-            break;
             
         case 0x802: // Channel control
             return asc->channel_ctrl;
-            break;
             
         case 0x803: // FIFO control
             return asc->fifo_ctrl;
-            break;
         
         case 0x804: // FIFO interrupt
             //return asc->fifo_intr;
             return 0xff;
-            break;
             
         case 0x805: // Unknown (??)
             return asc->unknown1;
-            break;
             
         case 0x806: // Volume control
             return asc->volume_ctrl;
-            break;
         
         case 0x807: // Clock control
             return asc->clock_ctrl;
-            break;
     }
     
     return 0;
@@ -90,15 +105,30 @@ static void sound_dma_write_byte(uint16_t addr, uint8_t data)
             // PCM mode (FIFO is append-only)
             if (asc->channel_ctrl & 2) {
                 // stereo mode - each channel has its own buffer pointer
+                if (addr < 0x400) {
+                    // left buffer
+                    asc->buf[l_ptr] = data;
+                    asc->left_ptr++;
+                }
+                else {
+                    // right buffer
+                    asc->buf[r_ptr] = data;
+                    asc->right_ptr++;
+                }
+                return ;
+                
             }
             else {
-                // mono mode
+                // Mono mode
+                asc->buf[m_ptr] = data;
+                asc->left_ptr++;
+                return ;
             }
         }
         else {
             // Off or wavetable mode (FIFO is random access)
-            asc->buf[asc->left_ptr] = data;
-            asc->left_ptr = (asc->left_ptr + 1) & 0x7ff;
+            asc->buf[addr] = data;
+            return ;
         }
     }
     else {
@@ -199,13 +229,15 @@ ASC notes:
  0x800 - Version (?) MacII only ever seems to TST.B it
  (READ ONLY)
  
- $00 -> My Mac II's ASC's version. According to the Mac II rom, there seem to be other masks with non-0x00 versions.
+ $00 -> My Mac II's ASC's version
  
- $b0 -> something more advanced than regular ASC (something with registers in the $fxx range)
+ $?? -> Mac II's ROM is aware of other non-$00 ASC masks
+ 
+ $b0 -> EASC
  
  ————
  
- 0x801 - Mode (?) 0 == no output, 1 == PCM, 2 == wavetable
+ 0x801 - Mode (?) 0 == no output, 1 == PCM, 2 == wavetable, 3 == hissing static(??)
  - Preserves low 2 bits, ignores high 6 bits
  
  0x802 - Channel selector

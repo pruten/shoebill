@@ -305,7 +305,30 @@ static void inst_roxx_reg (void) {
 }
 
 static void inst_roxx_mem (void) {
-    assert(!"roxx_mem: unimplemented\n");
+    ~decompose(shoe.op, 1110 010 d 11 MMMMMM);
+    
+    call_ea_read(M, 2);
+    
+    const uint16_t dat = shoe.dat;
+    const uint16_t x = sr_x();
+    uint16_t b;
+    
+    if (!d) { // right
+        b = dat & 1;
+        shoe.dat = (dat >> 1) | (x << 15);
+    }
+    else { // left
+        b = dat >> 15;
+        shoe.dat = (dat << 1) | x;
+    }
+    
+    set_sr_x(b);
+    set_sr_v(0);
+    set_sr_c(b);
+    set_sr_n(shoe.dat & 0x8000);
+    set_sr_z(dat == 0);
+    
+    call_ea_write(M, 2);
 }
 
 static void inst_rox_reg (void) {
@@ -346,7 +369,28 @@ static void inst_rox_reg (void) {
 }
 
 static void inst_rox_mem (void) {
-    assert(!"rox_mem: unimplemented\n");
+    ~decompose(shoe.op, 1110 011 d 11 MMMMMM);
+    
+    call_ea_read(M, 2);
+    
+    const uint16_t dat = shoe.dat;
+    uint16_t b;
+    
+    if (!d) { // right
+        b = dat & 1;
+        shoe.dat = (dat >> 1) | (dat << 15);
+    }
+    else { // left
+        b = dat >> 15;
+        shoe.dat = (dat << 1) | (dat >> 15);
+    }
+    
+    set_sr_v(0);
+    set_sr_c(b);
+    set_sr_n(shoe.dat & 0x8000);
+    set_sr_z(dat == 0);
+    
+    call_ea_write(M, 2);
 }
 
 static void inst_sbcd (void) {
@@ -354,11 +398,57 @@ static void inst_sbcd (void) {
 }
 
 static void inst_pack (void) {
-    assert(!"Hey! inst_pack isn't implemented!\n");
+    ~decompose(shoe.op, 1000 yyy 10100 r xxx);
+    const uint16_t adj = nextword();
+    
+    if (!r) { // register mode
+        const uint16_t unpacked = (adj + (shoe.d[x] & 0xffff)) & 0x0f0f;
+        const uint8_t packed = unpacked | (unpacked >> 4);
+        set_d(y, packed, 1);
+    }
+    else { // predecrement mode
+        const uint16_t unpacked = (adj + lget(shoe.a[x] - 2, 2)) & 0x0f0f;
+        if sunlikely(shoe.abort) return ;
+        
+        const uint8_t packed = unpacked | (unpacked >> 4);
+        uint32_t dest_addr = shoe.a[y] - (y == 7 ? 2 : 1); // regular rules apply to byte-size predec/postinc on a7
+        if (x == y)
+            dest_addr -= 2; // decrements are cumulative when x==y
+        
+        lset(dest_addr, 1, packed);
+        if sunlikely(shoe.abort) return ;
+        
+        shoe.a[x] -= 2;
+        shoe.a[y] = dest_addr;
+    }
 }
 
 static void inst_unpk (void) {
-    assert(!"Hey! inst_unpk isn't implemented!\n");
+    ~decompose(shoe.op, 1000 yyy 11000 r xxx);
+    const uint16_t adj = nextword();
+    
+    if (!r) { // register mode
+        const uint16_t packed = shoe.d[x] & 0xff;
+        const uint16_t unpacked = ((packed & 0x0f) | ((packed & 0xf0) << 4)) + adj;
+        set_d(y, unpacked, 2);
+    }
+    else { // predecrement mode
+        // regular rules apply to byte-size predec/postinc on a7
+        const uint32_t src_addr = shoe.a[x] - (y == 7 ? 2 : 1);
+        // decrements are cumulative when x==y
+        const uint32_t dest_addr = (x == y) ? src_addr - 2 : shoe.a[y] - 2;
+        
+        const uint16_t packed = lget(src_addr, 1);
+        if sunlikely(shoe.abort) return ;
+        
+        const uint16_t unpacked = ((packed & 0x0f) | ((packed & 0xf0) << 4)) + adj;
+        
+        lset(dest_addr, 2, unpacked);
+        if sunlikely(shoe.abort) return ;
+        
+        shoe.a[x] = src_addr;
+        shoe.a[y] = dest_addr;
+    }
 }
 
 static void inst_divu (void) {
@@ -428,7 +518,9 @@ static void inst_divs (void) {
 }
 
 static void inst_bkpt (void) {
-    assert(!"Hey! inst_bkpt isn't implemented!\n");
+    ~decompose(shoe.op, 0100 1000 0100 1 vvv);
+    slog("bkpt: vector %u\n", v);
+    throw_illegal_instruction();
 }
 
 static void inst_swap (void) {
@@ -440,56 +532,74 @@ static void inst_swap (void) {
     set_sr_n(mib(shoe.d[r], 4));
 }
 
+/*
+ * This matches 68020's abcd implementation for every possible a, b, and X-bit
+ * Given packed BCD a and b, returns a + b + X as packed BCD
+ *
+ * (e.g. X=1: abcd f7,ff -> 5d,
+ *       X=0: abcd 05,05 -> 10)
+ */
+static uint8_t _abcd_core(const uint8_t a, const uint8_t b)
+{
+    uint16_t sum = sr_x();
+    
+    // First add the low digits
+    const uint8_t al = a & 0xf;
+    const uint8_t bl = b & 0xf;
+    sum += al + bl;
+    if (sum >= 10) {
+        // If al+bl > 10, carry the 1.
+        sum += 0x10;
+        sum -= 10;
+    }
+    
+    // Then add the high digits
+    const uint16_t ah = a & 0xf0;
+    const uint16_t bh = b & 0xf0;
+    sum += ah + bh;
+    if (sum >= (10 << 4)) {
+        sum += 0x100;
+        sum -= (10 << 4);
+    }
+    
+    // sr_n is undefined, but apparently unmodified on 68020
+    // same goes for sr_v
+    set_sr_x(sum >= 0x100);
+    set_sr_c(sum >= 0x100);
+    if (sum & 0xff)
+        set_sr_z(0);
+    return sum & 0xff;
+}
+
 static void inst_abcd (void) {
     ~decompose(shoe.op, 1100 xxx 10000 m yyy);
-    uint8_t packed_x, packed_y;
-    const uint8_t extend = sr_x() ? 1 : 0;
     
-    // slog("abcd: pc=0x%08x extend=%u m=%u x=%u y=%u\n", shoe.orig_pc, extend, m, x, y);
-    
-    if (m) {
-        // predecrement mem to predecrement mem
-        // FIXME: these addresses aren't predecremented (check whether a7 is incremented 2 bytes)
-        assert(!"acbd is broken");
-        packed_x = lget(shoe.a[x], 1);
-        if sunlikely(shoe.abort) return ;
-        packed_y = lget(shoe.a[y], 1);
-        if sunlikely(shoe.abort) return ;
+    if (!m) {
+        // Register -> register
+        const uint8_t sum = _abcd_core((uint8_t)shoe.d[x], (uint8_t)shoe.d[y]);
+        set_d(x, sum, 1);
     }
     else {
-        packed_x = shoe.d[x] & 0xff;
-        packed_y = shoe.d[y] & 0xff;
-    }
-    
-    if (((packed_x & 0xF) > 9) || (((packed_x>>4) & 0xF) > 9) || ((packed_y & 0xF) > 9) || (((packed_y>>4) & 0xF) > 9))
-        assert(!"abcd: badly packed byte");
-    
-    const uint8_t unpacked_x = (packed_x & 0xf) + ((packed_x >> 4) * 10);
-    const uint8_t unpacked_y = (packed_y & 0xf) + ((packed_y >> 4) * 10);
-    const uint8_t sum = unpacked_x + unpacked_y + extend;
-    const uint8_t unpacked_sum = sum % 100;
-    const uint8_t carry = (sum >= 100);
-    const uint8_t packed_sum = ((unpacked_sum / 10) << 4) | (unpacked_sum % 10);
-    
-    // slog("abcd: packed_x = 0x%02x(%u) packed_y = 0x%02x(%u) sum=0x%02x(%u) carry=%u\n", packed_x, unpacked_x, packed_y, unpacked_y, packed_sum, unpacked_sum, carry);
-    
-    if (unpacked_sum)
-        set_sr_z(0);
-    set_sr_c(carry);
-    set_sr_x(carry);
-    
-    if (m) {
-        lset(shoe.a[x]-1, 1, packed_sum);
+        // Memory -> memory
+        // Usual rules apply for byte-size if x or y is a7
+        const uint32_t source_addr = shoe.a[y] - (y == 7 ? 2 : 1);
+        // The decrements are cumulative if x==y
+        const uint32_t dest_addr = (x == y ? source_addr : shoe.a[x]) - (x == 7 ? 2 : 1);
+        
+        const uint8_t a = lget(source_addr, 1);
         if sunlikely(shoe.abort) return ;
         
-        shoe.a[x]--;
-        if (x != y)
-            shoe.a[y]--;
+        const uint8_t b = lget(dest_addr, 1);
+        if sunlikely(shoe.abort) return ;
+        
+        const uint8_t sum = _abcd_core(a, b);
+        
+        lset(dest_addr, 1, sum);
+        if sunlikely(shoe.abort) return ;
+        
+        shoe.a[y] = source_addr;
+        shoe.a[x] = dest_addr;
     }
-    else {
-        set_d(x, packed_sum, 1);
-    }
-
 }
 
 static void inst_muls (void) {
@@ -1363,6 +1473,23 @@ static void inst_moves (void) {
     
 }
 
+static void _cas_comparator(uint32_t source, uint32_t dest, uint8_t sz)
+{
+    const uint32_t chopped_dest = chop(dest, sz);
+    const uint32_t chopped_source = chop(source, sz);
+    const uint32_t R = chopped_dest - chopped_source;
+    
+    const _Bool Sm = mib(chopped_source, sz);
+    const _Bool Dm = mib(chopped_dest, sz);
+    const _Bool Rm = mib(R, sz);
+    const _Bool z = (chop(R, sz) == 0);
+    
+    set_sr_z(z);
+    set_sr_n(Rm);
+    set_sr_v((!Sm && Dm && !Rm) || (Sm && !Dm && Rm));
+    set_sr_c((Sm && !Dm) || (Rm && !Dm) || (Sm && Rm));
+}
+
 static void inst_cas (void) {
     const uint16_t ext = nextword();
     ~decompose(shoe.op, 0000 1ss0 11 MMMMMM);
@@ -1377,14 +1504,9 @@ static void inst_cas (void) {
     // EA = destination
     // Rc = source
     // EA = result
-    const uint32_t chopped_source = get_d(c, sz);
-    const uint32_t R = shoe.dat - chopped_source;
-    const _Bool Sm = mib(get_d(c, sz), sz);
-    const _Bool Dm = ea_n(sz);
-    const _Bool Rm = mib(R, sz);
-    const _Bool z = (chop(R, sz) == 0);
+    _cas_comparator(get_d(c, sz), (uint32_t)shoe.dat, sz);
      
-    if (z) {
+    if (sr_z()) {
         // "If the operands are equal, the instruction writes the
         //  update operand (Du) to the effective address operand"
         shoe.dat = get_d(u, sz);
@@ -1396,15 +1518,73 @@ static void inst_cas (void) {
         call_ea_read_commit(M, sz);
         set_d(c, shoe.dat, sz);
     }
-    
-    set_sr_z(z);
-    set_sr_n(Rm);
-    set_sr_v((!Sm && Dm && !Rm) || (Sm && !Dm && Rm));
-    set_sr_c((Sm && !Dm) || (Rm && !Dm) || (Sm && Rm));
 }
 
 static void inst_cas2 (void) {
-    assert(!"inst_cas2: error: not implemented!");
+    ~decompose(shoe.op, 0000 1 1s 0 1111 1100);
+    const uint16_t r1 = nextword();
+    const uint16_t r2 = nextword();
+    ~decompose(r1, d nnn 000 uuu 000 ccc);
+    ~decompose(r2, D NNN 000 UUU 000 CCC);
+    
+    const uint8_t sz = 2 << s;
+    
+    const uint32_t memory_op_addr_1 = d ? shoe.a[n] : shoe.d[n];
+    const uint32_t memory_op_addr_2 = D ? shoe.a[N] : shoe.d[N];
+    
+    const uint32_t compare_op_1 = get_d(c, sz);
+    const uint32_t compare_op_2 = get_d(C, sz);
+    
+    const uint32_t update_op_1 = get_d(u, sz);
+    const uint32_t update_op_2 = get_d(U, sz);
+    
+    uint32_t memory_op_data_1, memory_op_data_2;
+    _Bool equal = 0;
+    
+    // -- If we ever support SMP, synchronize and block the other CPUs here --
+    
+    memory_op_data_1 = lget(memory_op_addr_1, sz);
+    if sunlikely(shoe.abort) goto unblock ;
+    
+    memory_op_data_2 = lget(memory_op_addr_2, sz);
+    if sunlikely(shoe.abort) goto unblock ;
+    
+    // Compare operand pair 1, and if it's equal, compare operand pair 2
+    _cas_comparator(compare_op_1, memory_op_data_1, sz);
+    if (sr_z()) {
+        _cas_comparator(compare_op_2, memory_op_data_2, sz);
+        equal = sr_z();
+        if (equal) {
+            // Both comparison pairs match, write the update operands
+            
+            lset(memory_op_addr_1, sz, update_op_1);
+            if sunlikely(shoe.abort) goto unblock ;
+            
+            lset(memory_op_addr_2, sz, update_op_2);
+        }
+    }
+    // Else, one of the comparisons failed, we can unblock now
+    
+unblock:
+    // -- unblock CPUs here --
+    
+    if sunlikely(shoe.abort) return ;
+    
+    if (!equal) {
+        /* 
+         * 68040 note:
+         * 68kprm says (I think?) that memory_op_data_1 is written
+         * back to memory_op_addr_1 as part of the locked access cycle
+         * Remember to do that if we ever support 68040 cores.
+         */
+        
+        // Copy memory_op_data_1/2 to d[c] and d[C]
+        // (if c==C, that register gets memory_op_data_1)
+        set_d(C, memory_op_data_2, sz);
+        set_d(c, memory_op_data_1, sz);
+    }
+    
+    return ;
 }
 
 static void inst_move_to_sr (void) {
