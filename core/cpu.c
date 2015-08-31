@@ -51,7 +51,63 @@ static void inst_callm(void) {
 }
 
 static void inst_chk2_cmp2 (void) {
-    assert(!"chk2_cmp2: error: not implemented\n");
+    const uint16_t ext = nextword();
+    ~decompose(shoe.op, 0000 0ss0 11 MMMMMM);
+    ~decompose(ext, d rrr k 000 0000 0000);
+    
+    const uint16_t sz = 1<<s;
+    
+    // Find the given EA
+    call_ea_addr(M);
+    const uint32_t bound_addr = shoe.dat;
+    
+    // And load the upper and lower bound values from that address
+    uint32_t lower_bound, upper_bound;
+    if (sz == 1) {
+        const uint16_t tmp = lget(bound_addr, 2);
+        if sunlikely(shoe.abort) return ;
+        lower_bound = tmp >> 8;
+        upper_bound = tmp & 0xff;
+    }
+    else if (sz == 2) {
+        const uint32_t tmp = lget(bound_addr, 4);
+        if sunlikely(shoe.abort) return ;
+        lower_bound = tmp >> 16;
+        upper_bound = tmp & 0xffff;
+    }
+    else {
+        lower_bound = lget(bound_addr, 4);
+        if sunlikely(shoe.abort) return ;
+        upper_bound = lget(bound_addr + 4, 4);
+        if sunlikely(shoe.abort) return ;
+    }
+    
+    // Load the value to compare
+    uint32_t value;
+    if (d) {
+        // Address register (always sign-extended to 32 bits)
+        if (s == 1) value = (int8_t)shoe.a[r]; // FIXME: does 68020 really support byte-size addr reg operations?
+        else if (s == 2) value = (int16_t)shoe.a[r];
+        else value = shoe.a[r];
+    }
+    else {
+        // Data register
+        value = get_d(r, sz);
+    }
+    
+    // c = (LB <= UB) ^ (IR < LB) v (R > UB)) v (UB < LB) ^ (R > UB) ^ (R < LB)
+    // according to 68kprm's awful typesetting
+    const _Bool z = (value == upper_bound) || (value == lower_bound);
+    const _Bool c =
+        ((lower_bound <= upper_bound) && ((value < lower_bound) || (value > upper_bound)))
+        || ((upper_bound < lower_bound) && (value > upper_bound) && (value < lower_bound));
+    
+    set_sr_c(c);
+    set_sr_z(z);
+    
+    // If it's out of bounds, and this is chk2, throw an exception.
+    if (k && c)
+        throw_frame_two(shoe.sr, shoe.pc, 6, shoe.orig_pc);
 }
 
 static void inst_illegal (void) {
@@ -192,9 +248,6 @@ static void inst_asx_mem (void) {
         set_sr_z(R==0);
     }
 }
-
-// GCC returns garbage when you shift a value by >= its size: ((uint32_t)123)<<32) == garbage
-// So we'll use macros for risky shifts
 
 #define shiftl(_v, _b) ((uint32_t) (((uint64_t)(_v)) << (_b)))
 #define shiftr(_v, _b) ((uint32_t) (((uint64_t)(_v)) >> (_b)))
@@ -393,10 +446,6 @@ static void inst_rox_mem (void) {
     call_ea_write(M, 2);
 }
 
-static void inst_sbcd (void) {
-    assert(!"Hey! inst_sbcd isn't implemented!\n");
-}
-
 static void inst_pack (void) {
     ~decompose(shoe.op, 1000 yyy 10100 r xxx);
     const uint16_t adj = nextword();
@@ -571,6 +620,48 @@ static uint8_t _abcd_core(const uint8_t a, const uint8_t b)
     return sum & 0xff;
 }
 
+/*
+ * This matches 68020's sbcd implementation for every possible source, dest, and sr_x() value
+ * Source and dest are packed BCD, the result is packed BCD.
+ */
+static uint8_t _sbcd_core(const uint8_t source, const uint8_t dest)
+{
+    const uint16_t source_low = (source & 0xf) + sr_x();
+    const uint16_t dest_low = dest & 0xf;
+    uint16_t result_low;
+    _Bool carry_low = 0;
+
+    if (dest_low >= source_low)
+        result_low = dest_low - source_low;
+    else {
+        result_low = 10 + dest_low - source_low;
+        carry_low = 1;
+    }
+    
+    const uint16_t source_high = (source >> 4) + carry_low;
+    const uint16_t dest_high = dest >> 4;
+    uint16_t result_high;
+    _Bool carry_high = 0;
+    
+    if (dest_high >= source_high)
+        result_high = dest_high - source_high;
+    else {
+        result_high = 10 + dest_high - source_high;
+        carry_high = 1;
+    }
+    
+    const uint16_t result = (result_high << 4) + result_low;
+    carry_high |= (result >> 8) != 0;
+    
+    // The results of sr_n and sr_v are undefined, but they seem unmodified on 68020
+    set_sr_x(carry_high);
+    set_sr_c(carry_high);
+    if (result & 0xff)
+        set_sr_z(0);
+    
+    return result & 0xff;
+}
+
 static void inst_abcd (void) {
     ~decompose(shoe.op, 1100 xxx 10000 m yyy);
     
@@ -584,7 +675,7 @@ static void inst_abcd (void) {
         // Usual rules apply for byte-size if x or y is a7
         const uint32_t source_addr = shoe.a[y] - (y == 7 ? 2 : 1);
         // The decrements are cumulative if x==y
-        const uint32_t dest_addr = (x == y ? source_addr : shoe.a[x]) - (x == 7 ? 2 : 1);
+        const uint32_t dest_addr = ((x == y) ? source_addr : shoe.a[x]) - (x == 7 ? 2 : 1);
         
         const uint8_t a = lget(source_addr, 1);
         if sunlikely(shoe.abort) return ;
@@ -600,6 +691,51 @@ static void inst_abcd (void) {
         shoe.a[y] = source_addr;
         shoe.a[x] = dest_addr;
     }
+}
+
+static void inst_sbcd (void) {
+    ~decompose(shoe.op, 1000 ddd 10000 m sss);
+    
+    // 68kprm flipped x and y between sbcd and abcd - so using s(ource) and d(est) for clarity
+    
+    if (!m) {
+        // Register -> register
+        const uint8_t diff = _sbcd_core((uint8_t)shoe.d[s], (uint8_t)shoe.d[d]);
+        set_d(d, diff, 1);
+    }
+    else {
+        // Memory -> memory
+        // Usual rules apply for byte-size if x or y is a7
+        const uint32_t source_addr = shoe.a[s] - (s == 7 ? 2 : 1);
+        // The decrements are cumulative if x==y
+        const uint32_t dest_addr = ((d == s) ? source_addr : shoe.a[d]) - (d == 7 ? 2 : 1);
+        
+        const uint8_t sdat = lget(source_addr, 1);
+        if sunlikely(shoe.abort) return ;
+        
+        const uint8_t ddat = lget(dest_addr, 1);
+        if sunlikely(shoe.abort) return ;
+        
+        const uint8_t diff = _sbcd_core(sdat, ddat);
+        
+        lset(dest_addr, 1, diff);
+        if sunlikely(shoe.abort) return ;
+        
+        shoe.a[s] = source_addr;
+        shoe.a[d] = dest_addr;
+    }
+}
+
+static void inst_nbcd (void) {
+    ~decompose(shoe.op, 0100 1000 00 MMMMMM);
+    
+    /* 
+     * With regard to results and cond codes,
+     * (nbcd x) is exactly the same as (sbcd x,y) when y==0
+     */
+    call_ea_read(M, 1);
+    shoe.dat = _sbcd_core((uint8_t)shoe.dat, 0);
+    call_ea_write(M, 1);
 }
 
 static void inst_muls (void) {
@@ -951,8 +1087,10 @@ static void inst_cmp (void) {
     // (Dn-<ea>) -> result
     ~decompose(shoe.op, 1011 rrr ooo MMMMMM);
     const uint8_t sz = 1<<o;
+    
     call_ea_read(M, sz);
     call_ea_read_commit(M, sz);
+    
     const uint8_t Sm = ea_n(sz);
     const uint8_t Dm = mib(get_d(r,sz),sz);
     const uint32_t R = shoe.d[r]-shoe.dat;
@@ -2076,12 +2214,12 @@ static void inst_chk (void) {
         ea = shoe.dat & 0xffffffff;
     }
     
+    call_ea_read_commit(M, sz);
+    
     if ((reg < 0) || (reg > ea)) {
         set_sr_n((reg < 0));
         throw_frame_two(shoe.sr, shoe.pc, 6, shoe.orig_pc);
     }
-    
-    call_ea_read_commit(M, sz);
 
     return ;
 }
@@ -2090,9 +2228,7 @@ static void inst_jsr (void) {
     ~decompose(shoe.op, 0100 1110 10 MMMMMM);
     call_ea_addr(M);
     
-    // my quadra 800 doesn't object when a7 is odd... 
-    // so, no extra error checking needed
-    lset(shoe.a[7]-4, 4, shoe.pc);
+    lset(shoe.a[7] - 4, 4, shoe.pc);
     if sunlikely(shoe.abort) return ;
     
     // slog("jsr: writing pc (0x%08x) to *0x%08x (phys=0x%08x)\n", shoe.pc, shoe.a[7]-4, shoe.physical_addr);
@@ -2350,10 +2486,6 @@ abort:
         //shoe.a[M&7] += sz;
     
     return ;
-}
-    
-static void inst_nbcd (void) {
-    assert(!"inst_nbcd: fixme: I'm not implemented!\n");
 }
 
 static void inst_eori_to_ccr (void) {
