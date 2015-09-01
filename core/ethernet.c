@@ -594,7 +594,7 @@ uint32_t nubus_ethernet_read_func(const uint32_t rawaddr,
                         goto done;
                         
                     case 10: // reserved 1
-                        assert("read to reserved 1");
+                        assert(!"read to reserved 1");
                         goto done;
                         
                     case 11: // reserved 2

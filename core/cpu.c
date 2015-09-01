@@ -47,7 +47,15 @@ static const uint16_t cc_consts[16] = {
 
 
 static void inst_callm(void) {
-    assert(!"callm: error, not implemented\n");
+    // I'm not planning on supporting 68020 "modules" any time soon
+    slog("unimplemented instruction! callm\n");
+    throw_illegal_instruction();
+}
+
+static void inst_rtm (void) {
+    // I'm not planning on supporting 68020 "modules" any time soon
+    slog("unimplemented instruction! rtm\n");
+    throw_illegal_instruction();
 }
 
 static void inst_chk2_cmp2 (void) {
@@ -118,10 +126,6 @@ static void inst_move16 (void) {
     assert(!"move16: SHOULD NOT BE CALLED\n"); // shouldn't be called by 68020 decoder
 }
 
-static void inst_rtm (void) {
-    assert(!"rtm: error: not implemented\n");
-}
-
 static void inst_tas (void) {
     ~decompose(shoe.op, 0100 1010 11 MMMMMM);
     
@@ -158,6 +162,7 @@ static void inst_trapv (void) {
         throw_frame_two(shoe.sr, shoe.pc, 7, shoe.orig_pc);
 }
 
+/* FIXME: can be made O(1) */
 static void inst_asx_reg (void) {
     ~decompose(shoe.op, 1110 ccc d ss i 00 rrr);
     const uint8_t sz = 1<<s;
@@ -236,7 +241,7 @@ static void inst_asx_mem (void) {
         const uint16_t R = (uint16_t)(((int16_t)dat) >> 1);
         const uint16_t lost = dat & 1;
         
-        slog("asr_mem: shifted 0x%04x to 0x%04x lost=%u\n", dat, R, lost);
+        // slog("asr_mem: shifted 0x%04x to 0x%04x lost=%u\n", dat, R, lost);
         
         shoe.dat = R;
         call_ea_write(M, 2);
@@ -503,67 +508,74 @@ static void inst_unpk (void) {
 static void inst_divu (void) {
     ~decompose(shoe.op, 1000 rrr 011 MMMMMM);
     
-    // uncommitted_ea_read_pc is uninitialized for EA modes that don't change the PC,
-    // but we might need it if we need to throw a divide-by-zero exception,
-    // so initialize it here, just in case.
-    shoe.uncommitted_ea_read_pc = shoe.pc;
-    
     call_ea_read(M, 2);
+    call_ea_read_commit(M, 2);
     
     const uint32_t dividend = shoe.d[r];
     const uint16_t divisor = (uint16_t)shoe.dat;
     
+    set_sr_c(0); // 68kprm: carry is "always cleared"
+    
     if sunlikely(divisor == 0) {
-        throw_frame_two(shoe.orig_sr, shoe.uncommitted_ea_read_pc, 5, shoe.orig_pc);
+        // Throw divide by zero exception
+        // N, V, and Z are undefined in this case
+        throw_frame_two(shoe.sr, shoe.pc, 5, shoe.orig_pc);
         return ;
     }
-    
-    call_ea_read_commit(M, 2);
     
     const uint32_t quotient_32 = dividend / divisor;
     const uint32_t remainder_32 = dividend % divisor;
   
-    shoe.d[r] = (remainder_32 << 16) | (quotient_32 & 0xffff);
+    if (quotient_32 >> 16) {
+        // If quotient overflow, set v=1, and do nothing else
+        set_sr_v(1);
+        // N and Z are undefined in this case
+        return ;
+    }
     
-    set_sr_c(0);
-    set_sr_n((quotient_32>>15)&1);
-    set_sr_z((quotient_32 & 0xffff) == 0);
-    set_sr_v(quotient_32 >> 16);
+    shoe.d[r] = (remainder_32 << 16) | quotient_32;
+    
+    set_sr_n(quotient_32 >> 15);
+    set_sr_z(quotient_32 == 0);
+    set_sr_v(0);
 }
 
 static void inst_divs (void) {
     ~decompose(shoe.op, 1000 rrr 111 MMMMMM);
     
-    // uncommitted_ea_read_pc is uninitialized for EA modes that don't change the PC,
-    // but we might need it if we need to throw a divide-by-zero exception,
-    // so initialize it here, just in case.
-    shoe.uncommitted_ea_read_pc = shoe.pc;
-    
     call_ea_read(M, 2);
+    call_ea_read_commit(M, 2);
     
     const int32_t dividend = (int32_t)shoe.d[r];
-    const uint16_t u_divisor = (uint16_t)shoe.dat;
-    const int16_t s_divisor = (int16_t)shoe.dat;
+    const int16_t divisor = (int16_t)shoe.dat;
     
-    if sunlikely(s_divisor == 0) {
-        throw_frame_two(shoe.orig_sr, shoe.uncommitted_ea_read_pc, 5, shoe.orig_pc);
+    set_sr_c(0); // 68kprm: carry is "always cleared"
+    
+    if sunlikely(divisor == 0) {
+        // Throw divide by zero exception
+        // N, V, and Z are undefined in this case
+        throw_frame_two(shoe.sr, shoe.pc, 5, shoe.orig_pc);
         return ;
     }
     
-    call_ea_read_commit(M, 2);
-    
-    const int32_t s_quotient_32 = dividend / s_divisor;
-    const int32_t s_remainder_32 = dividend % s_divisor;
+    const int32_t s_quotient_32 = dividend / divisor;
+    const int32_t s_remainder_32 = dividend % divisor;
     
     const uint32_t u_quotient_32 = (uint32_t)s_quotient_32;
     const uint32_t u_remainder_32 = (uint32_t)s_remainder_32;
     
+    if (s_quotient_32 != (int16_t)s_quotient_32) {
+        // If quotient overflow, set v=1, and do nothing else
+        set_sr_v(1);
+        // N and Z are undefined in this case
+        return ;
+    }
+    
     shoe.d[r] = (u_remainder_32 << 16) | (u_quotient_32 & 0xffff);
     
-    set_sr_c(0);
-    set_sr_n((u_quotient_32>>15)&1);
+    set_sr_n((u_quotient_32 >> 15) & 1);
     set_sr_z((u_quotient_32 & 0xffff) == 0);
-    set_sr_v(u_quotient_32 >> 16);
+    set_sr_v(0);
 }
 
 static void inst_bkpt (void) {
@@ -819,7 +831,10 @@ static void inst_rtr (void) {
     
     shoe.a[7] += 6;
     
-    // We don't need to use sr_set() here because only changing the condition codes
+    /*
+     * We don't need to use sr_set() here because only the condition
+     * codes can change.
+     */
     shoe.sr = (shoe.sr & 0xff00) | (ccr & 0x00ff);
     shoe.pc = pc;
 }
@@ -1009,9 +1024,12 @@ static void inst_add (void) {
 
 static void inst_adda (void) {
     ~decompose(shoe.op, 1101 rrr s11 MMMMMM)
-    const uint8_t sz = 2 + 2*s;
+    
+    const uint8_t sz = 2 << s;
+    
     call_ea_read(M, sz);
     call_ea_read_commit(M, sz);
+    
     if (s) { // long
         shoe.a[r] += shoe.dat;
     } else { // word
@@ -1019,6 +1037,11 @@ static void inst_adda (void) {
         shoe.a[r] += ea;
     }
 }
+
+/*static void inst_addx (void) {
+    ~decompose(shoe.op, 1101 xxx 1 ss 00 r yyy);
+    const uint16_t sz = 1 << s;
+} */
 
 static void inst_addx (void) {
     ~decompose(shoe.op, 1101 xxx 1 ss 00 r yyy);
@@ -1079,6 +1102,7 @@ static void inst_addx (void) {
     set_sr_x(sr_c());
     set_sr_n(Rm);
 }
+
 
 static void inst_cmp (void) {
     // cmp <ea>, Dn
@@ -1146,7 +1170,7 @@ static void inst_cmpa (void) {
     const uint8_t Rm = mib(R, 4);
     const uint8_t Sm = mib(shoe.dat, 4);
     const uint8_t Dm = mib(shoe.a[r], 4);
-    set_sr_z(R == 0); /* <- This is where A/UX 3.0.0 started working */
+    set_sr_z(R == 0);
     set_sr_n(Rm);
     set_sr_v((!Sm && Dm && !Rm) || (Sm && !Dm && Rm));
     set_sr_c((Sm && !Dm) || (Rm && !Dm) || (Sm && Rm));
@@ -1250,64 +1274,79 @@ static void inst_long_mul (void) {
     }
 }
 
+static void _inst_long_udiv (const uint16_t ext, const uint32_t divisor) {
+    ~decompose(ext, 0 qqq 0 s 0000000 rrr);
+    
+    uint64_t dividend;
+    
+    if (s)
+        dividend = (((uint64_t)shoe.d[r])<<32) | shoe.d[q];
+    else
+        dividend = shoe.d[q];
+
+    const uint64_t Q = dividend / divisor;
+    const uint32_t R = dividend % divisor;
+    if (Q >> 32) {
+        // If overflow, set v=1. Other conds are undefined
+        set_sr_v(1);
+        return ;
+    }
+    
+    set_sr_v(0);
+    set_sr_z(Q == 0);
+    set_sr_n(Q >> 31);
+    
+    shoe.d[r] = R;
+    shoe.d[q] = (uint32_t)Q;
+}
+
+static void _inst_long_sdiv (const uint16_t ext, const int32_t divisor) {
+    ~decompose(ext, 0 qqq 1 s 0000000 rrr);
+    
+    int64_t dividend;
+    if (s)
+        dividend = (((uint64_t)shoe.d[r])<<32) | shoe.d[q];
+    else
+        dividend = (int32_t)shoe.d[q];
+    
+    const int64_t Q = dividend / divisor;
+    const int32_t R = dividend % divisor;
+    
+    if (Q != ((int32_t)Q)) {
+        // If overflow, set v=1. Other conds are undefined
+        set_sr_v(1);
+        return ;
+    }
+    
+    set_sr_v(0);
+    set_sr_z(Q == 0);
+    set_sr_n(Q < 0);
+    
+    shoe.d[r] = (uint32_t)R;
+    shoe.d[q] = (uint32_t)(Q & 0xffffffff);
+}
+
 static void inst_long_div (void) {
     const uint16_t ext = nextword();
     ~decompose(shoe.op, 0100 1100 01 MMMMMM);
     ~decompose(ext, 0 qqq u s 0000000 rrr);
     
-    // uncommitted_ea_read_pc is uninitialized for EA modes that don't change the PC,
-    // but we might need it if we need to throw a divide-by-zero exception,
-    // so initialize it here, just in case.
-    shoe.uncommitted_ea_read_pc = shoe.pc;
-    
     call_ea_read(M, 4);
+    call_ea_read_commit(M, 4);
+    
+    set_sr_c(0); // 68kprm: carry is "always cleared"
     
     const uint32_t divisor = shoe.dat;
     if sunlikely(divisor == 0) {
-        throw_frame_two(shoe.orig_sr, shoe.uncommitted_ea_read_pc, 5, shoe.orig_pc);
+        throw_frame_two(shoe.orig_sr, shoe.pc, 5, shoe.orig_pc);
         return ;
     }
     
-    call_ea_read_commit(M, 4);
+    if (u) // Signed
+        _inst_long_sdiv(ext, divisor);
+    else // Unsigned
+        _inst_long_udiv(ext, divisor);
     
-    uint64_t dividend;
-    if (s)
-        dividend = (((uint64_t)shoe.d[r])<<32) | shoe.d[q];
-    else {
-        if (u) // if signed-mode, we need to sign extend 32-bit dividends (This caused a quickdraw bug that took forever to debug!)
-            dividend = ((int32_t)shoe.d[q]);
-        else
-            dividend = shoe.d[q];
-    }
-    
-    uint64_t Q;
-    uint32_t R;
-    if (u) { // if signed
-        Q = (uint64_t)((int64_t)(((int64_t)dividend) / ((int32_t)divisor)));
-        R = (uint32_t)((int32_t)(((int64_t)dividend) % ((int32_t)divisor)));
-    } else { // if unsigned
-        Q = ((uint64_t)dividend) / ((uint32_t)divisor);
-        R = ((uint64_t)dividend) % ((uint32_t)divisor);
-    }
-    
-    if (s) { // if 64 bit dividend,
-        const uint8_t overflow = ((Q>>32)!=0);
-        set_sr_z((Q & 0xffffffff) == 0);
-        set_sr_n((Q>>31)&1);
-        set_sr_v(overflow);
-        set_sr_c(0);
-        if (!overflow) { // only modify the registers if !overflow
-            shoe.d[r] = R;
-            shoe.d[q] = (uint32_t)Q;
-        }
-    } else { // if 32 bit dividend
-        set_sr_z((Q & 0xffffffff) == 0);
-        set_sr_n((Q>>31)&1);
-        set_sr_v(0); // can't overflow with 32 bit dividend
-        set_sr_c(0);
-        shoe.d[r] = R;
-        shoe.d[q] = (uint32_t)Q; // if r==q, then only set r[q]=Q
-    }
 }
 
 static void inst_addq (void) {
@@ -2939,7 +2978,6 @@ static void inst_bchg_reg (void) {
     
     const uint32_t z = ((shoe.d[r] & (1 << (shoe.d[r] % 8))) == 0);
     
-    // shoe.dat ^= (0x80 >> (shoe.d[r] % 8)); // NO NO! BAD
     shoe.dat ^= (1 << (shoe.d[r] % 8));
     
     call_ea_write(M, 1);
@@ -3146,7 +3184,6 @@ static void inst_mc68851_decode (void) {
             throw_illegal_instruction();
             return ;
     }
-    assert(!"never get here");
 }
 
 static void inst_unknown (void) {
@@ -3278,7 +3315,7 @@ static void inst_trap (void) {
     return ;
     
 fail:
-    assert(!"trap - push_a7 raised shoe.abort\n"); // I can't handle this yet
+    assert(!"trap - push_a7 raised shoe.abort\n"); // FIXME
 }
 
 

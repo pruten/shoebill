@@ -766,7 +766,7 @@ void via_write_raw (void)
         via_write_reg(vianum, reg+1, (uint8_t)shoe.physical_dat, now);
     }
     else
-        assert("Writing multiple bytes to the same VIA register!");
+        assert(!"Writing multiple bytes to the same VIA register!");
 
     pthread_mutex_unlock(&shoe.via_cpu_lock);
 }
