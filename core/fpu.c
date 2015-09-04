@@ -3066,7 +3066,7 @@ void inst_fscc () {
      * inst_f*cc instructions throw a pre-instruction exception
      * if b && cc_nan
      */
-    if (b && _bsun_test())
+    if (b && cc_nan && _bsun_test())
         return ;
     
     shoe.dat = fpu_test_cc(c) ? 0xff : 0;
@@ -3087,7 +3087,7 @@ void inst_fbcc () {
      * inst_f*cc instructions throw a pre-instruction exception 
      * if b && cc_nan
      */
-    if (b && _bsun_test())
+    if (b && cc_nan && _bsun_test())
         return ;
     
     if (fpu_test_cc(c)) {
@@ -3190,7 +3190,7 @@ void inst_fdbcc () {
      * inst_f*cc instructions throw a pre-instruction exception
      * if b && cc_nan
      */
-    if (b && _bsun_test())
+    if (b && cc_nan && _bsun_test())
         return ;
     
     if (fpu_test_cc(c)) {
@@ -3225,7 +3225,7 @@ void inst_ftrapcc () {
      * inst_f*cc instructions throw a pre-instruction exception
      * if b && cc_nan
      */
-    if (b && _bsun_test())
+    if (b && cc_nan && _bsun_test())
         return ;
     
     if (fpu_test_cc(c))
