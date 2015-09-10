@@ -1038,71 +1038,52 @@ static void inst_adda (void) {
     }
 }
 
-/*static void inst_addx (void) {
-    ~decompose(shoe.op, 1101 xxx 1 ss 00 r yyy);
-    const uint16_t sz = 1 << s;
-} */
-
 static void inst_addx (void) {
-    ~decompose(shoe.op, 1101 xxx 1 ss 00 r yyy);
-    const uint8_t sz = 1<<s;
+    ~decompose(shoe.op, 1101 xxx 1 ss 00 m yyy);
+    const uint8_t sz = 1 << s;
     
-    const uint8_t extend_bit = (sr_x() != 0);
+    uint32_t S, D, R;
     
-    uint8_t Sm, Dm, Rm;
-    
-    if (!r) { // x and y are data registers
-        // Sm = mib(shoe.d[y] + extend_bit, sz); // FIXME: I am almost certain this is wrong
-        Sm = mib(shoe.d[y], sz);
-        Dm = mib(shoe.d[x], sz);
-        
-        const uint32_t R = shoe.d[y] + extend_bit + shoe.d[x];
-        
-        // slog("addx: S d[%u] = 0x%x, D d[%u] = 0x%x, R = 0x%x\n", crop(shoe.d[y], sz), crop(shoe.d[x], sz), crop(R, sz));
-        
+    if (!m) {
+        // Register -> register
+        S = shoe.d[y];
+        D = shoe.d[x];
+        R = S + D + sr_x();
         set_d(x, R, sz);
-        Rm = mib(R, sz);
-        if (chop(R, sz)) // Z is cleared only if result is non-zero
-            set_sr_z(0);
-        
     }
-    else { // memory to memory
-        // FIXME: Definitely broken!
-        // The subx version thinks that (sz==1) means predecrement 2 bytes, but I have no idea where it got that logic from.
-        assert(y!=7 && x!=7);
-        const uint32_t predec_y = shoe.a[y] - sz;
-        const uint32_t predec_x = shoe.a[x] - sz;
+    else {
+        // Memory -> memory
+        // Usual rules apply for byte-size if x or y is a7
+        const uint32_t source_addr = shoe.a[y] - (y == 7 ? 2 : 1);
+        // The decrements are cumulative if x==y
+        const uint32_t dest_addr = ((x == y) ? source_addr : shoe.a[x]) - (x == 7 ? 2 : 1);
         
-        const uint32_t S = lget(predec_y, 4);
-        if sunlikely(shoe.abort) return ;
-        const uint32_t D = lget(predec_x, 4);
+        S = lget(source_addr, sz);
         if sunlikely(shoe.abort) return ;
         
-        // Sm = mib(S + extend_bit, sz); // FIXME: sure you want to do this?
-        Sm = mib(S, sz);
-        Dm = mib(D, sz);
-        
-        const uint32_t R = S + extend_bit + D;
-        Rm = mib(R, sz);
-        
-        const uint32_t chopped_R = chop(R, sz);
-        lset(chopped_R, sz, shoe.dat);
+        D = lget(dest_addr, sz);
         if sunlikely(shoe.abort) return ;
         
-        shoe.a[y] = predec_y;
-        shoe.a[x] = predec_x;
+        R = S + D + sr_x();
         
-        if (chopped_R) // Z is cleared only if result is non-zero
-            set_sr_z(0);
+        lset(dest_addr, sz, R);
+        if sunlikely(shoe.abort) return ;
         
+        shoe.a[y] = source_addr;
+        shoe.a[x] = dest_addr;
     }
     
+    const _Bool Sm = mib(S, sz);
+    const _Bool Dm = mib(D, sz);
+    const _Bool Rm = mib(R, sz);
+    
+    if (chop(R, sz))
+        set_sr_z(0); // Z is cleared only if result is non-zero
     set_sr_v((Sm && Dm && !Rm) || (!Sm && !Dm && Rm));
     set_sr_c((Sm && Dm) || (!Rm && Dm) || (Sm && !Rm));
-    set_sr_x(sr_c());
+    set_sr_x((Sm && Dm) || (!Rm && Dm) || (Sm && !Rm));
     set_sr_n(Rm);
 }
-
 
 static void inst_cmp (void) {
     // cmp <ea>, Dn
@@ -1178,35 +1159,29 @@ static void inst_cmpa (void) {
 
 static void inst_cmpm (void) {
     ~decompose(shoe.op, 1011 xxx 1 ss 001 yyy);
-    
     const uint8_t sz = 1 << s;
-    const uint32_t ax = shoe.a[x];
-    const uint32_t ay = shoe.a[y] + ((x==y) ? sz : 0); // if x==y, then we pop the stack twice
     
-    const uint32_t dst = lget(ax, sz);
+    const uint32_t source_addr = shoe.a[y];
+    // Usual rules apply for byte-size if x or y is a7 (
+    const uint32_t post_source_addr = source_addr + sz + (y == 7 && sz == 1);
+    const uint32_t dest_addr = (x == y) ? post_source_addr : shoe.a[x];
+    // The increments are cumulative if x==y
+    const uint32_t post_dest_addr = dest_addr + sz + (x == 7 && sz == 1);
+    
+    const uint32_t S = lget(source_addr, sz);
     if sunlikely(shoe.abort) return ;
     
-    const uint32_t src = lget(ay, sz);
+    const uint32_t D = lget(dest_addr, sz);
     if sunlikely(shoe.abort) return ;
     
-    // *I believe* that if x==y, then that register will only be incremented *once*
-    // WRONG!
+    const uint32_t R = D - S;
     
-    if (sz == 1)
-        assert(x!=7 && y!=7);
+    shoe.a[y] = post_source_addr;
+    shoe.a[x] = post_dest_addr;
     
-    if (x == y) {
-        shoe.a[x] += sz + sz;
-    }
-    else {
-        shoe.a[x] += sz;
-        shoe.a[y] += sz;
-    }
-    
-    const uint8_t Sm = ea_n(sz);
-    const uint8_t Dm = mib(dst,sz);
-    const uint32_t R = dst - src;
-    const uint8_t Rm = mib(R, sz);
+    const _Bool Sm = mib(S, sz);
+    const _Bool Dm = mib(D, sz);
+    const _Bool Rm = mib(R, sz);
     
     set_sr_z(chop(R, sz) == 0);
     set_sr_n(Rm);
@@ -2090,60 +2065,53 @@ static void inst_pea (void) {
     // decrement the stack pointer if lset didn't abort
     shoe.a[7] -= 4;
 }
-    
-static void inst_subx (void) {
-    ~decompose(shoe.op, 1001 yyy 1 ss 00 m xxx);
-    const uint8_t sz = 1<<s;
-    
-    if (m) {
-        assert(x!=7 && y!=7);
-        assert(sz != 1); // If this ever fires, the next line is broken
-        const uint8_t predecrement_sz = s?(1<<s):2; // predecrement-mode for size==byte decrements by 2 bytes
-        const uint32_t predecrement_x = shoe.a[x]-predecrement_sz;
-        const uint32_t predecrement_y = shoe.a[y]-predecrement_sz;
 
-        const uint32_t src = lget(predecrement_x, sz);
-        if sunlikely(shoe.abort) return ;
-        
-        const uint32_t dst = lget(predecrement_y, sz);
-        if sunlikely(shoe.abort) return ;
-        
-        const uint32_t result = dst - src - (sr_x()?1:0);
-        
-        lset(predecrement_y, sz, result);
-        
-        shoe.a[x] = predecrement_x;
-        shoe.a[y] = predecrement_y;
-        
-        const uint8_t Sm = mib(src, sz);
-        const uint8_t Dm = mib(dst, sz);
-        const uint8_t Rm = mib(result, sz);
-        
-        set_sr_v((!Sm && Dm && !Rm) || (Sm && !Dm && Rm));
-        set_sr_c((Sm && !Dm) || (Rm && !Dm) || (Sm && Rm));
-        set_sr_x(sr_c());
-        set_sr_n(Rm);
-        if (chop(result, sz)!=0) 
-            set_sr_z(0);
+static void inst_subx (void) {
+    ~decompose(shoe.op, 1001 xxx 1 ss 00 m yyy);
+    const uint8_t sz = 1 << s;
+    
+    uint32_t S, D, R;
+    
+    if (!m) {
+        // Register -> register
+        S = shoe.d[y];
+        D = shoe.d[x];
+        R = D - S - sr_x();
+        set_d(x, R, sz);
     }
     else {
-        const uint32_t src = shoe.d[x];
-        const uint32_t dst = shoe.d[y];
-        const uint32_t result = dst - src - (sr_x()?1:0);
+        // Memory -> memory
+        // Usual rules apply for byte-size if x or y is a7
+        const uint32_t source_addr = shoe.a[y] - (y == 7 ? 2 : 1);
+        // The decrements are cumulative if x==y
+        const uint32_t dest_addr = ((x == y) ? source_addr : shoe.a[x]) - (x == 7 ? 2 : 1);
         
-        set_d(y, result, sz);
+        S = lget(source_addr, sz);
+        if sunlikely(shoe.abort) return ;
         
-        const uint8_t Sm = mib(src, sz);
-        const uint8_t Dm = mib(dst, sz);
-        const uint8_t Rm = mib(result, sz);
+        D = lget(dest_addr, sz);
+        if sunlikely(shoe.abort) return ;
         
-        set_sr_v((!Sm && Dm && !Rm) || (Sm && !Dm && Rm));
-        set_sr_c((Sm && !Dm) || (Rm && !Dm) || (Sm && Rm));
-        set_sr_x(sr_c());
-        set_sr_n(Rm);
-        if (chop(result, sz)!=0) 
-            set_sr_z(0);
+        R = D - S - sr_x();
+        
+        lset(dest_addr, sz, R);
+        if sunlikely(shoe.abort) return ;
+        
+        shoe.a[y] = source_addr;
+        shoe.a[x] = dest_addr;
     }
+    
+    const _Bool Sm = mib(S, sz);
+    const _Bool Dm = mib(D, sz);
+    const _Bool Rm = mib(R, sz);
+    
+    if (chop(R, sz)!=0)
+        set_sr_z(0); // Z is cleared only if result is non-zero
+    set_sr_v((!Sm && Dm && !Rm) || (Sm && !Dm && Rm));
+    set_sr_c((Sm && !Dm) || (Rm && !Dm) || (Sm && Rm));
+    set_sr_x((Sm && !Dm) || (Rm && !Dm) || (Sm && Rm));
+    set_sr_n(Rm);
+
 }
 
 static void inst_suba (void) {
@@ -2236,7 +2204,7 @@ static void inst_nop (void) {}
 static void inst_chk (void) {
     ~decompose(shoe.op, 0100 rrr 1s 0 MMMMMM);
     
-    const uint8_t sz = s ? 2 : 4;
+    const uint8_t sz = 4 >> s;
     
     call_ea_read(M, sz);
     
