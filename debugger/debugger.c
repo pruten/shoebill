@@ -42,6 +42,7 @@ struct dbg_state_t {
     uint64_t breakpoint_counter;
     dbg_breakpoint_t *breakpoints;
     _Bool trace;
+    uint32_t slow_factor;
     
     char *ring;
     uint32_t ring_i, ring_len;
@@ -394,6 +395,8 @@ void verb_continue_handler (const char *line)
 {
     dbg_state.running = 1;
     while (dbg_state.running) {
+        if (dbg_state.slow_factor)
+            usleep(dbg_state.slow_factor);
         stepper();
     }
     print_pc();
@@ -410,6 +413,13 @@ void verb_reset_handler (const char *line)
 {
     p_free_pool(shoe.pool);
     shoe.pool = NULL;
+}
+
+void verb_slow_handler (const char *line)
+{
+    const uint64_t usecs = strtoul(line, NULL, 0);
+    printf("Slow factor %u -> %u\n", dbg_state.slow_factor, (uint32_t)usecs);
+    dbg_state.slow_factor = usecs;
 }
 
 struct verb_handler_table_t {
@@ -430,6 +440,7 @@ struct verb_handler_table_t {
     {"trace", verb_trace_toggle_handler},
     {"x", verb_examine_handler},
     {"reset", verb_reset_handler},
+    {"slow", verb_slow_handler},
 };
 
 void execute_verb (const char *line)
@@ -839,18 +850,20 @@ int main (int argc, char **argv)
      */
     config.debug_mode = 1;
      
-    config.aux_verbose = 1;
-    config.ram_size = 32 * 1024 * 1024;
+    config.aux_verbose = 0;
+    config.ram_size = 16 * 1024 * 1024;
     config.aux_kernel_path = "/unix";
-    config.rom_path = "../priv/macii.rom";
+    config.rom_path = "../../../shoebill_priv/macii.rom";
     
 
-    config.scsi_devices[0].path = "../priv/root3.img";
+    config.scsi_devices[0].path = "../../../shoebill_priv/root3.img";
     //config.scsi_devices[1].path = "../priv/marathon.img";
     
     /*dbg_state.ring_len = 256 * 1024 * 1024;
     dbg_state.ring = malloc(dbg_state.ring_len);
     dbg_state.ring_i = 0;*/
+    
+    shoebill_validate_or_zap_pram(config.pram, 1);
     
     if (!shoebill_initialize(&config)) {
         printf("%s\n", config.error_msg);

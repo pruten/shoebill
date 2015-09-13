@@ -459,7 +459,7 @@ void *_ethernet_sender_thread(void *arg)
     return NULL;
 }
 
-void nubus_ethernet_init(void *_ctx, uint8_t slotnum, uint8_t ethernet_addr[6])
+void nubus_ethernet_init(void *_ctx, uint8_t slotnum, uint8_t ethernet_addr[6], int tap_fd)
 {
     shoebill_card_ethernet_t *ctx = (shoebill_card_ethernet_t*)_ctx;
     memset(ctx, 0, sizeof(shoebill_card_ethernet_t));
@@ -489,8 +489,7 @@ void nubus_ethernet_init(void *_ctx, uint8_t slotnum, uint8_t ethernet_addr[6])
     ctx->isr |= isr_rst; // I presume ISR's RST powers up high too
     
     /* Platform-specific tap code */
-    ctx->tap_fd = open("/dev/tap0", O_RDWR);
-    assert(ctx->tap_fd >= 0);
+    ctx->tap_fd = tap_fd;
 }
 
 void nubus_ethernet_destroy_func(uint8_t slotnum)

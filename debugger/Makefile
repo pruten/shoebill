@@ -1,6 +1,6 @@
 
 CC = clang
-CFLAGS = -O0 -ggdb -flto -Wno-deprecated-declarations
+CFLAGS = -O3 -ggdb -flto -Wno-deprecated-declarations
 LFLAGS = -L ../intermediates -lshoebill_core -framework GLUT -framework OpenGL -ledit
 
 all: debugger

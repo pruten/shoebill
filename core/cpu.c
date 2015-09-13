@@ -1162,7 +1162,7 @@ static void inst_cmpm (void) {
     const uint8_t sz = 1 << s;
     
     const uint32_t source_addr = shoe.a[y];
-    // Usual rules apply for byte-size if x or y is a7 (
+    // Usual rules apply for byte-size if x or y is a7
     const uint32_t post_source_addr = source_addr + sz + (y == 7 && sz == 1);
     const uint32_t dest_addr = (x == y) ? post_source_addr : shoe.a[x];
     // The increments are cumulative if x==y
@@ -2954,7 +2954,7 @@ static void inst_bchg_reg (void) {
 }
 
 static void inst_bclr_reg (void) {
-    ~decompose(shoe.op, 0000 rrr 111 MMMMMM);
+    ~decompose(shoe.op, 0000 rrr 110 MMMMMM);
     
     const uint8_t is_data_reg = (M>>3) == 0;
     const uint8_t sz = is_data_reg ? 4 : 1;
@@ -3283,7 +3283,8 @@ static void inst_trap (void) {
     return ;
     
 fail:
-    assert(!"trap - push_a7 raised shoe.abort\n"); // FIXME
+    return ; 
+    // assert(!"trap - push_a7 raised shoe.abort\n"); // FIXME
 }
 
 

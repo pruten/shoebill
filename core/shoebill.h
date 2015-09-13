@@ -138,7 +138,7 @@ uint32_t shoebill_install_video_card(shoebill_config_t *config, uint8_t slotnum,
 uint32_t shoebill_install_tfb_card(shoebill_config_t *config, uint8_t slotnum);
 
 /* Call this after shoebill_initialize() to add an ethernet card */
-uint32_t shoebill_install_ethernet_card(shoebill_config_t *config, uint8_t slotnum, uint8_t ethernet_addr[6]);
+uint32_t shoebill_install_ethernet_card(shoebill_config_t *config, uint8_t slotnum, uint8_t ethernet_addr[6], int tap_fd);
 
 /* Get a video frame from a particular video card */
 shoebill_video_frame_info_t shoebill_get_video_frame(uint8_t slotnum, _Bool just_params);
@@ -1081,7 +1081,7 @@ shoebill_video_frame_info_t nubus_video_get_frame(shoebill_card_video_t *ctx,
                                                   _Bool just_params);
 
 // Apple EtherTalk
-void nubus_ethernet_init(void *_ctx, uint8_t slotnum, uint8_t ethernet_addr[6]);
+void nubus_ethernet_init(void *_ctx, uint8_t slotnum, uint8_t ethernet_addr[6], int tap_fd);
 uint32_t nubus_ethernet_read_func(uint32_t, uint32_t, uint8_t);
 void nubus_ethernet_write_func(uint32_t, uint32_t, uint32_t, uint8_t);
 void nubus_ethernet_destroy_func(uint8_t);

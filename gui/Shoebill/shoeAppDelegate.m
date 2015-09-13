@@ -25,6 +25,7 @@
 
 #import "shoeAppDelegate.h"
 #import "shoeApplication.h"
+#import "shoePreferencesWindowController.h"
 
 @implementation shoeAppDelegate
 
@@ -39,8 +40,8 @@
     [defaults setInteger:NSOnState forKey:@"verboseState"];
     [defaults setInteger:16 forKey:@"memorySize"];
     
-    [defaults setInteger:640 forKey:@"screenWidth"];
-    [defaults setInteger:480 forKey:@"screenHeight"];
+    // [defaults setInteger:640 forKey:@"screenWidth"];
+    // [defaults setInteger:480 forKey:@"screenHeight"];
     
     for (i=0; i<7; i++)
         [defaults setObject:@"" forKey:[NSString stringWithFormat:@"scsiPath%u", i]];
@@ -50,6 +51,7 @@
 
 - (void)applicationDidFinishLaunching:(NSNotification *)aNotification
 {
+    uint32_t i;
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
     
     BOOL isInitialized = [defaults boolForKey:@"defaultsInitialized"];
@@ -57,13 +59,33 @@
     if (!isInitialized)
         [self createFirstTimeUserDefaults];
     
-    // Going from 0.0.1 to 0.0.2 leaves rootKernelPath uninitialized
+    // < 0.0.2 leaves rootKernelPath uninitialized
     if ([defaults objectForKey:@"rootKernelPath"] == nil)
         [defaults setObject:@"/unix" forKey:@"rootKernelPath"];
     
-    // 0.0.1-2 leave pramData uninitialized
+    // < 0.0.3 leaves pramData uninitialized
     if ([defaults objectForKey:@"pramData"] == nil)
         [((shoeApplication*)NSApp) zapPram:defaults ptr:nil];
+    
+    // < 0.0.5 leaves ethernet settings uninitialized
+    if ([defaults objectForKey:@"tapPathE"] == nil) {
+        uint8_t mac[6];
+        generateMACAddr(mac);
+        [defaults setObject:[NSString stringWithFormat:@"%02X:%02X:%02X:%02X:%02X:%02X",
+                             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]]
+                     forKey:@"macAddressE"];
+        [defaults setObject:@"/dev/tap0" forKey:@"tapPathE"];
+        [defaults setInteger:0 forKey:@"ethernetEnabledE"];
+        
+        for (i=0; i<4; i++) {
+            [defaults setInteger:640 forKey:[NSString stringWithFormat:@"screenWidth%u", i]];
+            [defaults setInteger:480 forKey:[NSString stringWithFormat:@"screenHeight%u", i]];
+            [defaults setInteger:1 forKey:[NSString stringWithFormat:@"screenEnabled%u", i]];
+        }
+        [defaults setInteger:1 forKey:@"screenEnabled0"];
+    }
+    
+    [defaults synchronize];
 }
 
 

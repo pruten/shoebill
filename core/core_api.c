@@ -583,7 +583,7 @@ uint32_t shoebill_install_tfb_card(shoebill_config_t *config, uint8_t slotnum)
     return 1;
 }
 
-uint32_t shoebill_install_ethernet_card(shoebill_config_t *config, uint8_t slotnum, uint8_t ethernet_addr[6])
+uint32_t shoebill_install_ethernet_card(shoebill_config_t *config, uint8_t slotnum, uint8_t ethernet_addr[6], int tap_fd)
 {
     shoebill_card_ethernet_t *ctx;
     
@@ -601,7 +601,7 @@ uint32_t shoebill_install_ethernet_card(shoebill_config_t *config, uint8_t slotn
     shoe.slots[slotnum].write_func = nubus_ethernet_write_func;
     shoe.slots[slotnum].destroy_func = nubus_ethernet_destroy_func;
     shoe.slots[slotnum].interrupts_enabled = 1;
-    nubus_ethernet_init(ctx, slotnum, ethernet_addr);
+    nubus_ethernet_init(ctx, slotnum, ethernet_addr, tap_fd);
     return 1;
 }
 

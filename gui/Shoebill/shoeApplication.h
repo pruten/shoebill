@@ -46,6 +46,14 @@ struct shoe_app_pram_data_t
     BOOL doCaptureMouse, doCaptureKeys;
     BOOL isRunning;
     shoebill_config_t config;
+    
+    char *tapPath;
+    uint8_t mac[6];
+    int tap_fd;
+    BOOL ethEnabled, tap_fd_valid;
+    struct {
+        uint16_t height, width, enabled;
+    } screens[4];
 }
 
 

@@ -240,7 +240,8 @@ static _Bool _bsun_test()
 
 static void _throw_illegal_instruction()
 {
-    assert(!"throw_illegal_instruction!");
+    // assert(!"throw_illegal_instruction!");
+    throw_illegal_instruction();
 }
 
 #pragma mark Float format translators (to/from big-endian motorola format)
@@ -2756,7 +2757,7 @@ computation_done:
 #pragma mark Second-hop non-fmath instructions
 
 /*
- * reg->mem fmove (fmath handles all other fmoves
+ * reg->mem fmove (fmath handles all other fmoves)
  */
 static void inst_fmove (const uint16_t ext)
 {

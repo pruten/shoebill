@@ -27,10 +27,17 @@
 
 @interface shoePreferencesWindowController : NSWindowController {
 
-    IBOutlet __weak NSButton *apply, *cancel, *applyAndRun, *verbose;
+    IBOutlet __weak NSButton *apply, *cancel, *applyAndRun, *verbose, *ethernetEnabled;
     IBOutlet __weak NSTextField *kernelPath, *romPath, *memorySize;
     IBOutlet __weak NSTextField *scsiPath0, *scsiPath1, *scsiPath2, *scsiPath3, *scsiPath4, *scsiPath5, *scsiPath6;
-    IBOutlet __weak NSTextField *screenHeight, *screenWidth;
+    IBOutlet __weak NSTextField *macAddress, *tapPath;
+    
+    IBOutlet __weak NSTextField *screenHeight1, *screenWidth1;
+    IBOutlet __weak NSTextField *screenHeight2, *screenWidth2;
+    IBOutlet __weak NSTextField *screenHeight3, *screenWidth3;
+    IBOutlet __weak NSTextField *screenHeight4, *screenWidth4;
+    
+    IBOutlet __weak NSButton *enableScreen1, *enableScreen2, *enableScreen3, *enableScreen4;
 }
 
 
@@ -40,3 +47,6 @@
 - (IBAction)browsePressed:(id)sender;
     
 @end
+
+void generateMACAddr (uint8_t *mac);
+_Bool parseMACAddr (const char *str, uint8_t *mac);

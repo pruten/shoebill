@@ -26,6 +26,7 @@
 #import "shoeApplication.h"
 #import "shoeScreenWindow.h"
 #import "shoeScreenWindowController.h"
+#import "shoePreferencesWindowController.h"
 #include <ctype.h>
 
 @implementation shoeApplication
@@ -215,7 +216,7 @@
 }
 
 
-- (BOOL) fetchUserDefaults:(uint16_t*)height width:(uint16_t*)width
+- (BOOL) fetchUserDefaults
 {
     uint32_t i;
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
@@ -239,14 +240,22 @@
     if ((memsize < 1) || (memsize > 1024))
         memsize = 8;
     
-    NSInteger screenHeightValue = [defaults integerForKey:@"screenHeight"];
-    NSInteger screenWidthValue = [defaults integerForKey:@"screenWidth"];
+    for (i=0; i<4; i++) {
+        NSInteger height = [defaults integerForKey:[NSString stringWithFormat:@"screenHeight%u", i]];
+        NSInteger width = [defaults integerForKey:[NSString stringWithFormat:@"screenWidth%u", i]];
+        NSInteger enabled = [defaults integerForKey:[NSString stringWithFormat:@"screenEnabled%u", i]];
+        
     
-    if ((screenHeightValue < 342) || (screenHeightValue > 0xffff))
-        screenHeightValue = 480;
-    
-    if ((screenWidthValue < 512) || (screenWidthValue > 0xffff))
-        screenWidthValue = 640;
+        if ((height < 342) || (height > 0xffff))
+            height = 480;
+        
+        if ((width < 512) || (width > 0xffff))
+            width = 640;
+        
+        screens[i].width = (uint16_t)width;
+        screens[i].height = (uint16_t)height;
+        screens[i].enabled = (uint16_t)enabled;
+    }
     
     
     for (i=0; i<7; i++) {
@@ -277,8 +286,23 @@
     if (memcmp(config.pram+0xc, "NuMc", 4) != 0)
         [self zapPram:defaults ptr:config.pram];
     
-    *width = screenWidthValue;
-    *height = screenHeightValue;
+    NSString *defaultTapPath = [defaults objectForKey:@"tapPathE"];
+    NSString *defaultMacAddr = [defaults objectForKey:@"macAddressE"];
+    ethEnabled = [defaults integerForKey:@"ethernetEnabledE"];
+    if (ethEnabled) {
+        if (tap_fd_valid && strcmp(tapPath, [defaultTapPath UTF8String]) != 0) {
+            close(tap_fd);
+            tap_fd_valid = 0;
+        }
+        if (tapPath)
+            free(tapPath);
+        tapPath = strdup([defaultTapPath UTF8String]);
+        if (!(parseMACAddr([defaultMacAddr UTF8String], mac))) {
+            [self complain:@"Bad MAC addr"];
+            ethEnabled = 0;
+            return NO;
+        }
+    }
     
     return YES;
 }
@@ -346,12 +370,12 @@ void pram_callback (void *param, const uint8_t addr, const uint8_t byte)
     if (isRunning)
         return;
     
-    uint16_t width, height;
     uint32_t i;
     
     bzero(&config, sizeof(shoebill_config_t));
     
-    [self fetchUserDefaults:&height width:&width];
+    if (![self fetchUserDefaults])
+        return ;
     
     self->pram = calloc(1, sizeof(struct shoe_app_pram_data_t));
     memcpy(self->pram, config.pram, 256);
@@ -371,12 +395,33 @@ void pram_callback (void *param, const uint8_t addr, const uint8_t byte)
         return ;
     }
     
-    [self createScreenWindow:9 height:height width:width];
+    for (i=0; i<4; i++) {
+        if (screens[i].enabled)
+            [self createScreenWindow:(9+i) height:screens[i].height width:screens[i].width];
+    }
     
-    // If you feel the cravin' for TAP-based ethernet, uncomment these lines
-    // 
-    // uint8_t ethernet_addr[6] = {0x00, 0x24, 0x7e, 0x14, 0xd7, 0xff};
-    // shoebill_install_ethernet_card(&config, 13, ethernet_addr);
+    if (ethEnabled) {
+        if (!tap_fd_valid) {
+            tap_fd = open(tapPath, O_RDWR | O_NOFOLLOW);
+            if (tap_fd == -1) {
+                NSAlert *theAlert = [NSAlert
+                                     alertWithMessageText:nil
+                                     defaultButton:nil
+                                     alternateButton:nil
+                                     otherButton:nil
+                                     informativeTextWithFormat:@"Couldn't open tap device (errno = %d)", errno
+                                     ];
+                [theAlert runModal];
+                return ;
+            }
+            tap_fd_valid = 1;
+        }
+        if (!shoebill_install_ethernet_card(&config, 13, mac, tap_fd)) {
+            [self complain:[NSString stringWithFormat:@"%s", config.error_msg]];
+            return ;
+        }
+            
+    }
     
     shoebill_start();
     

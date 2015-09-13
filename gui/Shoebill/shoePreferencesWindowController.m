@@ -25,6 +25,7 @@
 
 #import "shoePreferencesWindowController.h"
 #import "shoeApplication.h"
+#include <ctype.h>
 
 @implementation shoePreferencesWindowController
 
@@ -35,6 +36,14 @@
 
 - (void)windowDidLoad
 {
+    uint32_t i;
+    NSTextField *screenWidths[4] = {
+        screenWidth1, screenWidth2, screenWidth3, screenWidth4};
+    NSTextField *screenHeights[4] = {
+        screenHeight1, screenHeight2, screenHeight3, screenHeight4};
+    NSButton *screenEnableds[4] = {
+        enableScreen1, enableScreen2, enableScreen3, enableScreen4};
+    
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
     
     NSString *rootKernelPathStr = [defaults objectForKey:@"rootKernelPath"];
@@ -71,21 +80,28 @@
     if (scsiPath5Str) [scsiPath5 setStringValue:scsiPath5Str];
     if (scsiPath6Str) [scsiPath6 setStringValue:scsiPath6Str];
     
-    NSInteger screenHeightValue = [defaults integerForKey:@"screenHeight"];
-    NSInteger screenWidthValue = [defaults integerForKey:@"screenWidth"];
-    
-    if ((screenHeightValue < 342) || (screenHeightValue > 0xffff)) {
-        screenHeightValue = 480;
-        [defaults setInteger:screenHeightValue forKey:@"screenHeight"];
+    for (i=0; i<4; i++) {
+        NSInteger height = [defaults integerForKey:[NSString stringWithFormat:@"screenHeight%u", i]];
+        NSInteger width = [defaults integerForKey:[NSString stringWithFormat:@"screenWidth%u", i]];
+        NSInteger enabled = [defaults integerForKey:[NSString stringWithFormat:@"screenEnabled%u", i]];
+        
+        if ((height < 342) || (height > 0xffff))
+            height = 480;
+        if ((width < 342) || (width > 0xffff))
+            width = 640;
+        
+        [screenHeights[i] setStringValue:[NSString stringWithFormat:@"%u", (uint32_t)height]];
+        [screenWidths[i] setStringValue:[NSString stringWithFormat:@"%u", (uint32_t)width]];
+        [screenEnableds[i] setState:enabled];
     }
+
+    NSString *tapPathStr = [defaults objectForKey:@"tapPathE"];
+    NSString *macAddressStr = [defaults objectForKey:@"macAddressE"];
+    NSInteger ethernetEnabledState = [defaults integerForKey:@"ethernetEnabledE"];
     
-    if ((screenWidthValue < 512) || (screenWidthValue > 0xffff)) {
-        screenWidthValue = 640;
-        [defaults setInteger:screenWidthValue forKey:@"screenWidth"];
-    }
-    
-    [screenWidth setStringValue:[NSString stringWithFormat:@"%u", (uint32_t)screenWidthValue]];
-    [screenHeight setStringValue:[NSString stringWithFormat:@"%u", (uint32_t)screenHeightValue]];
+    [tapPath setStringValue:tapPathStr];
+    [macAddress setStringValue:macAddressStr];
+    [ethernetEnabled setIntegerValue:ethernetEnabledState];
     
     [defaults synchronize];
 }
@@ -134,8 +150,27 @@
     [field setStringValue: [url path]];
 }
 
+- (void) complain:(NSString*)str
+{
+    NSAlert *theAlert = [NSAlert
+                         alertWithMessageText:nil
+                         defaultButton:nil
+                         alternateButton:nil
+                         otherButton:nil
+                         informativeTextWithFormat:@"%@", str
+                         ];
+    [theAlert runModal];
+}
+
 - (IBAction)applyPressed:(id)sender
 {
+    uint32_t i;
+    NSTextField *screenWidths[4] = {
+        screenWidth1, screenWidth2, screenWidth3, screenWidth4};
+    NSTextField *screenHeights[4] = {
+        screenHeight1, screenHeight2, screenHeight3, screenHeight4};
+    NSButton *screenEnableds[4] = {
+        enableScreen1, enableScreen2, enableScreen3, enableScreen4};
     
     NSString *rootKernelPathStr = [kernelPath stringValue];
     NSString *romPathStr = [romPath stringValue];
@@ -150,10 +185,20 @@
     NSString *scsiPath5Str = [scsiPath5 stringValue];
     NSString *scsiPath6Str = [scsiPath6 stringValue];
     
-    NSInteger screenHeightValue = [screenHeight integerValue];
-    NSInteger screenWidthValue = [screenWidth integerValue];
+    NSString *macAddressStr = [macAddress stringValue];
+    NSString *tapPathStr = [tapPath stringValue];
+    NSInteger ethernetEnabledState = [ethernetEnabled state];
     
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    
+    uint8_t mac[6];
+    if (!parseMACAddr ([macAddressStr UTF8String], mac)) {
+        [self complain:@"Bad MAC address"];
+    }
+    else {
+        [macAddress setStringValue:[NSString stringWithFormat:@"%02X:%02X:%02X:%02X:%02X:%02X",
+                                    mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]]];
+    }
     
     [defaults setObject:rootKernelPathStr forKey:@"rootKernelPath"];
     [defaults setObject:romPathStr forKey:@"romPath"];
@@ -168,8 +213,24 @@
     [defaults setObject:scsiPath5Str forKey:@"scsiPath5"];
     [defaults setObject:scsiPath6Str forKey:@"scsiPath6"];
     
-    [defaults setInteger:screenHeightValue forKey:@"screenHeight"];
-    [defaults setInteger:screenWidthValue forKey:@"screenWidth"];
+    for (i=0; i<4; i++) {
+        NSInteger height = [screenHeights[i] integerValue];
+        NSInteger width = [screenWidths[i] integerValue];
+        NSInteger enabled = [screenEnableds[i] state];
+
+        if ((height < 342) || (height > 0xffff))
+            height = 480;
+        if ((width < 342) || (width > 0xffff))
+            width = 640;
+        
+        [defaults setInteger:height forKey:[NSString stringWithFormat:@"screenHeight%u", i]];
+        [defaults setInteger:width forKey:[NSString stringWithFormat:@"screenWidth%u", i]];
+        [defaults setInteger:enabled forKey:[NSString stringWithFormat:@"screenEnabled%u", i]];
+    }
+    
+    [defaults setObject:macAddressStr forKey:@"macAddressE"];
+    [defaults setObject:tapPathStr forKey:@"tapPathE"];
+    [defaults setInteger:ethernetEnabledState forKey:@"ethernetEnabledE"];
     
     [defaults synchronize];
 }
@@ -192,5 +253,63 @@
     [shoeApp zapPram:[NSUserDefaults standardUserDefaults] ptr:nil];
 }
 
+void generateMACAddr (uint8_t *mac)
+{
+    srandom((unsigned)(random() ^ time(NULL)));
+    
+    /* Generate a MAC address in the range of the original EtherTalk card */
+    
+    mac[0] = 0x02;
+    mac[1] = 0x60;
+    mac[2] = 0x8c;
+    mac[3] = random() & 0x07;
+    mac[4] = random() & 0xff;
+    mac[5] = random() & 0xff;
+}
+
+_Bool parseMACAddr (const char *str, uint8_t *mac)
+{
+    uint32_t i, nibbles = 0;
+    uint8_t allowed[256];
+    
+    memset(allowed, 30, 256);
+    for (i=0; i<256; i++)
+        if (isspace(i))
+            allowed[i] = 20;
+    allowed[':'] = 20;
+    allowed['-'] = 20;
+    for (i=0; i<10; i++)
+        allowed['0' + i] = i;
+    for (i=0; i<6; i++) {
+        allowed['a' + i] = 10 + i;
+        allowed['A' + i] = 10 + i;
+    }
+    
+    for (i=0; str[i]; i++) {
+        const uint8_t v = allowed[str[i]];
+        
+        if (v == 30)
+            return 0;
+        else if (v == 20)
+            continue;
+
+        if (nibbles >= 12)
+            return 0;
+        mac[nibbles/2] <<= 4;
+        mac[nibbles/2] |= v;
+        nibbles++;
+    }
+    return (nibbles == 12);
+}
+
+-(IBAction)newMacAddrPressed:(id)sender
+{
+    uint8_t mac[6];
+    
+    generateMACAddr(mac);
+    
+    [macAddress setStringValue:[NSString stringWithFormat:@"%02X:%02X:%02X:%02X:%02X:%02X",
+                                mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]]];
+}
 
 @end
