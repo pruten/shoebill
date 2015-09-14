@@ -9,7 +9,9 @@ Shoebill requires a Macintosh II, IIx or IIcx ROM, and a disk image with A/UX in
 [Download the latest release], and then see the [getting started] wiki.  
 Also check out [screenshots].
 
-__Update (April 9, 2015): Taking a break from regular development for a while. The last release was 0.0.4 in June 2014, and the latest commit implements ethernet and a new theoretically-very-accurate but totally untested FPU core with lots of suspected bugs. (But it seems to work better than the old FPU, anyways.) [The thread on emaculation.com] has tips on how to get ethernet working.__
+__Update (Sept 13, 2015): [Shoebill 0.0.5 is available]__
+
+__This will probably be the last release. I won't be able to work on Shoebill going forward (by contractual obligation), so I wanted to race out one last release. Only an OS X binary is available, sorry, and it's very unpolished. But the SDL GUI should still build on linux/windows.__
 
 ####Supports
 * A/UX 1.1.1 through 3.1 (and 3.1.1 a little)
@@ -33,6 +35,6 @@ __Update (April 9, 2015): Taking a break from regular development for a while. T
 [Download the latest release]:https://github.com/pruten/Shoebill/releases
 [getting started]:https://github.com/pruten/Shoebill/wiki/Getting-Started
 [screenshots]:https://github.com/pruten/Shoebill/wiki/Screenshots
-[Shoebill 0.0.4 is available (Now with Windows & Linux ports)]:https://github.com/pruten/Shoebill/releases
+[Shoebill 0.0.5 is available]:https://github.com/pruten/Shoebill/releases
 [The thread on emaculation.com]:http://www.emaculation.com/forum/viewtopic.php?f=7&t=8288
 
