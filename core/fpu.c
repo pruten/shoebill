@@ -502,12 +502,12 @@ static void _fpu_write_ea(uint8_t mr, uint8_t format, floatx80 *f, uint8_t K)
     
     /* Copy the formatted data into *addr */
     
-    {
+    /*{
         slog("FPU:  fpu_write_ea: addr=0x%08x data=", addr);
         for (i=0; i<size; i++)
             printf("%02x", ptr[i]);
         printf("\n");
-    }
+    }*/
     
     for (i=0; i<size; i++) {
         lset(addr + i, 1, buf[i]);
@@ -687,12 +687,12 @@ got_address:
      * Step 2: Load the data from the effective address
      */
     
-    slog("raw=0x");
+    //slog("raw=0x");
     if (size <= 4) {
         const uint32_t raw = lget(addr, size);
         if (shoe.abort)
             return 0;
-        printf("%x ", raw);
+        //printf("%x ", raw);
         switch (format) {
             case format_B:
                 *result = _int8_to_intermediate(raw & 0xff);
@@ -740,7 +740,7 @@ got_address:
     }
     
 got_data:
-    printf("\n");
+    //printf("\n");
     return 1;
 }
 
@@ -2631,10 +2631,10 @@ static void inst_fmath (const uint16_t ext)
     }
 
     
-    {
+    /*{
         long double tmp = _float128_to_long_double(fpu->source);
         printf("%Lf,fp%u\n", tmp, dest_register);
-    }
+    }*/
     
     /* fsincos needs this to know which register to write cos */
     fpu->extension_word = ext;

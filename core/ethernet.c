@@ -503,8 +503,6 @@ void nubus_ethernet_destroy_func(uint8_t slotnum)
     pthread_mutex_destroy(&ctx->lock);
     pthread_mutex_destroy(&ctx->sender_cond_mutex);
     pthread_cond_destroy(&ctx->sender_cond);
-    
-    close(ctx->tap_fd);
 }
 
 uint32_t nubus_ethernet_read_func(const uint32_t rawaddr,
@@ -530,7 +528,7 @@ uint32_t nubus_ethernet_read_func(const uint32_t rawaddr,
             else
                 assert(!"read: bogus size");
             
-            slog("ethernet: reading from ram addr 0x%x sz=%u ", addr, size);
+            // slog("ethernet: reading from ram addr 0x%x sz=%u ", addr, size);
             
             goto done;
         }
@@ -696,7 +694,7 @@ void nubus_ethernet_write_func(const uint32_t rawaddr,
             else
                 assert(!"write: bogus size");
             
-            slog("ethernet: writing 0x%x sz=%u to ram addr 0x%x\n", data, size, addr);
+            // slog("ethernet: writing 0x%x sz=%u to ram addr 0x%x\n", data, size, addr);
             
             goto done;
         }

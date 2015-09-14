@@ -82,7 +82,7 @@
     [[NSRunLoop currentRunLoop] addTimer:timer
                                 forMode:NSEventTrackingRunLoopMode];
     
-    [[self window] setTitle:[NSString stringWithFormat:@"Shoebill - Screen 1"]];
+    [[self window] setTitle:[NSString stringWithFormat:@"Shoebill"]];
     [[self window] makeKeyAndOrderFront:nil];
 }
 

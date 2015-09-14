@@ -80,7 +80,7 @@
         for (i=0; i<4; i++) {
             [defaults setInteger:640 forKey:[NSString stringWithFormat:@"screenWidth%u", i]];
             [defaults setInteger:480 forKey:[NSString stringWithFormat:@"screenHeight%u", i]];
-            [defaults setInteger:1 forKey:[NSString stringWithFormat:@"screenEnabled%u", i]];
+            [defaults setInteger:0 forKey:[NSString stringWithFormat:@"screenEnabled%u", i]];
         }
         [defaults setInteger:1 forKey:@"screenEnabled0"];
     }

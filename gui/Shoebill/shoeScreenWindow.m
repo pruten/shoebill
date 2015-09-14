@@ -104,7 +104,7 @@
     shoeApplication *shoeApp = (shoeApplication*)NSApp;
     shoeApp->doCaptureMouse = NO;
     CGDisplayShowCursor(0);
-    [self setTitle:@"Shoebill - Screen 1"];
+    [self setTitle:@"Shoebill"];
 }
 
 - (void) captureMouse
@@ -113,7 +113,7 @@
     shoeApp->doCaptureMouse = YES;
     CGDisplayHideCursor(0);
     [self warpToCenter];
-    [self setTitle:@"Shoebill - Screen 1 (Ctrl-click to escape)"];
+    [self setTitle:@"Shoebill (Ctrl-click to escape)"];
 }
 
 
