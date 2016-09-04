@@ -4,3 +4,5 @@
 *.xcworkspace
 xcuserdata
 /gui/build
+/debugger/debugger
+/debugger/debugger.dSYM
