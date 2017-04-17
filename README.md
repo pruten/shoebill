@@ -13,10 +13,10 @@ __Update (Sept 13, 2015): [Shoebill 0.0.5 is available]__
 
 __This will probably be the last release. I won't be able to work on Shoebill going forward (by contractual obligation), so I wanted to race out one last release. Only an OS X binary is available, sorry, and it's very unpolished. But the SDL GUI should still build on linux/windows.__
 
-####Supports
+#### Supports
 * A/UX 1.1.1 through 3.1 (and 3.1.1 a little)
 
-####Currently Implements
+#### Currently Implements
 * 68020 CPU (mostly)
 * 68881 FPU (mostly)
 * 68851 PMMU (just enough to boot A/UX)
