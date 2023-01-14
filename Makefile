@@ -9,9 +9,6 @@ shoebill: make_gui debugger
 make_gui: make_core
 	xcodebuild -project gui/Shoebill.xcodeproj SYMROOT=build
 
-debugger: make_core
-	$(MAKE) -C debugger
-
 make_core:
 	$(MAKE) -C core -j 4
 
