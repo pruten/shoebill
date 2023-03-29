@@ -29,6 +29,8 @@ OBJ_x86_64 = $(OBJ_NEED_NOTHING) $(OBJ_NEED_PREPROCESSING) $(OBJ_NEED_DECODER)
 # The object files compiled for i386 (the same as x86_64 files, but with .i386 appended)
 OBJ_i386 = $(patsubst %,%.i386,$(OBJ_x86_64))
 
+# The object files compiled for arm64 (the same as x86_64 files, but with .arm64 appended)
+OBJ_arm64 = $(patsubst %,%.arm64,$(OBJ_x86_64))
 
 MACRO = perl macro.pl
 
@@ -40,7 +42,8 @@ all: $(TEMP)/libshoebill_core.a
 $(TEMP)/libshoebill_core.a: $(TEMP) $(DEPS) $(OBJ_x86_64)
 	libtool -static -v -o $(TEMP)/libshoebill_core.a.x86_64 $(OBJ_x86_64)
 	libtool -static -v -o $(TEMP)/libshoebill_core.a.i386 $(OBJ_i386)
-	lipo -create -output $(TEMP)/libshoebill_core.a $(TEMP)/libshoebill_core.a.x86_64 $(TEMP)/libshoebill_core.a.i386
+	libtool -static -v -o $(TEMP)/libshoebill_core.a.arm64 $(OBJ_arm64)
+	lipo -create -output $(TEMP)/libshoebill_core.a $(TEMP)/libshoebill_core.a.x86_64 $(TEMP)/libshoebill_core.a.i386 $(TEMP)/libshoebill_core.a.arm64
 
 
 # Split object files into i386/x86_64 versions, since it seems that libtool is unable to 
@@ -52,14 +55,17 @@ $(TEMP)/libshoebill_core.a: $(TEMP) $(DEPS) $(OBJ_x86_64)
 $(OBJ_NEED_NOTHING): $(TEMP)/%.o: %.c $(DEPS)
 	$(CC) -c -arch x86_64 $(CFLAGS) $< -o $@
 	$(CC) -c -arch i386 $(CFLAGS) $< -o $@.i386
+	$(CC) -c -arch arm64 $(CFLAGS) $< -o $@.arm64
 
 $(OBJ_NEED_PREPROCESSING): $(TEMP)/%.o: $(TEMP)/%.post.c $(DEPS)
 	$(CC) -c -arch x86_64 $(CFLAGS) $< -o $@
 	$(CC) -c -arch i386 $(CFLAGS) $< -o $@.i386
+	$(CC) -c -arch arm64 $(CFLAGS) $< -o $@.arm64
 
 $(OBJ_NEED_DECODER): $(TEMP)/%.o: $(TEMP)/%.post.c $(DEPS) $(TEMP)/dis_decoder_guts.c $(TEMP)/inst_decoder_guts.c
 	$(CC) -c -arch x86_64 $(CFLAGS) $< -o $@
 	$(CC) -c -arch i386 $(CFLAGS) $< -o $@.i386
+	$(CC) -c -arch arm64 $(CFLAGS) $< -o $@.arm64
 
 # Preprocess C files 
 $(POST_PREPROCESSING): $(TEMP)/%.post.c: %.c $(DEPS)
