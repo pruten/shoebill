@@ -9,9 +9,14 @@ Shoebill requires a Macintosh II, IIx or IIcx ROM, and a disk image with A/UX in
 [Download the latest release], and then see the [getting started] wiki.  
 Also check out [screenshots].
 
+__Update (March 29, 2023): About issues/pull requests__
+
+__I just wanted to say that I appreciate some folks are still using Shoebill and submitting issues and pull requests. I wish I could continue working on this project, but there's a likely conflict of interest, and so I've mostly avoided pushing changes. I apologize for being unable to address the many, many bugs in this repo. (Also for anyone unaware, [Qemu is now able] now to run A/UX 3.x on its emulated Quadra 800.)__
+
 __Update (Sept 13, 2015): [Shoebill 0.0.5 is available]__
 
 __This will probably be the last release. I won't be able to work on Shoebill going forward (by contractual obligation), so I wanted to race out one last release. Only an OS X binary is available, sorry, and it's very unpolished. But the SDL GUI should still build on linux/windows.__
+
 
 #### Supports
 * A/UX 1.1.1 through 3.1 (and 3.1.1 a little)
@@ -37,4 +42,5 @@ __This will probably be the last release. I won't be able to work on Shoebill go
 [screenshots]:https://github.com/pruten/Shoebill/wiki/Screenshots
 [Shoebill 0.0.5 is available]:https://github.com/pruten/Shoebill/releases
 [The thread on emaculation.com]:http://www.emaculation.com/forum/viewtopic.php?f=7&t=8288
+[Qemu is now able]:https://virtuallyfun.com/2021/09/02/qemus-macintosh-quadra-in-alpha-usability-runs-a-ux/
 
